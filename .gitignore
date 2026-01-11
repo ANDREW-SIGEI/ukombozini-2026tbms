@@ -23,7 +23,7 @@
 # Logs and databases #
 ######################
 *.log
-*.sql
+# *.sql  # Allow schema.sql files to be committed
 *.sqlite
 
 # OS generated files #
