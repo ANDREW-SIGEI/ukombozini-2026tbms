@@ -9,7 +9,7 @@ import { toast } from 'react-toastify';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 // Register ChartJS
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
@@ -273,7 +273,7 @@ const Dividends = () => {
             [`Profit to Share (${(dividendState.shareOutRate * 100)}%): KES ${calculations.profitToShareOut.toLocaleString()}`, `Dividend Rate: ${calculations.dividendRate.toFixed(4)}`]
         ];
 
-        doc.autoTable({
+        autoTable(doc, {
             startY: 42,
             head: [],
             body: summaryData,
@@ -308,8 +308,8 @@ const Dividends = () => {
             { content: calculations.profitToShareOut.toLocaleString(undefined, { maximumFractionDigits: 2 }), styles: { fontStyle: 'bold', textColor: [0, 128, 0] } }
         ]);
 
-        doc.autoTable({
-            startY: doc.lastAutoTable.finalY + 5,
+        autoTable(doc, {
+            startY: (doc.lastAutoTable?.finalY || 50) + 5,
             head: tableHeaders,
             body: tableRows,
             theme: 'grid',
@@ -319,7 +319,7 @@ const Dividends = () => {
         });
 
         // 5. Signature Section (Footer)
-        const finalY = doc.lastAutoTable.finalY + 20;
+        const finalY = (doc.lastAutoTable?.finalY || 150) + 20;
 
         // Check if we need a new page for signatures
         if (finalY > pageHeight - 30) {
@@ -675,8 +675,8 @@ const InputRow = ({ label, value, onChange, isDeduction }) => (
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
-                        ? 'border-red-200 text-red-600 focus:ring-red-200'
-                        : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
+                    ? 'border-red-200 text-red-600 focus:ring-red-200'
+                    : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
                     }`}
                 placeholder="0"
             />
