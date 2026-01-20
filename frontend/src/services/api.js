@@ -763,6 +763,34 @@ export const api = {
             // For now, we allow the frontend to fallback to mock if this fails
             throw error;
         }
+    },
+
+    /**
+     * Post/Commit Dividend Run (Save to Ledger)
+     */
+    async postDividends(payload) {
+        try {
+            // Get current user if not provided
+            let userId = payload.userId;
+            if (!userId) {
+                const { data } = await supabase.auth.getUser();
+                userId = data.user?.id;
+            }
+
+            const { data, error } = await supabase
+                .rpc('post_dividend_run', {
+                    p_group_id: payload.groupId,
+                    p_year: payload.year,
+                    p_financials: payload.financials,
+                    p_payouts: payload.payouts,
+                    p_user_id: userId
+                });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            handleSupabaseError(error);
+        }
     }
 };
 

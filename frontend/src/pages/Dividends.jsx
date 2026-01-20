@@ -387,6 +387,73 @@ const Dividends = () => {
         toast.success("Excel report downloaded!");
     };
 
+    /**
+     * SAVE & POST HANDLER
+     * Commits the current dividend run to the ledger
+     */
+    const handleSaveAndPost = async () => {
+        if (isManualMode) {
+            toast.warning("Posting is disabled in Manual Mode. Switch to System Mode for official records.");
+            return;
+        }
+        if (!selectedGroupId) {
+            toast.error("Please select a group first.");
+            return;
+        }
+        if (members.length === 0) {
+            toast.error("No member data to post.");
+            return;
+        }
+
+        const confirm = window.confirm(
+            "⚠️ CONFIRM DIVIDEND POSTING?\n\nThis action will:\n1. Lock this dividend run for the year.\n2. Credit member savings accounts with their dividend.\n3. Create an immutable audit trail.\n\nAre you sure you want to proceed?"
+        );
+        if (!confirm) return;
+
+        setLoading(true);
+        try {
+            const totalTRF = Number(financials.bankInterest) + Number(financials.stlInterest) + Number(financials.ltlInterest) + Number(financials.penalties) + Number(financials.otherIncome);
+
+            const payoutPayload = members.map(m => {
+                const avgShares = Object.values(m.balances).reduce((a, b) => a + b, 0) / 6;
+                const dividend = avgShares * calculations.dividendRate;
+                return {
+                    member_id: m.id,
+                    avg_shares: avgShares,
+                    amount: dividend
+                };
+            }).filter(p => p.amount > 0);
+
+            await api.postDividends({
+                groupId: selectedGroupId,
+                year: dividendState.year,
+                financials: {
+                    trf: totalTRF,
+                    expenses: financials.expenses,
+                    reinvested: financials.reinvestedLoans,
+                    total_payout: calculations.profitToShareOut,
+                    rate: calculations.dividendRate
+                },
+                payouts: payoutPayload.filter(p => p.member_id) // Ensure ID exists
+            });
+
+            toast.success("✅ Dividends Posted and Credited Successfully!");
+
+            // Optional: Reset or Lock UI
+            setMembers([]);
+            setFinancials({
+                bankInterest: '', stlInterest: '', ltlInterest: '', penalties: '', otherIncome: '',
+                expenses: '', reinvestedLoans: '', groupAgeYears: 2
+            });
+
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to post dividends. Check console for details.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Chart Data Configs (Same as before)
     const trfData = {
         labels: ['Banking Interest', 'STL Interest', 'LTL Interest', 'Penalties'],
@@ -434,6 +501,21 @@ const Dividends = () => {
 
                     <button onClick={exportToCSV} className="flex items-center gap-2 px-4 py-2 border-2 border-green-600 text-green-700 bg-green-50 rounded-xl font-bold hover:bg-green-100 transition-colors">
                         <FaFileExcel /> Excel
+                    </button>
+
+                    <div className="h-8 w-px bg-gray-300 mx-2"></div>
+
+                    <button
+                        onClick={handleSaveAndPost}
+                        disabled={isManualMode || loading}
+                        className={`flex items-center gap-2 px-6 py-2 rounded-xl font-bold shadow-md transition-all ${isManualMode
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-2 border-gray-200'
+                                : 'bg-safaricom-green text-white hover:bg-green-700 border-2 border-transparent'
+                            }`}
+                        title={isManualMode ? "Switch to System Mode to Post" : "Credit Members & Lock"}
+                    >
+                        {loading ? <FaSpinner className="animate-spin" /> : <FaSave />}
+                        Save & Post
                     </button>
                 </div>
             </div>
