@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import {
     FaMoneyBillWave, FaChartLine, FaCalculator, FaSave,
     FaHistory, FaInfoCircle, FaSearch, FaFileExcel, FaDownload,
-    FaSpinner, FaTrophy, FaChartPie, FaPlus, FaTrash, FaKeyboard
+    FaSpinner, FaTrophy, FaChartPie, FaPlus, FaTrash, FaKeyboard, FaFilePdf
 } from 'react-icons/fa';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 // Register ChartJS
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
@@ -146,7 +148,7 @@ const Dividends = () => {
 
     const activateManualMode = () => {
         setIsManualMode(true);
-        // Reset to clear basics but keep page active
+        // Reset but keep basics
         setFinancials({
             bankInterest: 0, stlInterest: 0, ltlInterest: 0, penalties: 0, otherIncome: 0,
             expenses: 0, reinvestedLoans: 0, groupAgeYears: 2
@@ -170,7 +172,7 @@ const Dividends = () => {
     };
 
     const calculateDividends = () => {
-        // ... (Logic kept same)
+        // ... (Logic same as before)
         const totalIncome =
             Number(financials.bankInterest) +
             Number(financials.stlInterest) +
@@ -223,6 +225,130 @@ const Dividends = () => {
         setMembers(members.map(m => m.id === id ? { ...m, name } : m));
     };
 
+    // --- PDF GENERATION LOGIC ---
+    const generatePDF = () => {
+        if (members.length === 0) {
+            toast.error("No data to export");
+            return;
+        }
+
+        const doc = new jsPDF('l', 'mm', 'a4'); // Landscape for wide tables
+        const pageWidth = doc.internal.pageSize.width;
+        const pageHeight = doc.internal.pageSize.height;
+
+        // 1. Watermark: "UKOMBOZINI"
+        doc.saveGraphicsState();
+        doc.setGState(new doc.GState({ opacity: 0.1 }));
+        doc.setFontSize(60);
+        doc.setTextColor(150, 150, 150);
+        doc.text("UKOMBOZINI", pageWidth / 2, pageHeight / 2, { align: 'center', angle: 45 });
+        doc.restoreGraphicsState();
+
+        // 2. Header
+        doc.setFontSize(18);
+        doc.setTextColor(0, 128, 0); // Safaricom Green-ish
+        doc.setFont("helvetica", "bold");
+        doc.text("UKOMBOZINI TABLE BANKING SYSTEM", pageWidth / 2, 15, { align: 'center' });
+
+        doc.setFontSize(14);
+        doc.setTextColor(50, 50, 50);
+        const groupName = isManualMode ? "Manual Entry Report" : (groups.find(g => g.id === selectedGroupId)?.name || "Unknown Group");
+        doc.text(`Dividend Distribution Report - ${dividendState.year}`, pageWidth / 2, 22, { align: 'center' });
+        doc.text(groupName, pageWidth / 2, 29, { align: 'center' });
+
+        doc.setLineWidth(0.5);
+        doc.setDrawColor(0, 128, 0);
+        doc.line(10, 32, pageWidth - 10, 32);
+
+        // 3. Financial Summary Box
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont("helvetica", "bold");
+        doc.text("Financial Summary:", 14, 40);
+
+        doc.setFont("helvetica", "normal");
+        const summaryData = [
+            [`TRF (Income): KES ${calculations.trf.toLocaleString()}`, `Expenses: KES ${financials.expenses.toLocaleString()}`],
+            [`Available Profit: KES ${calculations.availableProfit.toLocaleString()}`, `Reinvested: KES ${financials.reinvestedLoans.toLocaleString()}`],
+            [`Profit to Share (${(dividendState.shareOutRate * 100)}%): KES ${calculations.profitToShareOut.toLocaleString()}`, `Dividend Rate: ${calculations.dividendRate.toFixed(4)}`]
+        ];
+
+        doc.autoTable({
+            startY: 42,
+            head: [],
+            body: summaryData,
+            theme: 'plain',
+            styles: { fontSize: 10, cellPadding: 1 },
+            columnStyles: { 0: { cellWidth: 80 }, 1: { cellWidth: 80 } },
+        });
+
+        // 4. Main Table
+        const tableHeaders = [["Member Name", "Jan", "Mar", "May", "Jul", "Sep", "Nov", "Avg Shares", "Dividend (KES)"]];
+        const tableRows = members.map(m => {
+            const avg = Object.values(m.balances).reduce((a, b) => a + b, 0) / 6;
+            const dividend = avg * calculations.dividendRate;
+            return [
+                m.name,
+                m.balances.jan.toLocaleString(),
+                m.balances.mar.toLocaleString(),
+                m.balances.may.toLocaleString(),
+                m.balances.jul.toLocaleString(),
+                m.balances.sep.toLocaleString(),
+                m.balances.nov.toLocaleString(),
+                avg.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+                dividend.toLocaleString(undefined, { maximumFractionDigits: 2 })
+            ];
+        });
+
+        // Add Totals Row
+        tableRows.push([
+            { content: 'TOTALS', styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } },
+            '-', '-', '-', '-', '-', '-',
+            { content: calculations.totalAverageShares.toLocaleString(undefined, { maximumFractionDigits: 0 }), styles: { fontStyle: 'bold' } },
+            { content: calculations.profitToShareOut.toLocaleString(undefined, { maximumFractionDigits: 2 }), styles: { fontStyle: 'bold', textColor: [0, 128, 0] } }
+        ]);
+
+        doc.autoTable({
+            startY: doc.lastAutoTable.finalY + 5,
+            head: tableHeaders,
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [0, 128, 0], textColor: 255, fontStyle: 'bold' }, // Green Header
+            styles: { fontSize: 9, cellPadding: 3 },
+            alternateRowStyles: { fillColor: [245, 255, 245] }, // Light green stripes
+        });
+
+        // 5. Signature Section (Footer)
+        const finalY = doc.lastAutoTable.finalY + 20;
+
+        // Check if we need a new page for signatures
+        if (finalY > pageHeight - 30) {
+            doc.addPage();
+            doc.setPage(doc.internal.getNumberOfPages());
+        }
+
+        const sigY = finalY > pageHeight - 30 ? 40 : finalY;
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+
+        doc.text("Prepared By:", 30, sigY);
+        doc.line(30, sigY + 10, 80, sigY + 10); // Line
+
+        doc.text("Checked By:", 110, sigY);
+        doc.line(110, sigY + 10, 160, sigY + 10); // Line
+
+        doc.text("Approved By:", 190, sigY);
+        doc.line(190, sigY + 10, 240, sigY + 10); // Line
+
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "italic");
+        doc.text("Generated by UKOMBOZINI TBMS System on " + new Date().toLocaleString(), pageWidth - 10, pageHeight - 5, { align: 'right' });
+
+        doc.save(`UKOMBOZINI_DIVIDENDS_${dividendState.year}.pdf`);
+        toast.success("PDF Report Generated!");
+    };
+
     const exportToCSV = () => {
         if (members.length === 0) {
             toast.error("No data to export");
@@ -250,7 +376,7 @@ const Dividends = () => {
         toast.success("Excel report downloaded!");
     };
 
-    // Chart Data Configs
+    // Chart Data Configs (Same as before)
     const trfData = {
         labels: ['Banking Interest', 'STL Interest', 'LTL Interest', 'Penalties'],
         datasets: [{
@@ -284,7 +410,6 @@ const Dividends = () => {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    {/* TOGGLE MANUAL MODE */}
                     <button
                         onClick={activateManualMode}
                         className={`flex items-center gap-2 px-4 py-2 border-2 rounded-xl font-bold transition-all ${isManualMode ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}
@@ -292,14 +417,17 @@ const Dividends = () => {
                         <FaKeyboard /> Manual Entry
                     </button>
 
+                    <button onClick={generatePDF} className="flex items-center gap-2 px-4 py-2 border-2 border-red-500 text-red-600 bg-red-50 rounded-xl font-bold hover:bg-red-100 transition-colors">
+                        <FaFilePdf /> PDF Report
+                    </button>
+
                     <button onClick={exportToCSV} className="flex items-center gap-2 px-4 py-2 border-2 border-green-600 text-green-700 bg-green-50 rounded-xl font-bold hover:bg-green-100 transition-colors">
-                        <FaFileExcel /> Export Excel
+                        <FaFileExcel /> Excel
                     </button>
                 </div>
             </div>
 
             <div className="p-8 max-w-[1600px] mx-auto space-y-8 pb-20">
-
                 {/* 🔍 SEARCH BAR - Only Show if NOT Manual Mode */}
                 {!isManualMode && (
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-end z-20 relative">
@@ -507,7 +635,6 @@ const Dividends = () => {
                                                 );
                                             })}
                                         </tbody>
-                                        {/* TFOOTER (kept same) */}
                                         <tfoot className="bg-gray-100 font-black text-gray-900 border-t-2 border-gray-200 sticky bottom-0 z-10 shadow-lg">
                                             <tr>
                                                 <td className="p-4 sticky left-0 bg-gray-100 uppercase text-xs z-20 shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">Total</td>
