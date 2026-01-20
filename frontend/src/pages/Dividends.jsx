@@ -50,9 +50,14 @@ const Dividends = () => {
     const loadGroups = async () => {
         try {
             const data = await api.getGroups();
-            if (data) setGroups(data);
+            if (data && data.length > 0) {
+                setGroups(data);
+            } else {
+                setGroups([{ id: 'demo-1', name: 'UKOMBOZI Group A (Demo)' }]);
+            }
         } catch (error) {
-            console.error("Failed to load groups", error);
+            console.warn("Failed to load groups, using demo group", error);
+            setGroups([{ id: 'demo-1', name: 'UKOMBOZI Group A (Demo)' }]);
         }
     };
 
@@ -101,12 +106,28 @@ const Dividends = () => {
                 setMembers(formattedMembers);
                 toast.success("Report generated from system data!");
             } else {
-                // FALLBACK: Load mock data if no real data found (for testing)
-                toast.info("No data found for this period. Loaded template.");
+                // DEMO MODE: Load rich sample data if no real data found
+                toast.info("Demo Mode: Loaded sample report");
+
+                // Set Demo Financials
+                setFinancials({
+                    bankInterest: 15000,
+                    stlInterest: 45000,
+                    ltlInterest: 120000,
+                    penalties: 5500,
+                    otherIncome: 1200,
+                    expenses: 8500,
+                    reinvestedLoans: 50000,
+                    groupAgeYears: 2
+                });
+
+                // Set Demo Members (Matches user's example)
                 setMembers([
-                    { id: 1, name: 'Hilda Sigei', balances: { jan: 0, mar: 0, may: 0, jul: 0, sep: 0, nov: 0 } },
-                    { id: 2, name: 'John Doe', balances: { jan: 0, mar: 0, may: 0, jul: 0, sep: 0, nov: 0 } },
-                    // ... empty template
+                    { id: 1, name: 'Hilda Sigei', balances: { jan: 25350, mar: 26250, may: 27150, jul: 28250, sep: 29550, nov: 31050 } },
+                    { id: 2, name: 'John Doe', balances: { jan: 1800, mar: 2700, may: 3300, jul: 3300, sep: 4200, nov: 5200 } },
+                    { id: 3, name: 'Jane Smith', balances: { jan: 23450, mar: 24950, may: 26250, jul: 27750, sep: 29250, nov: 30750 } },
+                    { id: 4, name: 'Alice Johnson', balances: { jan: 21355, mar: 21755, may: 22755, jul: 23655, sep: 27655, nov: 25455 } },
+                    { id: 5, name: 'Bob Brown', balances: { jan: 30335, mar: 31905, may: 33205, jul: 34505, sep: 36005, nov: 37705 } }
                 ]);
             }
 
@@ -436,8 +457,8 @@ const InputRow = ({ label, value, onChange, isDeduction }) => (
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
-                        ? 'border-red-200 text-red-600 focus:ring-red-200'
-                        : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
+                    ? 'border-red-200 text-red-600 focus:ring-red-200'
+                    : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
                     }`}
                 placeholder="0"
             />
