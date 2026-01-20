@@ -302,7 +302,11 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                 UKOMBOZI Institutional Standard - Bank-Grade Loan Issuance
                             </p>
                         </div>
-                        <button onClick={onClose} className="bg-white/10 hover:bg-white/20 p-3 rounded-2xl transition-all">
+                        <button
+                            onClick={onClose}
+                            className="bg-white/10 hover:bg-red-500 hover:text-white p-3 rounded-2xl transition-all shadow-lg backdrop-blur-sm"
+                            title="Close / Exit"
+                        >
                             <FaTimes size={20} />
                         </button>
                     </div>
@@ -777,23 +781,31 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                             </div>
 
                             {/* Submit Button */}
-                            <button
-                                type="submit"
-                                disabled={!hasMeeting}
-                                className="w-full py-5 bg-gradient-to-r from-safaricom-green to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-xl transition-all flex items-center justify-center gap-3 text-lg"
-                            >
-                                {hasMeeting ? (
-                                    <>
-                                        <FaCheckCircle />
-                                        Review & Confirm
-                                    </>
-                                ) : (
-                                    <>
-                                        <FaLock />
-                                        Meeting Required
-                                    </>
-                                )}
-                            </button>
+                            {/* Action Buttons */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="col-span-1 py-4 border-2 border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-50 font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
+                                >
+                                    <FaTimes /> Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={!hasMeeting}
+                                    className="col-span-2 py-4 bg-gradient-to-r from-safaricom-green to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2 text-lg transform hover:-translate-y-1"
+                                >
+                                    {hasMeeting ? (
+                                        <>
+                                            <FaCheckCircle /> Review & Confirm
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FaLock /> Meeting Required
+                                        </>
+                                    )}
+                                </button>
+                            </div>
 
                             {!hasMeeting && (
                                 <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">

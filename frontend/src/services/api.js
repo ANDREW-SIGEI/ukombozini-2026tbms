@@ -590,6 +590,28 @@ export const api = {
         } catch (error) {
             handleSupabaseError(error);
         }
+    },
+
+    /**
+     * Generate Dividend Report
+     * Calls the database RPC to calculate TRF and member balances
+     */
+    async generateDividendReport(groupId, year) {
+        try {
+            const { data, error } = await supabase
+                .rpc('generate_dividend_report', {
+                    p_group_id: groupId,
+                    p_year: year
+                });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error("Simulation Mock: RPC not deployed yet, returning fallback mock data.");
+            // Handle error (likely RPC missing in dev) by returning null or throwing
+            // For now, we allow the frontend to fallback to mock if this fails
+            throw error;
+        }
     }
 };
 

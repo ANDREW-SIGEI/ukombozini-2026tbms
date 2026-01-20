@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
     FaHome, FaUsers, FaMoneyBillWave, FaChartBar, FaFileAlt,
     FaHandHoldingUsd, FaFileInvoiceDollar, FaUserTie,
-    FaBalanceScale, FaCog, FaBell, FaUserCircle, FaCheckCircle, FaSms, FaChartLine, FaClipboardList
+    FaBalanceScale, FaCog, FaBell, FaUserCircle, FaCheckCircle, FaSms, FaChartLine, FaClipboardList, FaSignOutAlt
 } from 'react-icons/fa';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -36,7 +36,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
     };
 
     return (
-        <div className={`w-64 bg-safaricom-green text-white h-full overflow-y-auto z-30 transition-all`}>
+        <div className={`w-64 bg-safaricom-green text-white h-full overflow-y-auto z-30 transition-all flex flex-col`}>
             {!isMobile && (
                 <div className="p-6 border-b border-safaricom-dark/30">
                     <h1 className="text-2xl font-bold tracking-tight">UKOMBOZI</h1>
@@ -59,6 +59,25 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                     </NavLink>
                 ))}
             </nav>
+
+            {/* Logout Button - Fixed at bottom */}
+            <div className="p-4 border-t border-safaricom-dark/30 mt-auto">
+                <button
+                    onClick={() => {
+                        // Add logout logic here - for now just reload or clear local storage if AuthContext not fully integrated in Sidebar
+                        localStorage.removeItem('user');
+                        window.location.href = '/login';
+                    }}
+                    className="flex items-center w-full px-6 py-3.5 transition-all duration-200 group hover:bg-red-600 bg-safaricom-dark/30 rounded-xl"
+                >
+                    <span className="text-lg mr-4 transition-transform group-hover:scale-110 text-red-300 group-hover:text-white">
+                        <FaSignOutAlt />
+                    </span>
+                    <span className="font-bold text-[13px] tracking-wide text-red-100 group-hover:text-white">
+                        Logout / Exit
+                    </span>
+                </button>
+            </div>
         </div>
     );
 };
