@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "UKOMBOZI",
+  "name": "UKOMBOZI Table Banking System",
+  "description": "Professional table banking management system for field officers",
   "icons": [
     {
       "src": "favicon.ico",
@@ -10,16 +11,77 @@
     {
       "src": "logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
       "src": "logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#00a859",
+  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "scope": "/",
+  "categories": [
+    "finance",
+    "business",
+    "productivity"
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot1.png",
+      "type": "image/png",
+      "sizes": "1280x720"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Post Contribution",
+      "short_name": "Contribution",
+      "description": "Quickly post a member contribution",
+      "url": "/contributions",
+      "icons": [
+        {
+          "src": "/logo192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Issue Loan",
+      "short_name": "Loan",
+      "description": "Issue a new loan",
+      "url": "/loans",
+      "icons": [
+        {
+          "src": "/logo192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "View Members",
+      "short_name": "Members",
+      "description": "View all members",
+      "url": "/members",
+      "icons": [
+        {
+          "src": "/logo192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "features": [
+    "offline",
+    "push-notifications",
+    "background-sync"
+  ]
 }
