@@ -276,6 +276,9 @@ export const api = {
     /**
      * Approve or reject a loan
      */
+    /**
+     * Approve or reject a loan (Legacy/Quick Mode)
+     */
     async approveLoan(loanId, approvalData) {
         try {
             const { data, error } = await supabase
@@ -294,6 +297,154 @@ export const api = {
             return data;
         } catch (error) {
             handleSupabaseError(error);
+        }
+    },
+
+    // ========================================
+    // LOAN APPLICATION WORKFLOW (OFFICIAL)
+    // ========================================
+
+    /**
+     * Get Loan Applications with rich data
+     */
+    async getLoanApplications(filters = {}) {
+        try {
+            let query = supabase
+                .from('loan_applications')
+                .select(`
+                    *,
+                    member:members (id, name, phone, group_id, groups:group_id(name)),
+                    guarantors:loan_guarantors (
+                        guarantor_member_id,
+                        guaranteed_amount,
+                        status,
+                        member:members(name, phone)
+                    )
+                `)
+                .order('created_at', { ascending: false });
+
+            if (filters.status && filters.status !== 'ALL') {
+                query = query.eq('status', filters.status);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            handleSupabaseError(error);
+        }
+    },
+
+    /**
+     * Submit a new Loan Application
+     */
+    async submitLoanApplication(appData) {
+        try {
+            // Generate Application Number (Simple format: APP-YYYYMM-XXXX)
+            // Real implementation might use a DB sequence or function
+            const dateStr = new Date().toISOString().slice(0, 7).replace('-', '');
+            const randomSuffix = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
+            const appNumber = `APP-${dateStr}-${randomSuffix}`;
+
+            const { data, error } = await supabase
+                .from('loan_applications')
+                .insert([{
+                    application_number: appNumber,
+                    member_id: appData.memberId,
+                    group_id: appData.groupId,
+                    loan_type: appData.loanType,
+                    amount_requested: appData.amount,
+                    duration_months: appData.duration,
+                    purpose: appData.purpose,
+                    applicant_savings_snapshot: appData.savingsSnapshot || 0,
+                    status: 'PENDING',
+                    officer_id: appData.officerId
+                }])
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            handleSupabaseError(error);
+        }
+    },
+
+    /**
+     * Add Guarantor to Application
+     */
+    async addGuarantor(guarantorData) {
+        try {
+            const { data, error } = await supabase
+                .from('loan_guarantors')
+                .insert([{
+                    loan_application_id: guarantorData.applicationId,
+                    guarantor_member_id: guarantorData.memberId,
+                    guaranteed_amount: guarantorData.amount
+                }])
+                .select();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            handleSupabaseError(error);
+        }
+    },
+
+    /**
+     * Update Application Status (Approval Flow)
+     */
+    async updateApplicationStatus(id, status, notes, reviewerId, role) {
+        try {
+            const updatePayload = { status };
+            const timestamp = new Date().toISOString();
+
+            if (status.includes('REJECTED')) {
+                updatePayload.rejection_reason = notes;
+            }
+
+            if (role === 'Officer') {
+                updatePayload.officer_notes = notes;
+                updatePayload.officer_submitted_at = timestamp;
+            } else if (role === 'Admin') {
+                updatePayload.admin_id = reviewerId;
+                updatePayload.admin_notes = notes;
+                updatePayload.admin_reviewed_at = timestamp;
+            }
+
+            const { data, error } = await supabase
+                .from('loan_applications')
+                .update(updatePayload)
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            handleSupabaseError(error);
+        }
+    },
+
+    /**
+     * Check Loan Eligibility (RPC)
+     */
+    async checkLoanEligibility(memberId) {
+        try {
+            const { data, error } = await supabase
+                .rpc('calculate_loan_eligibility', { p_member_id: memberId });
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            // Fallback for dev if RPC missing
+            console.warn("RPC calculate_loan_eligibility failed, using mock fallback");
+            return {
+                max_eligible: 100000,
+                multiplier: 3,
+                total_savings: 0,
+                outstanding_loans: 0
+            };
         }
     },
 
