@@ -27,6 +27,7 @@ const SMSReports = lazy(() => import('./pages/SMSReports'));
 const ContributionCompliance = lazy(() => import('./pages/ContributionCompliance'));
 const LoanRepaymentTracking = lazy(() => import('./pages/LoanRepaymentTracking'));
 const SMSAutomationTest = lazy(() => import('./pages/SMSAutomationTest'));
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 
 // Simple notifications component
 const Notifications = ({ notifications = [] }) => (
@@ -114,11 +115,7 @@ function App() {
             <Route path="/dividends" element={<Dividends />} />
             <Route path="/officers" element={<Officers />} />
             <Route path="/reconciliation" element={<Reconciliation />} />
-            {/* <Route path="/admin" element={
-              <ProtectedRoute isAdmin={true}>
-                <AdminPanel />
-              </ProtectedRoute>
-            } /> */}
+            <Route path="/admin" element={<AdminPanel />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/loan-approvals" element={<LoanApprovals />} />

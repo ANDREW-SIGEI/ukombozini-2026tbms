@@ -1,55 +1,65 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { mockMembers } from '../data/mockData';
-import { FaUserPlus, FaSearch, FaHistory, FaHandHoldingUsd, FaUser, FaTimes, FaInfoCircle, FaFileInvoice, FaExclamationTriangle, FaCheckCircle, FaMoneyBillWave, FaClock } from 'react-icons/fa';
+import {
+    FaUserPlus, FaSearch, FaHistory, FaUser, FaInfoCircle,
+    FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
+    FaChartLine, FaExclamationTriangle, FaCheckCircle
+} from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import LoanIssuanceModal from '../components/LoanIssuanceModal';
-import STLLoanModal from '../components/STLLoanModal';
-import StatementModal from '../components/StatementModal';
-import ContributionModal from '../components/ContributionModal';
-import { useTransactions } from '../context/TransactionContext';
-import { api } from '../services/api';
+import api from '../services/api';
 
 const Members = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedGroup, setSelectedGroup] = useState('');
-    const [showModal, setShowModal] = useState(false);
-    const [showLoanModal, setShowLoanModal] = useState(false);
-    const [showSTLModal, setShowSTLModal] = useState(false);
-    const [selectedMemberForLoan, setSelectedMemberForLoan] = useState(null);
-    const [showContributionModal, setShowContributionModal] = useState(false);
-    const [selectedMemberForContribution, setSelectedMemberForContribution] = useState(null);
-    const [members, setMembers] = useState(mockMembers);
-    const [newMember, setNewMember] = useState({ name: '', phone: '', groupId: '' });
-    const [showSystemInfo, setShowSystemInfo] = useState(false);
-    const [showStatementModal, setShowStatementModal] = useState(false);
-    const [selectedMemberForStatement, setSelectedMemberForStatement] = useState(null);
-
-    const { groups } = useTransactions();
-
-    // Mock active meeting for demonstration
-    const [activeMeeting] = useState({
-        id: 1,
-        session_number: 14,
-        group_id: 1,
-        status: 'OPEN',
-        date: new Date().toISOString().split('T')[0]
+    const [members, setMembers] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [newMember, setNewMember] = useState({
+        name: '',
+        phone: '',
+        groupId: '',
+        opening_balance_savings: 0
     });
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            const [membersData, groupsData] = await Promise.all([
+                api.getMembers(),
+                api.getGroups()
+            ]);
+
+            if (membersData) setMembers(membersData);
+            if (groupsData) setGroups(groupsData);
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to load members data");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Calculate Net Position for each member
     const membersWithNetPosition = useMemo(() => {
         return members.map(member => ({
             ...member,
-            netPosition: member.savings - (member.activeLoans + member.arrears)
+            savings: member.current_savings || 0,
+            activeLoans: member.active_loan_balance || 0,
+            netPosition: (member.current_savings || 0) - (member.active_loan_balance || 0)
         }));
     }, [members]);
 
     // Filter members
     const filteredMembers = membersWithNetPosition.filter(member => {
         const matchesSearch =
-            member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            member.phone.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesGroup = selectedGroup ? member.groupId === parseInt(selectedGroup) : true;
+            member.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            member.phone?.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesGroup = selectedGroup ? member.group_id?.toString() === selectedGroup : true;
         return matchesSearch && matchesGroup;
     });
 
@@ -62,7 +72,6 @@ const Members = () => {
             totalMembers: groupMembers.length,
             totalSavings: groupMembers.reduce((sum, m) => sum + m.savings, 0),
             totalLoans: groupMembers.reduce((sum, m) => sum + m.activeLoans, 0),
-            totalArrears: groupMembers.reduce((sum, m) => sum + m.arrears, 0),
             netPosition: groupMembers.reduce((sum, m) => sum + m.netPosition, 0)
         };
     }, [filteredMembers, selectedGroup]);
@@ -70,391 +79,270 @@ const Members = () => {
     const handleAddMember = async (e) => {
         e.preventDefault();
         if (!newMember.name || !newMember.phone || !newMember.groupId) {
-            toast.error('Please fill in all fields');
+            toast.error('Please fill in all required fields');
             return;
         }
 
         try {
             const payload = {
-                name: newMember.name,
+                full_name: newMember.name,
                 phone: newMember.phone,
-                groupId: parseInt(newMember.groupId),
-                opening_balance_savings: parseFloat(newMember.opening_balance_savings || 0),
-                opening_balance_ltl: parseFloat(newMember.opening_balance_ltl || 0),
-                opening_balance_stl: parseFloat(newMember.opening_balance_stl || 0),
-                opening_balance_reason: newMember.opening_balance_reason || 'New member',
-                userId: 1 // For audit trail
+                group_id: parseInt(newMember.groupId),
+                opening_balance_savings: parseFloat(newMember.opening_balance_savings || 0)
             };
 
-            const res = await fetch('http://localhost:5000/api/members', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Failed to create member');
-            }
-
-            const createdMember = await res.json();
-            setMembers([...members, createdMember]);
-            setShowModal(false);
-            setNewMember({ name: '', phone: '', groupId: '' });
-            toast.success(`Member "${createdMember.name}" registered successfully!`);
+            await api.createMember(payload);
+            toast.success(`✅ ${newMember.name} added successfully!`);
+            setShowAddModal(false);
+            setNewMember({ name: '', phone: '', groupId: '', opening_balance_savings: 0 });
+            fetchData(); // Refresh list
         } catch (error) {
-            toast.error(error.message);
+            console.error(error);
+            toast.error("Failed to add member");
         }
     };
 
-    const handleContributionSuccess = (contributionData) => {
-        // Update member's savings balance locally
-        setMembers(prevMembers =>
-            prevMembers.map(m =>
-                m.id === contributionData.memberId
-                    ? { ...m, savings: m.savings + contributionData.amount, lastActivity: contributionData.date, lastActivityType: contributionData.type }
-                    : m
-            )
-        );
-
-        toast.success(`✅ Contribution of KES ${contributionData.amount.toLocaleString()} posted successfully!`);
-        setShowContributionModal(false);
-        setSelectedMemberForContribution(null);
-    };
-
-    const getNetPositionColor = (netPosition) => {
-        if (netPosition > 0) return 'text-green-600 font-bold';
-        if (netPosition < 0) return 'text-red-600 font-bold';
-        return 'text-yellow-600 font-bold';
-    };
-
-    const getActivityAlertColor = (daysSinceActivity) => {
-        if (daysSinceActivity > 60) return 'text-red-600 font-bold';
-        if (daysSinceActivity > 30) return 'text-yellow-600';
-        return 'text-gray-600';
+    const getStatusBadge = (netPosition) => {
+        if (netPosition > 5000) {
+            return <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold flex items-center gap-1">
+                <FaCheckCircle /> Healthy
+            </span>;
+        } else if (netPosition >= 0) {
+            return <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-bold flex items-center gap-1">
+                <FaInfoCircle /> Stable
+            </span>;
+        } else {
+            return <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold flex items-center gap-1">
+                <FaExclamationTriangle /> At Risk
+            </span>;
+        }
     };
 
     return (
         <div className="space-y-6">
-            {/* Header with System Badge */}
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <div className="flex items-center gap-3">
-                        <h2 className="text-2xl font-bold text-gray-800">Member Financial Snapshot</h2>
-                        <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold uppercase rounded-full border border-green-200 flex items-center gap-1">
-                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            LIVE
-                        </span>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">
-                        Auto-calculated balances, loans & savings
-                        <button
-                            onClick={() => setShowSystemInfo(!showSystemInfo)}
-                            className="ml-2 text-blue-600 hover:text-blue-700"
-                        >
-                            <FaInfoCircle className="inline" />
-                        </button>
+                    <h2 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+                        <FaUser className="text-safaricom-green" /> Members Directory
+                    </h2>
+                    <p className="text-sm font-bold text-gray-500 uppercase tracking-wide">
+                        {filteredMembers.length} Active Members
                     </p>
                 </div>
                 <button
-                    onClick={() => setShowModal(true)}
-                    className="flex items-center px-6 py-2 bg-safaricom-green text-white rounded-xl font-extrabold hover:bg-safaricom-dark transition-all shadow-lg shadow-green-900/20"
+                    onClick={() => setShowAddModal(true)}
+                    className="flex items-center gap-2 bg-safaricom-green text-white px-5 py-2 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md"
                 >
-                    <FaUserPlus className="mr-2" /> New Member
+                    <FaUserPlus /> Register New Member
                 </button>
             </div>
 
-            {/* System Info Banner */}
-            {showSystemInfo && (
-                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-                    <p className="text-sm font-bold text-blue-900 mb-2">🔒 System-Calculated Balances</p>
-                    <p className="text-xs text-blue-700">
-                        All balances are automatically calculated from:<br />
-                        • Member Contributions (Savings, Welfare, etc.)<br />
-                        • Loan Disbursements<br />
-                        • Loan Repayments<br />
-                        • Fines & Penalties<br />
-                        <span className="font-bold">Manual edits are disabled.</span> This ensures audit compliance and prevents fraud.
-                    </p>
+            {/* Group Statistics Panel */}
+            {groupStats && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gradient-to-r from-safaricom-green to-green-700 p-6 rounded-2xl text-white">
+                    <div className="text-center">
+                        <div className="text-xs font-bold uppercase opacity-80">Total Members</div>
+                        <div className="text-3xl font-black">{groupStats.totalMembers}</div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-xs font-bold uppercase opacity-80">Total Savings</div>
+                        <div className="text-3xl font-black">KES {groupStats.totalSavings.toLocaleString()}</div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-xs font-bold uppercase opacity-80">Active Loans</div>
+                        <div className="text-3xl font-black">KES {groupStats.totalLoans.toLocaleString()}</div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-xs font-bold uppercase opacity-80">Net Position</div>
+                        <div className={`text-3xl font-black ${groupStats.netPosition >= 0 ? 'text-white' : 'text-red-200'}`}>
+                            KES {groupStats.netPosition.toLocaleString()}
+                        </div>
+                    </div>
                 </div>
             )}
 
-            {/* Group Filter & Stats */}
-            <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                    <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            {/* Filters */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center">
+                <div className="flex-1 w-full relative">
+                    <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
                         type="text"
-                        placeholder="Search by name or phone number..."
-                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-safaricom-green/20 shadow-sm"
+                        placeholder="Search by name or phone..."
+                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold text-gray-600"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
                 <select
-                    className="px-4 py-3 border-2 border-gray-100 rounded-xl bg-white shadow-sm focus:ring-2 focus:ring-safaricom-green/20 outline-none font-bold text-gray-700"
                     value={selectedGroup}
                     onChange={(e) => setSelectedGroup(e.target.value)}
+                    className="bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 font-bold text-gray-600 focus:outline-none focus:border-safaricom-green/50 min-w-[200px]"
                 >
                     <option value="">All Groups</option>
-                    {groups.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
+                    {groups.map(group => (
+                        <option key={group.id} value={group.id}>{group.group_name}</option>
                     ))}
                 </select>
             </div>
 
-            {/* Group Statistics Cards */}
-            {groupStats && (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-xl text-white shadow-lg">
-                        <p className="text-xs opacity-80 uppercase font-bold">Members</p>
-                        <p className="text-2xl font-black">{groupStats.totalMembers}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-xl text-white shadow-lg">
-                        <p className="text-xs opacity-80 uppercase font-bold">Total Savings</p>
-                        <p className="text-xl font-black">KES {groupStats.totalSavings.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl text-white shadow-lg">
-                        <p className="text-xs opacity-80 uppercase font-bold">Active Loans</p>
-                        <p className="text-xl font-black">KES {groupStats.totalLoans.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl text-white shadow-lg">
-                        <p className="text-xs opacity-80 uppercase font-bold">Arrears</p>
-                        <p className="text-xl font-black">KES {groupStats.totalArrears.toLocaleString()}</p>
-                    </div>
-                    <div className={`bg-gradient-to-br ${groupStats.netPosition >= 0 ? 'from-teal-500 to-teal-600' : 'from-orange-500 to-orange-600'} p-4 rounded-xl text-white shadow-lg`}>
-                        <p className="text-xs opacity-80 uppercase font-bold">Net Position</p>
-                        <p className="text-xl font-black">KES {groupStats.netPosition.toLocaleString()}</p>
-                    </div>
-                </div>
-            )}
-
             {/* Members Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Member Details</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Group</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Savings</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Active Loans</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Arrears</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Net Position</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Last Activity</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Quick Actions</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Member</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Group</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Savings</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Active Loans</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Net Position</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Status</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {filteredMembers.map(member => {
-                                const daysSinceActivity = Math.floor((new Date() - new Date(member.lastActivity)) / (1000 * 60 * 60 * 24));
-
-                                return (
-                                    <tr key={member.id} className="hover:bg-blue-50/50 transition-colors">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-500 font-bold">
+                                        <FaSpinner className="animate-spin inline mr-2" /> Loading Members...
+                                    </td>
+                                </tr>
+                            ) : filteredMembers.length === 0 ? (
+                                <tr>
+                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-400 font-bold">
+                                        No members found. Click "Register New Member" to add one.
+                                    </td>
+                                </tr>
+                            ) : (
+                                filteredMembers.map((member) => (
+                                    <tr key={member.id} className="hover:bg-blue-50/50 transition-colors group">
                                         <td className="px-6 py-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
-                                                    {member.name.charAt(0)}
-                                                </div>
-                                                <div>
-                                                    <p className="font-bold text-gray-900">{member.name}</p>
-                                                    <p className="text-xs text-gray-500">{member.phone}</p>
-                                                </div>
-                                            </div>
+                                            <div className="font-bold text-gray-800">{member.full_name}</div>
+                                            <div className="text-xs text-gray-500">{member.phone}</div>
                                         </td>
-                                        <td className="px-6 py-4 text-gray-700 font-medium">{member.groupName}</td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className="text-green-600 font-bold font-mono">
-                                                KES {member.savings.toLocaleString()}
-                                            </span>
+                                        <td className="px-6 py-4 text-sm font-bold text-gray-600">
+                                            {member.groups?.group_name || 'N/A'}
                                         </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className="text-purple-600 font-bold font-mono">
-                                                KES {member.activeLoans.toLocaleString()}
-                                            </span>
+                                        <td className="px-6 py-4 text-right font-mono font-bold text-green-600">
+                                            KES {member.savings.toLocaleString()}
                                         </td>
-                                        <td className="px-6 py-4 text-right">
-                                            {member.arrears > 0 ? (
-                                                <span className="text-red-600 font-bold font-mono">
-                                                    KES {member.arrears.toLocaleString()}
-                                                </span>
-                                            ) : (
-                                                <span className="text-gray-400">-</span>
-                                            )}
+                                        <td className="px-6 py-4 text-right font-mono font-bold text-orange-600">
+                                            KES {member.activeLoans.toLocaleString()}
                                         </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className={`font-mono font-black text-lg ${getNetPositionColor(member.netPosition)}`}>
-                                                KES {member.netPosition.toLocaleString()}
-                                            </span>
+                                        <td className={`px-6 py-4 text-right font-mono font-black text-lg ${member.netPosition >= 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
+                                            KES {member.netPosition.toLocaleString()}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-xs text-gray-600">{member.lastActivityType}</div>
-                                            <div className={`text-[10px] ${getActivityAlertColor(daysSinceActivity)}`}>
-                                                {daysSinceActivity === 0 ? 'Today' : daysSinceActivity === 1 ? 'Yesterday' : `${daysSinceActivity} days ago`}
-                                                {daysSinceActivity > 60 && <span className="ml-1">⚠️</span>}
-                                            </div>
+                                        <td className="px-6 py-4">
+                                            {getStatusBadge(member.netPosition)}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                                            <div className="flex justify-end gap-2">
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="flex items-center justify-center gap-2">
                                                 <Link
-                                                    to={`/members/${member.id}`}
-                                                    title="View Full Ledger"
-                                                    className="text-gray-400 hover:text-safaricom-green p-2 rounded-lg hover:bg-green-50 transition-colors"
+                                                    to={`/member-ledger/${member.id}`}
+                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                    title="View Ledger"
                                                 >
                                                     <FaHistory />
                                                 </Link>
                                                 <button
-                                                    title="Post Contribution"
-                                                    onClick={() => {
-                                                        setSelectedMemberForContribution(member);
-                                                        setShowContributionModal(true);
-                                                    }}
-                                                    className="text-gray-400 hover:text-green-600 p-2 rounded-lg hover:bg-green-50 transition-colors"
-                                                >
-                                                    <FaMoneyBillWave />
-                                                </button>
-                                                <button
-                                                    disabled={member.status === 'Inactive'}
-                                                    title={member.status === 'Inactive' ? "Cannot issue loan to inactive member" : "Issue Long-Term Loan"}
-                                                    onClick={() => {
-                                                        setSelectedMemberForLoan(member);
-                                                        setShowLoanModal(true);
-                                                    }}
-                                                    className={`${member.status === 'Inactive' ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'} p-2 rounded-lg transition-colors`}
-                                                >
-                                                    <FaHandHoldingUsd />
-                                                </button>
-                                                <button
-                                                    disabled={member.status === 'Inactive'}
-                                                    title={member.status === 'Inactive' ? "Cannot issue loan to inactive member" : "Issue Short-Term Loan (STL)"}
-                                                    onClick={() => {
-                                                        setSelectedMemberForLoan(member);
-                                                        setShowSTLModal(true);
-                                                    }}
-                                                    className={`${member.status === 'Inactive' ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-purple-600 hover:bg-purple-50'} p-2 rounded-lg transition-colors`}
-                                                >
-                                                    <FaClock />
-                                                </button>
-                                                <button
-                                                    title="Generate Statement"
-                                                    onClick={() => {
-                                                        setSelectedMemberForStatement(member);
-                                                        setShowStatementModal(true);
-                                                    }}
-                                                    className="text-gray-400 hover:text-purple-600 p-2 rounded-lg hover:bg-purple-50 transition-colors"
+                                                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                                    title="View Statement"
                                                 >
                                                     <FaFileInvoice />
                                                 </button>
-                                                <Link
-                                                    to={`/members/${member.id}`}
-                                                    title="View Profile"
-                                                    className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                                                >
-                                                    <FaUser />
-                                                </Link>
                                             </div>
                                         </td>
                                     </tr>
-                                );
-                            })}
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {/* Modals remain the same... */}
             {/* Add Member Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    {/* Modal content... (keeping existing) */}
+            {showAddModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                                <FaUserPlus className="text-safaricom-green" /> Register New Member
+                            </h3>
+                            <button
+                                onClick={() => setShowAddModal(false)}
+                                className="text-gray-400 hover:text-red-500 text-xl"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddMember} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Full Name *</label>
+                                <input
+                                    type="text"
+                                    value={newMember.name}
+                                    onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
+                                    placeholder="John Doe"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Phone Number *</label>
+                                <input
+                                    type="tel"
+                                    value={newMember.phone}
+                                    onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
+                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
+                                    placeholder="0712345678"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group *</label>
+                                <select
+                                    value={newMember.groupId}
+                                    onChange={(e) => setNewMember({ ...newMember, groupId: e.target.value })}
+                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
+                                    required
+                                >
+                                    <option value="">Select Group</option>
+                                    {groups.map(group => (
+                                        <option key={group.id} value={group.id}>{group.group_name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Opening Savings Balance</label>
+                                <input
+                                    type="number"
+                                    value={newMember.opening_balance_savings}
+                                    onChange={(e) => setNewMember({ ...newMember, opening_balance_savings: e.target.value })}
+                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
+                                    placeholder="0"
+                                    min="0"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">Leave as 0 for new members</p>
+                            </div>
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 px-4 py-3 bg-safaricom-green text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md"
+                                >
+                                    Register Member
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-            )}
-
-            {/* Loan Issuance Modal */}
-            <LoanIssuanceModal
-                isOpen={showLoanModal}
-                onClose={() => setShowLoanModal(false)}
-                member={selectedMemberForLoan}
-                activeMeeting={activeMeeting}
-                onSuccess={(newLoan) => {
-                    console.log('New Loan Issued:', newLoan);
-                }}
-            />
-
-            {/* Contribution Modal */}
-            <ContributionModal
-                isOpen={showContributionModal}
-                onClose={() => {
-                    setShowContributionModal(false);
-                    setSelectedMemberForContribution(null);
-                }}
-                member={selectedMemberForContribution}
-                selectedGroupId={selectedMemberForContribution?.groupId}
-                selectedGroupName={selectedMemberForContribution?.groupName}
-                activeMeeting={activeMeeting}
-                onSuccess={handleContributionSuccess}
-            />
-
-            {/* STL Loan Modal */}
-            <STLLoanModal
-                isOpen={showSTLModal}
-                onClose={() => setShowSTLModal(false)}
-                member={selectedMemberForLoan}
-                onSuccess={(newLoan) => {
-                    console.log('STL Issued:', newLoan);
-                    setShowSTLModal(false);
-                }}
-            />
-
-            {/* Statement Generation Modal */}
-            {selectedMemberForStatement && (
-                <StatementModal
-                    isOpen={showStatementModal}
-                    onClose={() => {
-                        setShowStatementModal(false);
-                        setSelectedMemberForStatement(null);
-                    }}
-                    member={selectedMemberForStatement}
-                    transactions={[
-                        // Mock transactions - replace with real API call
-                        {
-                            id: 1,
-                            date: '2025-01-19',
-                            type: 'Savings',
-                            reference: 'Meeting #15',
-                            debit: 0,
-                            credit: 2000,
-                            notes: 'January savings contribution'
-                        },
-                        {
-                            id: 2,
-                            date: '2025-01-19',
-                            type: 'Loan Repayment',
-                            reference: 'Loan #LN-045',
-                            debit: 2500,
-                            credit: 0,
-                            notes: 'Installment 12/25'
-                        },
-                        {
-                            id: 3,
-                            date: '2024-08-10',
-                            type: 'Loan Disbursement',
-                            reference: 'Loan #LN-045',
-                            debit: 0,
-                            credit: 50000,
-                            notes: 'Approved long-term loan'
-                        },
-                        {
-                            id: 4,
-                            date: '2024-07-01',
-                            type: 'Shares',
-                            reference: 'Registration',
-                            debit: 0,
-                            credit: 5000,
-                            notes: 'Initial member shares'
-                        }
-                    ]}
-                />
             )}
         </div>
     );

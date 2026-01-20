@@ -89,13 +89,16 @@ export const api = {
             const { data, error } = await supabase
                 .from('members')
                 .insert([{
-                    name: memberData.name,
-                    group_id: memberData.groupId,
+                    full_name: memberData.full_name || memberData.name,
+                    group_id: memberData.group_id || memberData.groupId,
                     phone: memberData.phone,
-                    status: memberData.status || 'Active',
-                    current_savings: 0,
-                    active_loan_balance: 0,
-                    arrears: 0
+                    email: memberData.email || null,
+                    national_id: memberData.national_id || null,
+                    date_of_birth: memberData.date_of_birth || null,
+                    address: memberData.address || null,
+                    registration_date: memberData.registration_date || new Date().toISOString().split('T')[0],
+                    opening_balance_savings: memberData.opening_balance_savings || 0,
+                    status: memberData.status || 'ACTIVE'
                 }])
                 .select()
                 .single();
@@ -104,6 +107,7 @@ export const api = {
             return data;
         } catch (error) {
             handleSupabaseError(error);
+            throw error;
         }
     },
 
@@ -593,9 +597,12 @@ export const api = {
             const { data, error } = await supabase
                 .from('groups')
                 .insert([{
-                    name: groupData.name,
-                    description: groupData.description,
-                    status: groupData.status || 'Active'
+                    group_name: groupData.group_name,
+                    meeting_day: groupData.meeting_day,
+                    meeting_frequency: groupData.meeting_frequency,
+                    location: groupData.location || null,
+                    registration_date: groupData.registration_date || new Date().toISOString().split('T')[0],
+                    status: groupData.status || 'ACTIVE'
                 }])
                 .select()
                 .single();
@@ -604,6 +611,7 @@ export const api = {
             return data;
         } catch (error) {
             handleSupabaseError(error);
+            throw error; // Re-throw so the caller can handle it
         }
     },
 
