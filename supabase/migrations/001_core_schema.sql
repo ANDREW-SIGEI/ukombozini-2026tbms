@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================
 -- 1. PROFILES (Auth + Business Roles)
 -- ============================================
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     full_name TEXT NOT NULL,
     phone TEXT,
@@ -28,7 +28,7 @@ COMMENT ON COLUMN profiles.role IS 'director: full access | admin: system manage
 -- ============================================
 -- 2. GROUPS (Table Banking Groups)
 -- ============================================
-CREATE TABLE groups (
+CREATE TABLE IF NOT EXISTS groups (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     location TEXT,
@@ -43,7 +43,7 @@ COMMENT ON TABLE groups IS 'Table banking groups - no financial data stored here
 -- ============================================
 -- 3. OFFICER ASSIGNMENTS (Access Control)
 -- ============================================
-CREATE TABLE officer_groups (
+CREATE TABLE IF NOT EXISTS officer_groups (
     id BIGSERIAL PRIMARY KEY,
     officer_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
@@ -57,7 +57,7 @@ COMMENT ON TABLE officer_groups IS 'Controls which groups a field officer can ac
 -- ============================================
 -- 4. MEMBERS (Identity Only - NO Balances)
 -- ============================================
-CREATE TABLE members (
+CREATE TABLE IF NOT EXISTS members (
     id BIGSERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
     full_name TEXT NOT NULL,
@@ -84,7 +84,7 @@ COMMENT ON COLUMN members.opening_balance_locked IS 'Once TRUE, opening balances
 -- ============================================
 -- 5. MEETINGS (Table Banking Sessions)
 -- ============================================
-CREATE TABLE meetings (
+CREATE TABLE IF NOT EXISTS meetings (
     id BIGSERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
     meeting_date DATE NOT NULL,
@@ -103,7 +103,7 @@ COMMENT ON TABLE meetings IS 'Meetings are containers for transactions - enforce
 -- ============================================
 -- 6. LOANS (Contract Definition - NOT Balance)
 -- ============================================
-CREATE TABLE loans (
+CREATE TABLE IF NOT EXISTS loans (
     id BIGSERIAL PRIMARY KEY,
     member_id BIGINT NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
     group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
@@ -125,7 +125,7 @@ COMMENT ON TABLE loans IS 'Loan contracts - outstanding balance calculated from 
 -- ============================================
 -- 7. TRANSACTIONS (SINGLE SOURCE OF TRUTH)
 -- ============================================
-CREATE TABLE transactions (
+CREATE TABLE IF NOT EXISTS transactions (
     id BIGSERIAL PRIMARY KEY,
     member_id BIGINT NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
     group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
@@ -169,7 +169,7 @@ CREATE INDEX idx_transactions_type ON transactions(type) WHERE reversed = FALSE;
 -- ============================================
 -- 8. REVERSALS (Audit-Safe Corrections)
 -- ============================================
-CREATE TABLE reversals (
+CREATE TABLE IF NOT EXISTS reversals (
     id BIGSERIAL PRIMARY KEY,
     original_transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
     reversal_transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
@@ -183,7 +183,7 @@ COMMENT ON TABLE reversals IS 'Audit trail for corrections - NO HARD DELETES all
 -- ============================================
 -- 9. SYSTEM SETTINGS (Configuration)
 -- ============================================
-CREATE TABLE system_settings (
+CREATE TABLE IF NOT EXISTS system_settings (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL,
     description TEXT,
@@ -196,7 +196,7 @@ COMMENT ON TABLE system_settings IS 'System-wide configuration (interest rates, 
 -- ============================================
 -- 10. AUDIT LOG (Full System Activity)
 -- ============================================
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID REFERENCES profiles(id),
     action TEXT NOT NULL,
@@ -256,3 +256,4 @@ BEGIN
     RAISE NOTICE '📊 Transaction-based architecture implemented';
     RAISE NOTICE '🔒 Ready for RLS policies (next step)';
 END $$;
+
