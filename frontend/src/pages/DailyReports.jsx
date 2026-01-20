@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { mockGroups, mockLedgerEntries } from "../data/mockData";
+import { validateCashReport, checkSystemAccessBlock } from '../utils/cashReportEnforcement';
+import { useAuth } from '../context/AuthContext';
 
 const Widget = ({ title, value, green, red }) => (
     <div className="p-4 bg-white shadow rounded">
@@ -13,12 +15,31 @@ const Widget = ({ title, value, green, red }) => (
     </div>
 );
 
+const InputRow = ({ label, value, onChange, status }) => (
+    <div className="flex justify-between items-center py-2 border-b">
+        <span className="capitalize">{label}</span>
+        <div className="flex items-center gap-2">
+            <span className="text-sm">KES</span>
+            <input
+                type="number"
+                value={value || ""}
+                min="0"
+                disabled={status === "APPROVED"}
+                onChange={(e) => onChange(e.target.value)}
+                className={`w-40 border rounded px-2 py-1 text-right ${status === "APPROVED" ? "bg-gray-100 cursor-not-allowed" : ""}`}
+            />
+        </div>
+    </div>
+);
+
 export default function DailyReports() {
+    const { user } = useAuth();
     const OPENING_BALANCE = 15450;
 
     const [status, setStatus] = useState("DRAFT");
     const [approvedBy, setApprovedBy] = useState(null);
     const [selectedGroup, setSelectedGroup] = useState("Victory Women Group");
+    const [varianceExplanation, setVarianceExplanation] = useState("");
 
     // Auto-aggregate from Ledgers (Step 5 logic)
     const aggregatedIn = useMemo(() => {
@@ -72,38 +93,32 @@ export default function DailyReports() {
         [cashOut]
     );
 
-    const closingBalance = OPENING_BALANCE + totalCashIn - totalCashOut;
+    const expectedClosing = OPENING_BALANCE + totalCashIn - totalCashOut;
+    const closingBalance = expectedClosing;
+    const variance = closingBalance - expectedClosing;
 
     const handleStatusChange = (newStatus) => {
         if (newStatus === "SUBMITTED") {
-            if (totalCashIn === 0 && totalCashOut === 0) {
-                alert("No transactions entered. Cannot submit an empty report.");
-                return;
-            }
-            if (closingBalance < 0) {
-                alert("Cash Out exceeds available balance! Please check your entries.");
+            const validation = validateCashReport({
+                openingBalance: OPENING_BALANCE,
+                cashCollected: totalCashIn,
+                cashIssued: totalCashOut,
+                expectedClosing: expectedClosing,
+                actualClosing: closingBalance,
+                variance: variance,
+                varianceExplanation: varianceExplanation,
+                requireVarianceExplanation: Math.abs(variance) > 0,
+            });
+
+            if (!validation.valid) {
+                alert(validation.errors.join('\n'));
                 return;
             }
         }
         setStatus(newStatus);
     };
 
-    const InputRow = ({ label, value, onChange }) => (
-        <div className="flex justify-between items-center py-2 border-b">
-            <span className="capitalize">{label}</span>
-            <div className="flex items-center gap-2">
-                <span className="text-sm">KES</span>
-                <input
-                    type="number"
-                    value={value}
-                    min="0"
-                    disabled={status === "APPROVED"}
-                    onChange={(e) => onChange(e.target.value)}
-                    className={`w-32 border rounded px-2 py-1 text-right ${status === "APPROVED" ? "bg-gray-100 cursor-not-allowed" : ""}`}
-                />
-            </div>
-        </div>
-    );
+
 
     return (
         <div className="max-w-5xl mx-auto p-6 bg-white shadow rounded space-y-6">
@@ -171,6 +186,7 @@ export default function DailyReports() {
                             key={key}
                             label={key.replace(/([A-Z])/g, " $1")}
                             value={val}
+                            status={status}
                             onChange={(v) => setCashIn({ ...cashIn, [key]: v })}
                         />
                     ))}
@@ -188,6 +204,7 @@ export default function DailyReports() {
                             key={key}
                             label={key.replace(/([A-Z])/g, " $1")}
                             value={val}
+                            status={status}
                             onChange={(v) => setCashOut({ ...cashOut, [key]: v })}
                         />
                     ))}
@@ -216,6 +233,24 @@ export default function DailyReports() {
                     </div>
                 </div>
             </section>
+
+            {/* Variance Explanation Section */}
+            {Math.abs(variance) > 0 && (
+                <section className="bg-yellow-50 p-4 rounded border border-yellow-200">
+                    <h2 className="text-lg font-semibold mb-2 text-yellow-700">D. Variance Explanation</h2>
+                    <p className="text-sm text-yellow-800 mb-2">
+                        Variance detected: KES {Math.abs(variance).toLocaleString()} ({variance > 0 ? 'Surplus' : 'Deficit'})
+                    </p>
+                    <textarea
+                        className="w-full p-3 border border-yellow-300 rounded focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none"
+                        rows="3"
+                        placeholder="Please explain the reason for the variance..."
+                        value={varianceExplanation}
+                        onChange={(e) => setVarianceExplanation(e.target.value)}
+                        disabled={status === "APPROVED"}
+                    />
+                </section>
+            )}
 
             {/* SUPERVISOR APPROVAL PANEL */}
             <div className="no-print space-y-4">

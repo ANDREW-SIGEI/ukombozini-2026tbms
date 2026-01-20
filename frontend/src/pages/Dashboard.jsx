@@ -16,7 +16,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
     FaMoneyBillWave, FaUsers, FaChartLine, FaPiggyBank,
     FaExclamationTriangle, FaGift, FaExchangeAlt, FaArrowUp, FaArrowDown,
-    FaHistory
+    FaHistory, FaCalendarAlt
 } from 'react-icons/fa';
 
 // Register ChartJS
@@ -98,6 +98,15 @@ const Dashboard = () => {
         }
     };
 
+    // Mock data for alerts - In production, fetch from API
+    const negativeBalanceReports = [
+        { officer: 'Hilda Sigei', group: 'Victory Women Group', balance: -19460, date: '2026-01-15' },
+    ];
+
+    const pendingApprovals = 3;
+    const todayMeetings = 24;
+    const dailyTransactions = 156;
+
     // Stats Cards Data
     const stats = [
         { title: 'Total Members', value: '142', icon: <FaUsers />, color: 'bg-green-500', trend: '+12 this month', link: '/members' },
@@ -113,6 +122,87 @@ const Dashboard = () => {
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-800">Dashboard Overview</h2>
                 <div className="text-sm text-gray-500 font-medium">Last updated: {new Date().toLocaleDateString()}</div>
+            </div>
+
+            {/* Critical Alerts Banner */}
+            {negativeBalanceReports.length > 0 && (
+                <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg">
+                    <div className="flex items-start gap-3">
+                        <FaExclamationTriangle className="text-red-600 text-xl mt-1" />
+                        <div className="flex-1">
+                            <h3 className="font-bold text-red-900 mb-2">⚠️ CRITICAL: Negative Balance Alerts</h3>
+                            <div className="space-y-2">
+                                {negativeBalanceReports.map((report, idx) => (
+                                    <div key={idx} className="bg-white p-3 rounded border border-red-200">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <p className="font-bold text-gray-800">{report.officer}</p>
+                                                <p className="text-sm text-gray-600">{report.group}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="font-bold text-red-600 text-lg">
+                                                    KES {Math.abs(report.balance).toLocaleString()}
+                                                </p>
+                                                <p className="text-xs text-gray-500">{report.date}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <Link to="/reconciliation" className="mt-3 inline-block text-sm font-bold text-red-700 hover:underline">
+                                View All Alerts →
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Quick Stats Row */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 font-bold uppercase">Today's Meetings</p>
+                            <p className="text-2xl font-bold text-gray-800 mt-1">{todayMeetings}</p>
+                        </div>
+                        <div className="p-3 bg-blue-100 rounded-lg">
+                            <FaCalendarAlt className="text-blue-600" />
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 font-bold uppercase">Daily Transactions</p>
+                            <p className="text-2xl font-bold text-gray-800 mt-1">{dailyTransactions}</p>
+                        </div>
+                        <div className="p-3 bg-green-100 rounded-lg">
+                            <FaExchangeAlt className="text-green-600" />
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 font-bold uppercase">Pending Approvals</p>
+                            <p className="text-2xl font-bold text-yellow-600 mt-1">{pendingApprovals}</p>
+                        </div>
+                        <div className="p-3 bg-yellow-100 rounded-lg">
+                            <FaExclamationTriangle className="text-yellow-600" />
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs text-gray-500 font-bold uppercase">Field Officers Active</p>
+                            <p className="text-2xl font-bold text-gray-800 mt-1">8/12</p>
+                        </div>
+                        <div className="p-3 bg-purple-100 rounded-lg">
+                            <FaUsers className="text-purple-600" />
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Stats Grid */}

@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
     FaHome, FaUsers, FaMoneyBillWave, FaChartBar, FaFileAlt,
     FaHandHoldingUsd, FaFileInvoiceDollar, FaUserTie,
-    FaBalanceScale, FaCog, FaBell, FaUserCircle
+    FaBalanceScale, FaCog, FaBell, FaUserCircle, FaCheckCircle, FaSms, FaChartLine, FaClipboardList
 } from 'react-icons/fa';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -11,7 +11,10 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
         { path: '/', name: 'Dashboard', icon: <FaHome /> },
         { path: '/members', name: 'Members', icon: <FaUsers /> },
         { path: '/contributions', name: 'Contributions', icon: <FaFileInvoiceDollar /> },
+        { path: '/contribution-compliance', name: 'Contribution Compliance', icon: <FaChartLine /> },
         { path: '/loans', name: 'Loans', icon: <FaHandHoldingUsd /> },
+        { path: '/loan-approvals', name: 'Loan Approvals', icon: <FaCheckCircle /> },
+        { path: '/loan-repayment-tracking', name: 'Loan Repayment Tracking', icon: <FaClipboardList /> },
         { path: '/dividends', name: 'Dividends', icon: <FaMoneyBillWave /> },
         { path: '/officers', name: 'Officers', icon: <FaUserTie /> },
         { path: '/reconciliation', name: 'Reconciliation', icon: <FaBalanceScale /> },
@@ -19,6 +22,11 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
         { path: '/notifications', name: 'Notifications', icon: <FaBell /> },
         { path: '/profile', name: 'Profile', icon: <FaUserCircle /> },
         { path: '/daily-reports', name: 'Daily Cash Report', icon: <FaFileAlt /> },
+        { path: '/meeting-sessions', name: 'Meeting Sessions', icon: <FaChartBar /> },
+        { path: '/cash-reconciliation', name: 'Cash Reconciliation', icon: <FaBalanceScale /> },
+        { path: '/sms-reports', name: 'SMS Reports', icon: <FaSms /> },
+        { path: '/daily-meeting-report', name: 'Meeting Report', icon: <FaFileAlt /> },
+        { path: '/group-monthly', name: 'Group Monthly', icon: <FaFileAlt /> },
     ];
 
     const handleClick = () => {

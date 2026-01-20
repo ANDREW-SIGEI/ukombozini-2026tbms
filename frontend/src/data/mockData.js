@@ -5,11 +5,76 @@ export const mockGroups = [
 ];
 
 export const mockMembers = [
-    { id: 1, name: 'Hilda Sigei', groupId: 1, phone: '+254712345678', status: 'Active', balance: 45000 },
-    { id: 2, name: 'John Doe', groupId: 1, phone: '+254722345678', status: 'Active', balance: 12500 },
-    { id: 3, name: 'Jane Smith', groupId: 1, phone: '+254733345678', status: 'Active', balance: 8900 },
-    { id: 4, name: 'Alice Johnson', groupId: 2, phone: '+254744345678', status: 'Inactive', balance: 0 },
-    { id: 5, name: 'Bob Brown', groupId: 2, phone: '+254755345678', status: 'Active', balance: 56000 },
+    {
+        id: 1,
+        name: 'Hilda Sigei',
+        groupId: 1,
+        groupName: 'Ukombozi Group A',
+        phone: '+254712345678',
+        status: 'Active',
+        balance: 45000,
+        savings: 95000,
+        activeLoans: 50000,
+        arrears: 0,
+        lastActivity: '2026-01-18',
+        lastActivityType: 'Contribution'
+    },
+    {
+        id: 2,
+        name: 'John Doe',
+        groupId: 1,
+        groupName: 'Ukombozi Group A',
+        phone: '+254722345678',
+        status: 'Active',
+        balance: 12500,
+        savings: 112500,
+        activeLoans: 100000,
+        arrears: 0,
+        lastActivity: '2026-01-15',
+        lastActivityType: 'Loan Repayment'
+    },
+    {
+        id: 3,
+        name: 'Jane Smith',
+        groupId: 1,
+        groupName: 'Ukombozi Group A',
+        phone: '+254733345678',
+        status: 'Active',
+        balance: 8900,
+        savings: 38900,
+        activeLoans: 0,
+        arrears: 0,
+        lastActivity: '2026-01-10',
+        lastActivityType: 'Contribution'
+    },
+    {
+        id: 4,
+        name: 'Alice Johnson',
+        groupId: 2,
+        groupName: 'Ukombozi Group B',
+        phone: '+254744345678',
+        status: 'Inactive',
+        balance: 0,
+        savings: 15000,
+        activeLoans: 0,
+        arrears: 15000,
+        lastActivity: '2025-11-20',
+        lastActivityType: 'Arrears'
+    },
+    {
+        id: 5,
+        name: 'Bob Brown',
+        groupId: 2,
+        groupName: 'Ukombozi Group B',
+        phone: '+254755345678',
+        status: 'Active',
+        balance: 56000,
+        savings: 76000,
+        activeLoans: 20000,
+        arrears: 0,
+        lastActivity: '2026-01-18',
+        lastActivityType: 'Loan Repayment'
+    },
 ];
 
 export const mockLoans = [
@@ -43,4 +108,45 @@ export const mockLedgerEntries = [
     { id: 3, memberId: 1, date: '2025-12-31', description: 'Annual Dividend', type: 'Credit', amount: 15400, reference: 'TRX-103' },
     { id: 4, memberId: 5, date: '2026-01-05', description: 'Monthly Saving', type: 'Credit', amount: 10000, reference: 'TRX-104' },
     { id: 5, memberId: 2, date: '2026-01-04', description: 'Special Contribution', type: 'Credit', amount: 2500, reference: 'TRX-105' },
+];
+
+export const mockMeetings = [
+    {
+        id: 1,
+        session_number: 'MTG-202501-GRP-001',
+        group_id: 1,
+        group_name: 'Ukombozi Group A',
+        meeting_date: '2025-01-19',
+        start_time: '2025-01-19T14:00:00',
+        end_time: null,
+        status: 'ACTIVE',
+        total_collected: 45000,
+        total_loans_disbursed: 50000,
+        members_present: 12,
+        members_absent: 3,
+        attendance_percentage: 80,
+        opened_by_name: 'John Kamau',
+        opened_at: '2025-01-19T14:00:00',
+        hours_open: 2.5
+    },
+    {
+        id: 2,
+        session_number: 'MTG-202501-GRP-002',
+        group_id: 1,
+        group_name: 'Ukombozi Group A',
+        meeting_date: '2025-01-12',
+        start_time: '2025-01-12T14:00:00',
+        end_time: '2025-01-12T16:30:00',
+        status: 'LOCKED',
+        total_collected: 38000,
+        total_loans_disbursed: 25000,
+        members_present: 14,
+        members_absent: 1,
+        attendance_percentage: 93.33,
+        opened_by_name: 'John Kamau',
+        closed_by_name: 'John Kamau',
+        opened_at: '2025-01-12T14:00:00',
+        closed_at: '2025-01-12T16:30:00',
+        meeting_duration_hours: 2.5
+    }
 ];

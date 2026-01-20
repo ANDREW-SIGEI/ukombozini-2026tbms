@@ -234,6 +234,147 @@ CREATE TABLE daily_cash_reports (
     UNIQUE KEY unique_officer_group_date (officer_id, group_id, date)
 );
 
+-- ============================================
+-- MEETING SESSIONS & MEMBER TRANSACTIONS
+-- The Heart of the System - Replaces Paper Cashbook
+-- ============================================
+
+-- Meeting Sessions Table (ONE meeting = ONE paper sheet)
+CREATE TABLE meeting_sessions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    group_id INT NOT NULL,
+    officer_id INT NOT NULL,
+    meeting_date DATE NOT NULL,
+    opening_balance DECIMAL(15, 2) NOT NULL,
+    closing_balance DECIMAL(15, 2) NOT NULL,
+    cash_in DECIMAL(15, 2) DEFAULT 0,
+    cash_out DECIMAL(15, 2) DEFAULT 0,
+    status ENUM('draft', 'submitted', 'approved', 'rejected', 'locked') DEFAULT 'draft',
+    rejection_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TIMESTAMP NULL,
+    approved_at TIMESTAMP NULL,
+    approved_by INT,
+    locked_at TIMESTAMP NULL,
+    FOREIGN KEY (group_id) REFERENCES groups(id),
+    FOREIGN KEY (officer_id) REFERENCES users(id),
+    FOREIGN KEY (approved_by) REFERENCES users(id),
+    UNIQUE KEY unique_group_date (group_id, meeting_date),
+    INDEX idx_meeting_date (meeting_date),
+    INDEX idx_status (status)
+);
+
+-- Member Transactions Table (ONE ROW = ONE MEMBER per session)
+CREATE TABLE member_transactions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    session_id INT NOT NULL,
+    member_id INT NOT NULL,
+    
+    -- Transaction amounts (all default to 0)
+    savings_amount DECIMAL(15, 2) DEFAULT 0,
+    stl_repayment DECIMAL(15, 2) DEFAULT 0,  -- Short Term Loan repayment
+    ltl_repayment DECIMAL(15, 2) DEFAULT 0,  -- Long Term Loan repayment
+    loan_interest DECIMAL(15, 2) DEFAULT 0,
+    loan_principal DECIMAL(15, 2) DEFAULT 0,
+    welfare DECIMAL(15, 2) DEFAULT 0,
+    project DECIMAL(15, 2) DEFAULT 0,
+    fines DECIMAL(15, 2) DEFAULT 0,
+    
+    -- Calculated fields (NOT editable, auto-calculated)
+    total_paid DECIMAL(15, 2) GENERATED ALWAYS AS (
+        savings_amount + stl_repayment + ltl_repayment + 
+        loan_interest + loan_principal + welfare + project + fines
+    ) STORED,
+    
+    stl_cf DECIMAL(15, 2) GENERATED ALWAYS AS (
+        stl_repayment + loan_interest + loan_principal
+    ) STORED,
+    
+    ltl_cf DECIMAL(15, 2) GENERATED ALWAYS AS (
+        ltl_repayment
+    ) STORED,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES meeting_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (member_id) REFERENCES members(id),
+    UNIQUE KEY unique_member_session (session_id, member_id),
+    INDEX idx_session_id (session_id),
+    INDEX idx_member_id (member_id)
+);
+
+-- System Totals Table (SYSTEM-ONLY, prevents manual tampering)
+CREATE TABLE system_totals (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    session_id INT NOT NULL UNIQUE,
+    total_savings DECIMAL(15, 2) DEFAULT 0,
+    total_stl DECIMAL(15, 2) DEFAULT 0,
+    total_ltl DECIMAL(15, 2) DEFAULT 0,
+    total_welfare DECIMAL(15, 2) DEFAULT 0,
+    total_fines DECIMAL(15, 2) DEFAULT 0,
+    total_cash_in DECIMAL(15, 2) DEFAULT 0,
+    total_cash_out DECIMAL(15, 2) DEFAULT 0,
+    calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES meeting_sessions(id) ON DELETE CASCADE,
+    INDEX idx_session_id (session_id)
+);
+
+-- Trigger to auto-calculate system totals when member_transactions change
+DELIMITER //
+CREATE TRIGGER calculate_system_totals_after_insert
+AFTER INSERT ON member_transactions
+FOR EACH ROW
+BEGIN
+    INSERT INTO system_totals (
+        session_id,
+        total_savings,
+        total_stl,
+        total_ltl,
+        total_welfare,
+        total_fines,
+        total_cash_in,
+        total_cash_out
+    )
+    SELECT 
+        NEW.session_id,
+        COALESCE(SUM(savings_amount), 0),
+        COALESCE(SUM(stl_repayment + loan_interest + loan_principal), 0),
+        COALESCE(SUM(ltl_repayment), 0),
+        COALESCE(SUM(welfare), 0),
+        COALESCE(SUM(fines), 0),
+        COALESCE(SUM(total_paid), 0),
+        0  -- cash_out calculated separately
+    FROM member_transactions
+    WHERE session_id = NEW.session_id
+    ON DUPLICATE KEY UPDATE
+        total_savings = (SELECT COALESCE(SUM(savings_amount), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_stl = (SELECT COALESCE(SUM(stl_repayment + loan_interest + loan_principal), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_ltl = (SELECT COALESCE(SUM(ltl_repayment), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_welfare = (SELECT COALESCE(SUM(welfare), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_fines = (SELECT COALESCE(SUM(fines), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_cash_in = (SELECT COALESCE(SUM(total_paid), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        calculated_at = CURRENT_TIMESTAMP;
+END//
+DELIMITER ;
+
+-- Trigger to update system totals on update
+DELIMITER //
+CREATE TRIGGER calculate_system_totals_after_update
+AFTER UPDATE ON member_transactions
+FOR EACH ROW
+BEGIN
+    UPDATE system_totals SET
+        total_savings = (SELECT COALESCE(SUM(savings_amount), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_stl = (SELECT COALESCE(SUM(stl_repayment + loan_interest + loan_principal), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_ltl = (SELECT COALESCE(SUM(ltl_repayment), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_welfare = (SELECT COALESCE(SUM(welfare), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_fines = (SELECT COALESCE(SUM(fines), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        total_cash_in = (SELECT COALESCE(SUM(total_paid), 0) FROM member_transactions WHERE session_id = NEW.session_id),
+        calculated_at = CURRENT_TIMESTAMP
+    WHERE session_id = NEW.session_id;
+END//
+DELIMITER ;
+
 -- Dividends Table
 CREATE TABLE dividends (
     id INT PRIMARY KEY AUTO_INCREMENT,
