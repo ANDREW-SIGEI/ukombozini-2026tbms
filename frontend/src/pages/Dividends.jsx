@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
     FaMoneyBillWave, FaChartLine, FaCalculator, FaSave,
-    FaHistory, FaInfoCircle, FaSearch, FaFileExcel, FaDownload, FaSpinner
+    FaHistory, FaInfoCircle, FaSearch, FaFileExcel, FaDownload,
+    FaSpinner, FaTrophy, FaChartPie, FaPlus, FaTrash, FaKeyboard
 } from 'react-icons/fa';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
+import { Doughnut, Bar } from 'react-chartjs-2';
+
+// Register ChartJS
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 const Dividends = () => {
     // State for financial inputs
@@ -31,15 +37,20 @@ const Dividends = () => {
     const [selectedGroupId, setSelectedGroupId] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // Member Data (Initialized with empty or mock)
+    // Member Data
     const [members, setMembers] = useState([]);
+
+    // Manual Mode State
+    const [isManualMode, setIsManualMode] = useState(false);
 
     const [calculations, setCalculations] = useState({
         trf: 0,
         availableProfit: 0,
         profitToShareOut: 0,
         totalAverageShares: 0,
-        dividendRate: 0
+        dividendRate: 0,
+        maxDividend: 0,
+        topEarner: 'N/A'
     });
 
     // Load Groups on Mount
@@ -68,6 +79,7 @@ const Dividends = () => {
     }, [financials, members]);
 
     const handleGenerateReport = async () => {
+        setIsManualMode(false); // Disable manual mode if auto-generating
         if (!selectedGroupId) {
             toast.error("Please select a group first");
             return;
@@ -75,8 +87,6 @@ const Dividends = () => {
 
         setLoading(true);
         try {
-            // Attempt to fetch real data from backend
-            // Note: If RPC is not set up, this might fail, so we catch error
             let reportData;
             try {
                 reportData = await api.generateDividendReport(selectedGroupId, dividendState.year);
@@ -85,12 +95,10 @@ const Dividends = () => {
             }
 
             if (reportData && reportData.members) {
-                // Populate from Backend
                 setFinancials(prev => ({
                     ...prev,
                     ...reportData.financials
                 }));
-                // Map backend member data to frontend structure
                 const formattedMembers = reportData.members.map(m => ({
                     id: m.id,
                     name: m.name,
@@ -106,10 +114,9 @@ const Dividends = () => {
                 setMembers(formattedMembers);
                 toast.success("Report generated from system data!");
             } else {
-                // DEMO MODE: Load rich sample data if no real data found
+                // DEMO MODE: Load rich sample data
                 toast.info("Demo Mode: Loaded sample report");
 
-                // Set Demo Financials
                 setFinancials({
                     bankInterest: 15000,
                     stlInterest: 45000,
@@ -121,7 +128,6 @@ const Dividends = () => {
                     groupAgeYears: 2
                 });
 
-                // Set Demo Members (Matches user's example)
                 setMembers([
                     { id: 1, name: 'Hilda Sigei', balances: { jan: 25350, mar: 26250, may: 27150, jul: 28250, sep: 29550, nov: 31050 } },
                     { id: 2, name: 'John Doe', balances: { jan: 1800, mar: 2700, may: 3300, jul: 3300, sep: 4200, nov: 5200 } },
@@ -138,8 +144,33 @@ const Dividends = () => {
         }
     };
 
+    const activateManualMode = () => {
+        setIsManualMode(true);
+        // Reset to clear basics but keep page active
+        setFinancials({
+            bankInterest: 0, stlInterest: 0, ltlInterest: 0, penalties: 0, otherIncome: 0,
+            expenses: 0, reinvestedLoans: 0, groupAgeYears: 2
+        });
+        setMembers([
+            { id: Date.now(), name: 'Member 1', balances: { jan: 0, mar: 0, may: 0, jul: 0, sep: 0, nov: 0 } }
+        ]);
+        toast.info("Manual Entry Mode Activated");
+    };
+
+    const addManualMember = () => {
+        setMembers([...members, {
+            id: Date.now(),
+            name: `Member ${members.length + 1}`,
+            balances: { jan: 0, mar: 0, may: 0, jul: 0, sep: 0, nov: 0 }
+        }]);
+    };
+
+    const removeMember = (id) => {
+        setMembers(members.filter(m => m.id !== id));
+    };
+
     const calculateDividends = () => {
-        // 1. Calculate TRF
+        // ... (Logic kept same)
         const totalIncome =
             Number(financials.bankInterest) +
             Number(financials.stlInterest) +
@@ -147,27 +178,29 @@ const Dividends = () => {
             Number(financials.penalties) +
             Number(financials.otherIncome);
 
-        // 2. Available Profit (AP)
         const availableProfit = totalIncome - Number(financials.expenses) - Number(financials.reinvestedLoans);
-
-        // 3. Share Out Rate Rule
         const rate = financials.groupAgeYears >= 1 ? 0.75 : 0.50;
         setDividendState(prev => ({ ...prev, shareOutRate: rate }));
-
-        // 4. Profit to Share Out (PSO)
         const profitToShareOut = Math.max(0, availableProfit * rate);
 
-        // 5. Calculate Average Shares
         let totalAvgShares = 0;
+        let maxDiv = 0;
+        let topMember = 'N/A';
+        const divRateTemp = totalIncome > 0 ? (profitToShareOut / (members.reduce((a, m) => a + (Object.values(m.balances).reduce((x, y) => x + y, 0) / 6), 0) || 1)) : 0;
+
         // eslint-disable-next-line no-unused-vars
         const updatedMembers = members.map(m => {
             const sum = Object.values(m.balances).reduce((a, b) => a + b, 0);
             const avg = sum / 6;
             totalAvgShares += avg;
+            const myDiv = avg * divRateTemp;
+            if (myDiv > maxDiv) {
+                maxDiv = myDiv;
+                topMember = m.name;
+            }
             return { ...m, averageShares: avg };
         });
 
-        // 6. Dividend Rate
         const divRate = totalAvgShares > 0 ? (profitToShareOut / totalAvgShares) : 0;
 
         setCalculations({
@@ -175,14 +208,19 @@ const Dividends = () => {
             availableProfit,
             profitToShareOut,
             totalAverageShares: totalAvgShares,
-            dividendRate: divRate
+            dividendRate: divRate,
+            maxDividend: maxDiv,
+            topEarner: topMember
         });
     };
 
     const handleBalanceChange = (id, month, value) => {
-        if (dividendState.status !== 'DRAFT') return;
         const val = parseFloat(value) || 0;
         setMembers(members.map(m => m.id === id ? { ...m, balances: { ...m.balances, [month]: val } } : m));
+    };
+
+    const handleNameChange = (id, name) => {
+        setMembers(members.map(m => m.id === id ? { ...m, name } : m));
     };
 
     const exportToCSV = () => {
@@ -190,11 +228,7 @@ const Dividends = () => {
             toast.error("No data to export");
             return;
         }
-
-        // Headers
         const headers = ["Member Name", "Jan Bal", "Mar Bal", "May Bal", "Jul Bal", "Sep Bal", "Nov Bal", "Avg Shares", "Dividend Amount"];
-
-        // Rows
         const rows = members.map(m => {
             const avg = Object.values(m.balances).reduce((a, b) => a + b, 0) / 6;
             const dividend = avg * calculations.dividendRate;
@@ -205,27 +239,41 @@ const Dividends = () => {
                 dividend.toFixed(2)
             ];
         });
-
-        // Convert to CSV string
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + headers.join(",") + "\n"
-            + rows.map(e => e.join(",")).join("\n");
-
-        // Download link
+        const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `Dividend_Report_${dividendState.year}_${selectedGroupId}.csv`);
+        link.setAttribute("download", `Dividend_Report_${dividendState.year}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         toast.success("Excel report downloaded!");
     };
 
+    // Chart Data Configs
+    const trfData = {
+        labels: ['Banking Interest', 'STL Interest', 'LTL Interest', 'Penalties'],
+        datasets: [{
+            data: [financials.bankInterest, financials.stlInterest, financials.ltlInterest, financials.penalties],
+            backgroundColor: ['#10B981', '#3B82F6', '#6366F1', '#EF4444'],
+            borderWidth: 0
+        }]
+    };
+
+    const distributionData = {
+        labels: ['Payout', 'Reinvested', 'Expenses'],
+        datasets: [{
+            label: 'Amount (KES)',
+            data: [calculations.profitToShareOut, financials.reinvestedLoans, financials.expenses],
+            backgroundColor: ['#8B5CF6', '#F59E0B', '#F87171'],
+            borderRadius: 8
+        }]
+    };
+
     return (
         <div className="flex-1 overflow-auto bg-gray-50 h-full">
             {/* Header */}
-            <div className="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+            <div className="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
                 <div>
                     <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
                         <FaMoneyBillWave className="text-safaricom-green" />
@@ -236,68 +284,87 @@ const Dividends = () => {
                     </p>
                 </div>
                 <div className="flex gap-3">
+                    {/* TOGGLE MANUAL MODE */}
+                    <button
+                        onClick={activateManualMode}
+                        className={`flex items-center gap-2 px-4 py-2 border-2 rounded-xl font-bold transition-all ${isManualMode ? 'bg-orange-50 border-orange-200 text-orange-600' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}
+                    >
+                        <FaKeyboard /> Manual Entry
+                    </button>
+
                     <button onClick={exportToCSV} className="flex items-center gap-2 px-4 py-2 border-2 border-green-600 text-green-700 bg-green-50 rounded-xl font-bold hover:bg-green-100 transition-colors">
                         <FaFileExcel /> Export Excel
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-safaricom-green text-white rounded-xl font-bold hover:bg-green-700 shadow-md">
-                        <FaSave /> Save & Post
                     </button>
                 </div>
             </div>
 
-            <div className="p-8 max-w-[1600px] mx-auto space-y-8">
+            <div className="p-8 max-w-[1600px] mx-auto space-y-8 pb-20">
 
-                {/* 🔍 SEARCH & GENERATE BAR */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-1 w-full">
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Select Group to Process</label>
-                        <div className="relative">
-                            <select
-                                value={selectedGroupId}
-                                onChange={(e) => setSelectedGroupId(e.target.value)}
-                                className="w-full appearance-none bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-700 focus:outline-none focus:border-safaricom-green/50"
-                            >
-                                <option value="">-- Choose a Group --</option>
-                                {groups.map(g => (
-                                    <option key={g.id} value={g.id}>{g.name}</option>
-                                ))}
-                            </select>
-                            <div className="absolute right-4 top-4 text-gray-400 pointer-events-none">
-                                <FaSearch />
+                {/* 🔍 SEARCH BAR - Only Show if NOT Manual Mode */}
+                {!isManualMode && (
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-end z-20 relative">
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Select Group to Process</label>
+                            <div className="relative">
+                                <select
+                                    value={selectedGroupId}
+                                    onChange={(e) => setSelectedGroupId(e.target.value)}
+                                    className="w-full appearance-none bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-700 focus:outline-none focus:border-safaricom-green/50"
+                                >
+                                    <option value="">-- Choose a Group --</option>
+                                    {groups.map(g => (
+                                        <option key={g.id} value={g.id}>{g.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute right-4 top-4 text-gray-400 pointer-events-none">
+                                    <FaSearch />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="w-48">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Financial Year</label>
+                            <input
+                                type="number"
+                                value={dividendState.year}
+                                onChange={(e) => setDividendState({ ...dividendState, year: Number(e.target.value) })}
+                                className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-700 focus:outline-none focus:border-safaricom-green/50"
+                            />
+                        </div>
+                        <button
+                            onClick={handleGenerateReport}
+                            disabled={loading}
+                            className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? <FaSpinner className="animate-spin" /> : <FaDownload />}
+                            GENERATE REPORT
+                        </button>
+                    </div>
+                )}
+
+                {/* MANUAL MODE BANNER */}
+                {isManualMode && (
+                    <div className="bg-orange-50 border-2 border-orange-200 p-4 rounded-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-orange-100 text-orange-600 rounded-lg"><FaKeyboard size={20} /></div>
+                            <div>
+                                <h3 className="font-bold text-orange-900">Manual Entry Mode Active</h3>
+                                <p className="text-sm text-orange-700">You are manually entering data. Inputs are unlocked. Charts update live.</p>
                             </div>
                         </div>
                     </div>
-                    <div className="w-48">
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Financial Year</label>
-                        <input
-                            type="number"
-                            value={dividendState.year}
-                            onChange={(e) => setDividendState({ ...dividendState, year: Number(e.target.value) })}
-                            className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-700 focus:outline-none focus:border-safaricom-green/50"
-                        />
-                    </div>
-                    <button
-                        onClick={handleGenerateReport}
-                        disabled={loading}
-                        className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {loading ? <FaSpinner className="animate-spin" /> : <FaDownload />}
-                        GENERATE REPORT
-                    </button>
-                </div>
+                )}
 
-                {/* 🧱 CONTROL PANEL GRID */}
-                {members.length > 0 ? (
+                {/* 🧱 CONTROL PANEL + ANALYTICS GRID */}
+                {(members.length > 0 || isManualMode) ? (
                     <div className="grid grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         {/* LEFT: Financial Inputs */}
-                        <div className="col-span-12 lg:col-span-4 space-y-6">
-                            {/* ... same as before, simplified for brevity ... */}
+                        <div className="col-span-12 lg:col-span-5 space-y-6">
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                                 <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                                     <h3 className="font-black text-gray-800 flex items-center gap-2">
-                                        <FaCalculator /> Total Return Fund (TRF)
+                                        <FaCalculator /> TRF & Profit Logic
                                     </h3>
-                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">Income</span>
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">Calculator</span>
                                 </div>
                                 <div className="p-6 space-y-4">
                                     <InputRow label="Banking Interest" value={financials.bankInterest} onChange={v => setFinancials({ ...financials, bankInterest: v })} />
@@ -305,76 +372,80 @@ const Dividends = () => {
                                     <InputRow label="LTL Interest" value={financials.ltlInterest} onChange={v => setFinancials({ ...financials, ltlInterest: v })} />
                                     <InputRow label="Penalties" value={financials.penalties} onChange={v => setFinancials({ ...financials, penalties: v })} />
                                     <InputRow label="Other Income" value={financials.otherIncome} onChange={v => setFinancials({ ...financials, otherIncome: v })} />
-
-                                    <div className="pt-4 border-t border-gray-100">
-                                        <div className="flex justify-between items-center bg-green-50 p-3 rounded-lg border border-green-100">
-                                            <span className="font-black text-green-800 uppercase text-xs">Total TRF</span>
-                                            <span className="font-black text-xl text-green-700">KES {calculations.trf.toLocaleString()}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                                    <h3 className="font-black text-gray-800 flex items-center gap-2">
-                                        <FaChartLine /> Profit Logic
-                                    </h3>
-                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded font-bold">Distribution</span>
-                                </div>
-                                <div className="p-6 space-y-4">
+                                    <div className="h-px bg-gray-100 my-2"></div>
                                     <InputRow label="Less: Expenses" value={financials.expenses} onChange={v => setFinancials({ ...financials, expenses: v })} isDeduction />
                                     <InputRow label="Less: Reinvested Loans" value={financials.reinvestedLoans} onChange={v => setFinancials({ ...financials, reinvestedLoans: v })} isDeduction />
 
-                                    <div className="h-px bg-gray-100 my-2"></div>
-
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs font-bold text-gray-500 uppercase">Available Profit</span>
-                                        <span className="font-black text-gray-900">KES {calculations.availableProfit.toLocaleString()}</span>
-                                    </div>
-
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs font-bold text-gray-500 uppercase">Group Age</span>
-                                        <select
-                                            value={financials.groupAgeYears}
-                                            onChange={(e) => setFinancials({ ...financials, groupAgeYears: Number(e.target.value) })}
-                                            className="text-xs font-bold bg-gray-100 border-none rounded p-1"
-                                        >
-                                            <option value={0}>&lt; 1 Year (50%)</option>
-                                            <option value={2}>&gt; 1 Year (75%)</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-xs font-bold text-purple-800 uppercase">Profit to Share Out</span>
-                                            <span className="text-xs font-bold text-purple-600 bg-white px-2 rounded-full">
-                                                {(dividendState.shareOutRate * 100)}%
-                                            </span>
-                                        </div>
-                                        <div className="text-2xl font-black text-purple-700">
-                                            KES {calculations.profitToShareOut.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-safaricom-green p-4 rounded-xl text-white shadow-lg">
-                                        <div className="text-xs font-bold opacity-80 uppercase mb-1">Final Dividend Rate</div>
-                                        <div className="text-4xl font-black">
-                                            {calculations.dividendRate.toFixed(4)}
-                                        </div>
-                                        <div className="text-[10px] opacity-80 mt-1">
-                                            KES {calculations.dividendRate.toFixed(4)} per 1 Share Unit
+                                    <div className="bg-safaricom-green/10 p-4 rounded-xl border border-safaricom-green/20 mt-4">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <div className="text-xs font-bold text-safaricom-green uppercase mb-1">Final Dividend Rate</div>
+                                                <div className="text-3xl font-black text-gray-800">
+                                                    {calculations.dividendRate.toFixed(4)}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Payout</div>
+                                                <div className="text-xl font-black text-safaricom-green">
+                                                    KES {calculations.profitToShareOut.toLocaleString()}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* RIGHT: Member Table */}
-                        <div className="col-span-12 lg:col-span-8">
+                        {/* RIGHT: Visual Analytics */}
+                        <div className="col-span-12 lg:col-span-7 space-y-6">
+                            {/* Stats */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-5 rounded-2xl border border-orange-100 relative overflow-hidden">
+                                    <FaTrophy className="absolute -right-4 -bottom-4 text-8xl text-orange-200/50" />
+                                    <div className="relative z-10">
+                                        <div className="text-xs font-bold text-orange-600 uppercase">Top Earner</div>
+                                        <div className="text-2xl font-black text-gray-800 mt-1">{calculations.topEarner}</div>
+                                        <div className="text-sm font-bold text-orange-600">KES {calculations.maxDividend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                                    </div>
+                                </div>
+                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 relative overflow-hidden">
+                                    <FaChartPie className="absolute -right-4 -bottom-4 text-8xl text-blue-200/50" />
+                                    <div className="relative z-10">
+                                        <div className="text-xs font-bold text-blue-600 uppercase">Profit Utilized</div>
+                                        <div className="text-2xl font-black text-gray-800 mt-1">{(dividendState.shareOutRate * 100)}%</div>
+                                        <div className="text-sm font-bold text-blue-600">Distributed to Members</div>
+                                    </div>
+                                </div>
+                            </div>
+                            {/* Charts */}
+                            <div className="grid grid-cols-2 gap-4 h-64">
+                                <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 w-full text-left">Income Mix</h4>
+                                    <div className="w-40 h-40">
+                                        <Doughnut data={trfData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } } }} />
+                                    </div>
+                                </div>
+                                <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 w-full text-left">Fund Allocation</h4>
+                                    <div className="w-full h-40">
+                                        <Bar data={distributionData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* BOTTOM: Full Width Member Table */}
+                        <div className="col-span-12">
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
                                 <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                                    <h3 className="font-black text-gray-800">Member Share Snapshot</h3>
+                                    <div className="flex items-center gap-4">
+                                        <h3 className="font-black text-gray-800">Member Share Snapshot</h3>
+                                        {isManualMode && (
+                                            <button onClick={addManualMember} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-blue-100">
+                                                <FaPlus /> Add Member
+                                            </button>
+                                        )}
+                                    </div>
                                     <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
                                         <FaInfoCircle /> Bi-Monthly Balances
                                     </div>
@@ -389,6 +460,7 @@ const Dividends = () => {
                                                 ))}
                                                 <th className="p-4 border-b border-gray-200 text-right bg-blue-50 text-blue-800">Avg Shares</th>
                                                 <th className="p-4 border-b border-gray-200 text-right bg-green-50 text-green-800">Dividend</th>
+                                                {isManualMode && <th className="p-4 border-b border-gray-200 w-10"></th>}
                                             </tr>
                                         </thead>
                                         <tbody className="text-sm">
@@ -398,7 +470,16 @@ const Dividends = () => {
 
                                                 return (
                                                     <tr key={member.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                                        <td className="p-4 font-bold text-gray-800 sticky left-0 bg-white shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">{member.name}</td>
+                                                        <td className="p-4 font-bold text-gray-800 sticky left-0 bg-white shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">
+                                                            {isManualMode ? (
+                                                                <input
+                                                                    type="text"
+                                                                    value={member.name}
+                                                                    onChange={(e) => handleNameChange(member.id, e.target.value)}
+                                                                    className="w-full bg-gray-50 border-b border-gray-300 focus:border-blue-500 outline-none px-1"
+                                                                />
+                                                            ) : member.name}
+                                                        </td>
                                                         {['jan', 'mar', 'may', 'jul', 'sep', 'nov'].map(month => (
                                                             <td key={month} className="p-2 text-right">
                                                                 <input
@@ -415,20 +496,25 @@ const Dividends = () => {
                                                         <td className="p-4 text-right font-black text-safaricom-green bg-green-50/30 text-base">
                                                             {dividend.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                         </td>
+                                                        {isManualMode && (
+                                                            <td className="p-4 text-center">
+                                                                <button onClick={() => removeMember(member.id)} className="text-red-300 hover:text-red-500 transition-colors">
+                                                                    <FaTrash />
+                                                                </button>
+                                                            </td>
+                                                        )}
                                                     </tr>
                                                 );
                                             })}
                                         </tbody>
+                                        {/* TFOOTER (kept same) */}
                                         <tfoot className="bg-gray-100 font-black text-gray-900 border-t-2 border-gray-200 sticky bottom-0 z-10 shadow-lg">
                                             <tr>
                                                 <td className="p-4 sticky left-0 bg-gray-100 uppercase text-xs z-20 shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">Total</td>
-                                                <td colSpan={6} className="p-4 text-right text-xs text-gray-500 uppercase tracking-wide">
-                                                    Total Average Shares:
-                                                </td>
+                                                <td colSpan={6} className="p-4 text-right text-xs text-gray-500 uppercase tracking-wide">Total Average Shares:</td>
                                                 <td className="p-4 text-right">{calculations.totalAverageShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                                                <td className="p-4 text-right text-safaricom-green">{members.reduce((sum, m) =>
-                                                    sum + ((Object.values(m.balances).reduce((a, b) => a + b, 0) / 6) * calculations.dividendRate), 0
-                                                ).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                                <td className="p-4 text-right text-safaricom-green">{members.reduce((sum, m) => sum + ((Object.values(m.balances).reduce((a, b) => a + b, 0) / 6) * calculations.dividendRate), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                                {isManualMode && <td></td>}
                                             </tr>
                                         </tfoot>
                                     </table>
@@ -439,8 +525,13 @@ const Dividends = () => {
                 ) : (
                     <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gray-300">
                         <FaCalculator className="text-6xl text-gray-200 mx-auto mb-4" />
-                        <h3 className="text-xl font-bold text-gray-400">Select a Group & Generate Report</h3>
-                        <p className="text-gray-400">Select a group above to calculate dividends according to institutional rules.</p>
+                        <h3 className="text-xl font-bold text-gray-400">Select Mode</h3>
+                        <div className="flex justify-center gap-4 mt-4">
+                            <button onClick={activateManualMode} className="px-6 py-2 bg-orange-100 text-orange-700 font-bold rounded-xl hover:bg-orange-200 transition-colors">
+                                <FaKeyboard className="inline mr-2" /> Manual Entry
+                            </button>
+                            <span className="self-center text-gray-400">or select a group above</span>
+                        </div>
                     </div>
                 )}
             </div>
@@ -457,8 +548,8 @@ const InputRow = ({ label, value, onChange, isDeduction }) => (
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
-                    ? 'border-red-200 text-red-600 focus:ring-red-200'
-                    : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
+                        ? 'border-red-200 text-red-600 focus:ring-red-200'
+                        : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
                     }`}
                 placeholder="0"
             />
