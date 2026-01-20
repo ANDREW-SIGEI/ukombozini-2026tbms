@@ -97,9 +97,20 @@ const Dividends = () => {
             }
 
             if (reportData && reportData.members) {
+                // Calculate Group Age for Policy Enforcement (75% vs 50%)
+                const selectedGroup = groups.find(g => g.id === selectedGroupId);
+                let calculatedAge = 2; // Default to >1 yr if unknown
+                if (selectedGroup && selectedGroup.created_at) {
+                    const created = new Date(selectedGroup.created_at);
+                    const now = new Date();
+                    const diffTime = Math.abs(now - created);
+                    calculatedAge = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+                }
+
                 setFinancials(prev => ({
                     ...prev,
-                    ...reportData.financials
+                    ...reportData.financials,
+                    groupAgeYears: calculatedAge
                 }));
                 const formattedMembers = reportData.members.map(m => ({
                     id: m.id,
