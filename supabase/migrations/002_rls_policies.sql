@@ -22,18 +22,21 @@ ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 -- ============================================
 
 -- Get current user's role
+DROP FUNCTION IF EXISTS get_user_role() CASCADE;
 CREATE OR REPLACE FUNCTION get_user_role()
 RETURNS TEXT AS $$
     SELECT role FROM profiles WHERE id = auth.uid();
 $$ LANGUAGE SQL SECURITY DEFINER;
 
 -- Check if user is director or admin
+DROP FUNCTION IF EXISTS is_director_or_admin() CASCADE;
 CREATE OR REPLACE FUNCTION is_director_or_admin()
 RETURNS BOOLEAN AS $$
     SELECT role IN ('director', 'admin') FROM profiles WHERE id = auth.uid();
 $$ LANGUAGE SQL SECURITY DEFINER;
 
 -- Get groups assigned to current field officer
+DROP FUNCTION IF EXISTS get_officer_groups() CASCADE;
 CREATE OR REPLACE FUNCTION get_officer_groups()
 RETURNS SETOF BIGINT AS $$
     SELECT group_id FROM officer_groups WHERE officer_id = auth.uid();

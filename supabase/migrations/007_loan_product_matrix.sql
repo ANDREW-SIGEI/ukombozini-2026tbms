@@ -7,7 +7,7 @@
 
 -- Create loan_products table
 CREATE TABLE IF NOT EXISTS loan_products (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id BIGSERIAL PRIMARY KEY,
     loan_amount NUMERIC(15, 2) NOT NULL UNIQUE,
     monthly_installment NUMERIC(15, 2) NOT NULL,
     principal_portion NUMERIC(15, 2) NOT NULL,
@@ -67,8 +67,8 @@ ON CONFLICT (loan_amount) DO NOTHING;
 -- Create repayment_schedule table
 DROP TABLE IF EXISTS repayment_schedule CASCADE;
 CREATE TABLE IF NOT EXISTS repayment_schedule (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    loan_id UUID NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    id BIGSERIAL PRIMARY KEY,
+    loan_id BIGINT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
     
     -- Schedule details
     installment_number INTEGER NOT NULL,
@@ -105,10 +105,10 @@ CREATE INDEX IF NOT EXISTS idx_repayment_schedule_status ON repayment_schedule(s
 -- ============================================
 -- FUNCTION: Generate Repayment Schedule
 -- ============================================
-DROP FUNCTION IF EXISTS generate_repayment_schedule(UUID, NUMERIC, DATE);
+DROP FUNCTION IF EXISTS generate_repayment_schedule(BIGINT, NUMERIC, DATE);
 DROP FUNCTION IF EXISTS generate_repayment_schedule(BIGINT, NUMERIC, DATE);
 CREATE OR REPLACE FUNCTION generate_repayment_schedule(
-    p_loan_id UUID,
+    p_loan_id BIGINT,
     p_loan_amount NUMERIC,
     p_start_date DATE
 )
@@ -174,9 +174,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ============================================
 -- FUNCTION: Calculate Arrears
 -- ============================================
-DROP FUNCTION IF EXISTS calculate_loan_arrears(UUID);
 DROP FUNCTION IF EXISTS calculate_loan_arrears(BIGINT);
-CREATE OR REPLACE FUNCTION calculate_loan_arrears(p_loan_id UUID)
+DROP FUNCTION IF EXISTS calculate_loan_arrears(BIGINT);
+CREATE OR REPLACE FUNCTION calculate_loan_arrears(p_loan_id BIGINT)
 RETURNS JSONB AS $$
 DECLARE
     v_total_arrears NUMERIC := 0;
@@ -222,10 +222,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ============================================
 -- FUNCTION: Record Payment
 -- ============================================
-DROP FUNCTION IF EXISTS record_loan_payment(UUID, INTEGER, NUMERIC, DATE);
+DROP FUNCTION IF EXISTS record_loan_payment(BIGINT, INTEGER, NUMERIC, DATE);
 DROP FUNCTION IF EXISTS record_loan_payment(BIGINT, INTEGER, NUMERIC, DATE);
 CREATE OR REPLACE FUNCTION record_loan_payment(
-    p_loan_id UUID,
+    p_loan_id BIGINT,
     p_installment_number INTEGER,
     p_amount NUMERIC,
     p_payment_date DATE DEFAULT CURRENT_DATE
@@ -377,3 +377,4 @@ BEGIN
     RAISE NOTICE '   - Track arrears in real-time';
     RAISE NOTICE '   - Record payments accurately';
 END $$;
+
