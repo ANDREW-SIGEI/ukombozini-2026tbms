@@ -312,21 +312,125 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         {/* LEFT: Member & Loan Details */}
                         <div className="space-y-6">
-                            {/* Member Financial Summary */}
+                            {/* Member Financial Summary - ENHANCED */}
                             <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 rounded-2xl border-2 border-blue-200">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <FaInfoCircle className="text-blue-600" />
-                                    <h4 className="text-xs font-black text-blue-900 uppercase">Member Loan Capacity</h4>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <FaInfoCircle className="text-blue-600" />
+                                        <h4 className="text-xs font-black text-blue-900 uppercase">Member Loan Capacity</h4>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="text-blue-500 hover:text-blue-700 transition-colors"
+                                        title="Loan capacity is calculated as 3× member's total savings. This ensures members can repay from their own funds if needed."
+                                    >
+                                        <FaInfoCircle className="text-sm" />
+                                    </button>
                                 </div>
+
                                 <div className="grid grid-cols-2 gap-3">
-                                    <SummaryItem label="Current Savings" value={`KES ${member.savings.toLocaleString()}`} />
-                                    <SummaryItem label="Max Loan (3x)" value={`KES ${baseMaxLoan.toLocaleString()}`} />
-                                    <SummaryItem label="Active Loans" value={`KES ${member.activeLoans.toLocaleString()}`} />
-                                    <SummaryItem
-                                        label="Arrears"
-                                        value={member.arrears > 0 ? `KES ${member.arrears.toLocaleString()}` : 'None'}
-                                        alert={member.arrears > 0}
-                                    />
+                                    {/* Current Savings */}
+                                    <div className="bg-white p-3 rounded-xl">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <div className="text-xs text-gray-500">Current Savings</div>
+                                            <button
+                                                type="button"
+                                                className="text-gray-400 hover:text-gray-600"
+                                                title="Total member savings from all contributions. Updated in real-time."
+                                            >
+                                                <FaInfoCircle className="text-[10px]" />
+                                            </button>
+                                        </div>
+                                        <div className="text-lg font-black text-safaricom-green">
+                                            KES {member.savings.toLocaleString()}
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 mt-1">
+                                            As of {new Date().toLocaleDateString('en-GB')}
+                                        </div>
+                                    </div>
+
+                                    {/* Max Loan */}
+                                    <div className="bg-white p-3 rounded-xl">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <div className="text-xs text-gray-500">Max Loan (3×)</div>
+                                            <button
+                                                type="button"
+                                                className="text-gray-400 hover:text-gray-600"
+                                                title="Maximum loan = Savings × 3. This is the upper limit based on member's financial capacity."
+                                            >
+                                                <FaInfoCircle className="text-[10px]" />
+                                            </button>
+                                        </div>
+                                        <div className="text-lg font-black text-blue-600">
+                                            KES {baseMaxLoan.toLocaleString()}
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 mt-1">
+                                            Calc: {member.savings.toLocaleString()} × 3
+                                        </div>
+                                    </div>
+
+                                    {/* Active Loans */}
+                                    <div className="bg-white p-3 rounded-xl">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <div className="text-xs text-gray-500">Active Loans</div>
+                                            <button
+                                                type="button"
+                                                className="text-gray-400 hover:text-gray-600"
+                                                title="Total outstanding loan balance. Having active loans reduces available loan capacity."
+                                            >
+                                                <FaInfoCircle className="text-[10px]" />
+                                            </button>
+                                        </div>
+                                        <div className={`text-lg font-black ${member.activeLoans > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                                            KES {member.activeLoans.toLocaleString()}
+                                        </div>
+                                        {member.activeLoans > maxLoan * 0.5 ? (
+                                            <div className="text-[10px] text-orange-600 mt-1 flex items-center gap-1">
+                                                <FaExclamationTriangle className="text-[8px]" />
+                                                High utilization
+                                            </div>
+                                        ) : (
+                                            <div className="text-[10px] text-gray-500 mt-1">
+                                                {((member.activeLoans / baseMaxLoan) * 100).toFixed(0)}% of limit
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Arrears Status */}
+                                    <div className="bg-white p-3 rounded-xl">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <div className="text-xs text-gray-500">Arrears</div>
+                                            <button
+                                                type="button"
+                                                className="text-gray-400 hover:text-gray-600"
+                                                title="Overdue loan payments. Members with arrears cannot access new loans until cleared."
+                                            >
+                                                <FaInfoCircle className="text-[10px]" />
+                                            </button>
+                                        </div>
+                                        <div className={`text-lg font-black ${member.arrears > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            {member.arrears > 0 ? `KES ${member.arrears.toLocaleString()}` : 'None'}
+                                        </div>
+                                        {member.arrears === 0 ? (
+                                            <div className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
+                                                <FaCheckCircle className="text-[8px]" />
+                                                Good standing
+                                            </div>
+                                        ) : (
+                                            <div className="text-[10px] text-red-600 mt-1 flex items-center gap-1">
+                                                <FaBan className="text-[8px]" />
+                                                Must clear first
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Helpful tip */}
+                                <div className="mt-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                                    <p className="text-[10px] text-blue-700 flex items-center gap-1">
+                                        <FaInfoCircle className="text-[8px]" />
+                                        <strong>Tip:</strong> Members with higher savings can access larger loans. Encourage regular contributions to increase loan capacity.
+                                    </p>
                                 </div>
                             </div>
 
@@ -344,8 +448,8 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                             disabled={!hasMeeting}
                                             onClick={() => setLoanType(typeName)}
                                             className={`w-full p-4 rounded-xl text-left transition-all border-2 disabled:opacity-40 disabled:cursor-not-allowed ${loanType === typeName
-                                                    ? 'bg-safaricom-green/10 border-safaricom-green shadow-md'
-                                                    : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                                                ? 'bg-safaricom-green/10 border-safaricom-green shadow-md'
+                                                : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                                                 }`}
                                         >
                                             <div className="flex items-center gap-3">
@@ -385,8 +489,15 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                             {/* Loan Amount & Duration */}
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-xs font-black text-gray-500 uppercase mb-2">
-                                        Loan Amount (KES) *
+                                    <label className="block text-xs font-black text-gray-500 uppercase mb-2 flex items-center justify-between">
+                                        Amount (KES) *
+                                        <button
+                                            type="button"
+                                            className="text-gray-400 hover:text-gray-600"
+                                            title="Enter amount within min/max limits. Use percentage buttons for quick selection."
+                                        >
+                                            <FaInfoCircle className="text-[10px]" />
+                                        </button>
                                     </label>
                                     <input
                                         required
@@ -394,18 +505,55 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         min={currentRule.minAmount}
                                         max={maxLoan}
                                         disabled={!hasMeeting}
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none font-bold disabled:opacity-50 ${loanAmount && parseFloat(loanAmount) > maxLoan
+                                            ? 'border-red-500 text-red-600'
+                                            : 'border-gray-200 focus:border-safaricom-green'
+                                            }`}
                                         placeholder="0"
                                         value={loanAmount}
                                         onChange={(e) => setLoanAmount(e.target.value)}
                                     />
-                                    <p className="text-[10px] text-gray-500 mt-1">
-                                        Min: KES {currentRule.minAmount.toLocaleString()} | Max: KES {maxLoan.toLocaleString()}
-                                    </p>
+
+                                    {/* Quick Amount Buttons */}
+                                    <div className="flex gap-1 mt-2">
+                                        {[0.25, 0.5, 0.75, 1].map((pct) => (
+                                            <button
+                                                key={pct}
+                                                type="button"
+                                                onClick={() => setLoanAmount(Math.floor(maxLoan * pct))}
+                                                className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-colors ${parseFloat(loanAmount) === Math.floor(maxLoan * pct)
+                                                    ? 'bg-safaricom-green text-white'
+                                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                    }`}
+                                            >
+                                                {pct * 100}%
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Validation Message */}
+                                    {loanAmount && parseFloat(loanAmount) > maxLoan ? (
+                                        <div className="text-[10px] text-red-600 mt-2 flex items-center gap-1 font-bold">
+                                            <FaExclamationTriangle />
+                                            Exceeds limit by KES {(parseFloat(loanAmount) - maxLoan).toLocaleString()}
+                                        </div>
+                                    ) : (
+                                        <p className="text-[10px] text-gray-500 mt-2">
+                                            Min: {currentRule.minAmount.toLocaleString()} | Max: {maxLoan.toLocaleString()}
+                                        </p>
+                                    )}
                                 </div>
+
                                 <div>
-                                    <label className="block text-xs font-black text-gray-500 uppercase mb-2">
-                                        Duration (Months) *
+                                    <label className="block text-xs font-black text-gray-500 uppercase mb-2 flex items-center justify-between">
+                                        Duration *
+                                        <button
+                                            type="button"
+                                            className="text-gray-400 hover:text-gray-600"
+                                            title="Longer duration = lower monthly payments but higher total interest."
+                                        >
+                                            <FaInfoCircle className="text-[10px]" />
+                                        </button>
                                     </label>
                                     <select
                                         value={duration}
@@ -417,38 +565,81 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                             <option key={m} value={m}>{m} Month{m > 1 ? 's' : ''}</option>
                                         ))}
                                     </select>
+
+                                    {/* Smart Recommendation */}
+                                    {loanAmount && (
+                                        <div className="mt-2 p-2 bg-blue-50 rounded-lg">
+                                            <p className="text-[9px] text-blue-700 leading-tight">
+                                                💡 <strong>Tip:</strong>
+                                                {parseFloat(loanAmount) > 50000
+                                                    ? ' For this amount, 12+ months effectively reduces monthly burden.'
+                                                    : ' Less than 6 months minimizes total interest paid.'}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
                             {/* Purpose */}
                             <div>
-                                <label className="block text-xs font-black text-gray-500 uppercase mb-2">
-                                    Loan Purpose * (Minimum 10 characters)
+                                <label className="block text-xs font-black text-gray-500 uppercase mb-2 flex items-center justify-between">
+                                    Loan Purpose * (Min 10 chars)
+                                    <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-gray-600"
+                                        title="Specific purposes increase approval chances."
+                                    >
+                                        <FaInfoCircle className="text-[10px]" />
+                                    </button>
                                 </label>
                                 <textarea
                                     required
                                     minLength={10}
                                     rows={3}
                                     disabled={!hasMeeting}
-                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                                    placeholder="Enter detailed purpose for this loan..."
+                                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                                    placeholder="Enter detailed purpose (e.g., 'Business expansion - Stock purchase')"
                                     value={purpose}
                                     onChange={(e) => setPurpose(e.target.value)}
                                 />
+                                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ Business Stock</span>
+                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ School Fees</span>
+                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ Farm Inputs</span>
+                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ Emergency Medical</span>
+                                </div>
                             </div>
 
                             {/* Guarantors (conditional) */}
                             {currentRule.requiresGuarantors && (
                                 <div className="space-y-3">
-                                    <label className="block text-xs font-black text-gray-500 uppercase">
+                                    <label className="block text-xs font-black text-gray-500 uppercase flex items-center justify-between">
                                         Guarantors (Required for {loanType}) *
+                                        <button
+                                            type="button"
+                                            className="text-gray-400 hover:text-gray-600"
+                                            title="Guarantors must have savings > 50% of loan amount and no arrears."
+                                        >
+                                            <FaInfoCircle className="text-[10px]" />
+                                        </button>
                                     </label>
+
+                                    {/* Eligibility Rules */}
+                                    <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 mb-2">
+                                        <p className="text-[10px] text-yellow-800 font-bold mb-1">✅ Guarantor Eligibility:</p>
+                                        <ul className="text-[9px] text-yellow-800 list-disc list-inside">
+                                            <li>Savings ≥ 50% of loan amount</li>
+                                            <li>No outstanding arrears</li>
+                                            <li>Active member (not self)</li>
+                                        </ul>
+                                    </div>
+
                                     <input
                                         required={currentRule.requiresGuarantors}
                                         type="text"
                                         disabled={!hasMeeting}
                                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                                        placeholder="Guarantor 1 Name"
+                                        placeholder="Guarantor 1 Name (must be present)"
                                         value={guarantor1}
                                         onChange={(e) => setGuarantor1(e.target.value)}
                                     />
@@ -457,7 +648,7 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         type="text"
                                         disabled={!hasMeeting}
                                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                                        placeholder="Guarantor 2 Name"
+                                        placeholder="Guarantor 2 Name (must be present)"
                                         value={guarantor2}
                                         onChange={(e) => setGuarantor2(e.target.value)}
                                     />
@@ -467,37 +658,73 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
 
                         {/* RIGHT: Repayment Preview & System Impact */}
                         <div className="space-y-6">
-                            {/* Repayment Calculator */}
+                            {/* Repayment Calculator - ENHANCED */}
                             <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-6 rounded-2xl border-2 border-gray-200">
-                                <h4 className="text-sm font-black text-gray-900 flex items-center gap-2 mb-4">
-                                    <FaCalculator className="text-safaricom-green" />
-                                    Repayment Calculator
+                                <h4 className="text-sm font-black text-gray-900 flex items-center justify-between gap-2 mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <FaCalculator className="text-safaricom-green" />
+                                        Repayment Calculator
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-gray-600"
+                                        title="Shows breakdown of total cost and monthly installments."
+                                    >
+                                        <FaInfoCircle className="text-[10px]" />
+                                    </button>
                                 </h4>
 
                                 {repaymentPreview ? (
                                     <div className="space-y-4">
+                                        {/* Monthly Payment Highlight */}
                                         <div className="bg-white p-5 rounded-xl border-2 border-safaricom-green/20">
                                             <div className="text-xs text-gray-500 uppercase font-bold mb-2">Monthly Payment</div>
                                             <div className="text-4xl font-black text-safaricom-dark">
                                                 KES {repaymentPreview.monthlyRepayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                             </div>
+                                            {/* Affordability Warning */}
+                                            {member.savings > 0 && (
+                                                <div className="mt-2 pt-2 border-t border-gray-100">
+                                                    <div className="flex items-center justify-between text-[10px]">
+                                                        <span className="text-gray-500">Ratio to Savings:</span>
+                                                        <span className={`font-bold ${(repaymentPreview.monthlyRepayment / member.savings) > 0.3 ? 'text-orange-600' : 'text-green-600'
+                                                            }`}>
+                                                            {((repaymentPreview.monthlyRepayment / member.savings) * 100).toFixed(1)}%
+                                                        </span>
+                                                    </div>
+                                                    {(repaymentPreview.monthlyRepayment / member.savings) > 0.3 && (
+                                                        <div className="text-[9px] text-orange-600 mt-1 flex items-center gap-1">
+                                                            <FaExclamationTriangle /> High ratio - Consider longer duration
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
 
+                                        {/* Detailed Breakdown */}
                                         <div className="bg-white p-4 rounded-xl space-y-2">
                                             <RepaymentRow label="Principal" value={`KES ${repaymentPreview.principal.toLocaleString()}`} />
-                                            <RepaymentRow label={`Interest (${interestRate}% p.m.)`} value={`KES ${repaymentPreview.totalInterest.toLocaleString()}`} />
+                                            <RepaymentRow
+                                                label={`Interest (${interestRate}% p.m.)`}
+                                                value={`+ KES ${repaymentPreview.totalInterest.toLocaleString()}`}
+                                                highlightValue={true}
+                                            />
                                             <div className="h-px bg-gray-200 my-2"></div>
                                             <RepaymentRow label="Total Repayable" value={`KES ${repaymentPreview.totalRepayable.toLocaleString()}`} bold={true} />
                                         </div>
 
-                                        <div className="text-xs text-gray-600">
+                                        {/* Schedule */}
+                                        <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
                                             <div className="flex justify-between mb-1">
-                                                <span>First Payment:</span>
-                                                <span className="font-bold">{repaymentPreview.firstPaymentDate}</span>
+                                                <span>📅 First Payment:</span>
+                                                <span className="font-bold text-gray-900">{repaymentPreview.firstPaymentDate}</span>
                                             </div>
                                             <div className="flex justify-between">
-                                                <span>Final Payment:</span>
-                                                <span className="font-bold">{repaymentPreview.finalPaymentDate}</span>
+                                                <span>📅 Final Payment:</span>
+                                                <span className="font-bold text-gray-900">{repaymentPreview.finalPaymentDate}</span>
+                                            </div>
+                                            <div className="text-[9px] text-center mt-2 text-gray-400">
+                                                {duration} monthly installments
                                             </div>
                                         </div>
                                     </div>
@@ -509,10 +736,19 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                 )}
                             </div>
 
-                            {/* System Impact Preview */}
+                            {/* System Impact Preview - ENHANCED */}
                             <div className="bg-gradient-to-br from-purple-50 to-blue-50 p-5 rounded-2xl border-2 border-purple-200">
-                                <h4 className="text-xs font-black text-purple-900 uppercase flex items-center gap-2 mb-4">
-                                    <FaShieldAlt /> System Impact Preview
+                                <h4 className="text-xs font-black text-purple-900 uppercase flex items-center justify-between gap-2 mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <FaShieldAlt /> System Impact Preview
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="text-purple-400 hover:text-purple-600"
+                                        title="Shows exactly how this loan will affect the member's account and group records."
+                                    >
+                                        <FaInfoCircle className="text-[10px]" />
+                                    </button>
                                 </h4>
 
                                 <div className="space-y-3">
@@ -520,21 +756,21 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         icon="💰"
                                         label="Member Ledger"
                                         value={loanAmount ? `+KES ${parseFloat(loanAmount).toLocaleString()}` : 'N/A'}
-                                        sub="Loan disbursed to member account"
+                                        sub={loanAmount ? "Loan disbursed to member account" : "Pending calculation..."}
                                         active={!!loanAmount}
                                     />
                                     <ImpactRow
                                         icon="📊"
                                         label="Cash Out"
                                         value={loanAmount ? `KES ${parseFloat(loanAmount).toLocaleString()}` : 'N/A'}
-                                        sub={`Meeting #${activeMeeting?.session_number || 'N/A'} cash reconciliation`}
+                                        sub={loanAmount ? `Meeting #${activeMeeting?.session_number || 'N/A'} cash reconciliation` : "Pending input..."}
                                         active={!!loanAmount}
                                     />
                                     <ImpactRow
                                         icon="📈"
                                         label="Loan Tracking"
                                         value={repaymentPreview ? `${duration} payments` : 'N/A'}
-                                        sub={`Monthly: KES ${repaymentPreview?.monthlyRepayment.toLocaleString(undefined, { maximumFractionDigits: 0 }) || '0'}`}
+                                        sub={repaymentPreview ? `Monthly: KES ${repaymentPreview?.monthlyRepayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "Schedule pending..."}
                                         active={!!repaymentPreview}
                                     />
                                 </div>
@@ -593,10 +829,12 @@ const SummaryItem = ({ label, value, alert }) => (
     </div>
 );
 
-const RepaymentRow = ({ label, value, bold }) => (
+const RepaymentRow = ({ label, value, bold, highlightValue }) => (
     <div className="flex justify-between text-xs">
         <span className={bold ? 'font-black text-gray-900' : 'text-gray-500'}>{label}</span>
-        <span className={bold ? 'font-black text-gray-900' : 'font-bold text-gray-700'}>{value}</span>
+        <span className={`${bold ? 'font-black text-gray-900' : 'font-bold'} ${highlightValue ? 'text-orange-600' : 'text-gray-700'}`}>
+            {value}
+        </span>
     </div>
 );
 
