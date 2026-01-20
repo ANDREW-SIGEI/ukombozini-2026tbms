@@ -161,10 +161,10 @@ COMMENT ON COLUMN transactions.amount IS 'Positive = credit (money in), Negative
 COMMENT ON COLUMN transactions.reversed IS 'If TRUE, this transaction has been reversed (do not count in calculations)';
 
 -- Create index for fast queries
-CREATE INDEX idx_transactions_member ON transactions(member_id) WHERE reversed = FALSE;
-CREATE INDEX idx_transactions_group ON transactions(group_id) WHERE reversed = FALSE;
-CREATE INDEX idx_transactions_meeting ON transactions(meeting_id) WHERE reversed = FALSE;
-CREATE INDEX idx_transactions_type ON transactions(type) WHERE reversed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_transactions_member ON transactions(member_id) WHERE reversed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id) WHERE reversed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_transactions_meeting ON transactions(meeting_id) WHERE reversed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type) WHERE reversed = FALSE;
 
 -- ============================================
 -- 8. REVERSALS (Audit-Safe Corrections)
@@ -221,18 +221,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON profiles;
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_groups_updated_at ON groups;
 CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON groups
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_members_updated_at ON members;
 CREATE TRIGGER update_members_updated_at BEFORE UPDATE ON members
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_meetings_updated_at ON meetings;
 CREATE TRIGGER update_meetings_updated_at BEFORE UPDATE ON meetings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_loans_updated_at ON loans;
 CREATE TRIGGER update_loans_updated_at BEFORE UPDATE ON loans
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -245,7 +250,8 @@ INSERT INTO system_settings (key, value, description) VALUES
     ('stl_interest_rate', '10', 'Short-term loan interest rate (%)'),
     ('ltl_interest_rate', '15', 'Long-term loan interest rate (%)'),
     ('max_loan_multiplier', '3', 'Maximum loan = savings × this value'),
-    ('min_savings_balance', '1000', 'Minimum savings balance required');
+    ('min_savings_balance', '1000', 'Minimum savings balance required')
+ON CONFLICT (key) DO NOTHING;
 
 -- ============================================
 -- SUCCESS MESSAGE
