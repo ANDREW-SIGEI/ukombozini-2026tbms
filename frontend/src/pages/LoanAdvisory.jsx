@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     FaCalculator, FaMoneyBillWave, FaPercentage, FaHistory,
-    FaExclamationTriangle, FaTable, FaInfoCircle, FaCalendarAlt, FaCheckCircle
+    FaExclamationTriangle, FaTable, FaInfoCircle, FaCalendarAlt, FaCheckCircle, FaFilePdf
 } from 'react-icons/fa';
+import { toast } from 'react-toastify';
+import api from '../services/api';
 
 /**
  * LOAN ADVISORY PAGE
@@ -16,48 +18,51 @@ const LoanAdvisory = () => {
     const [activeTab, setActiveTab] = useState('STL'); // STL or LTL
 
     // ==========================================
+    // CORE SYSTEM DATA
+    // ==========================================
+    const [members, setMembers] = useState([]);
+    const [selectedMemberId, setSelectedMemberId] = useState('');
+    const [loanProducts, setLoanProducts] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const selectedMember = useMemo(() =>
+        members.find(m => m.id === parseInt(selectedMemberId)),
+        [members, selectedMemberId]);
+
+    const activeProduct = useMemo(() =>
+        loanProducts.find(p => p.code === activeTab),
+        [loanProducts, activeTab]);
+
+    // ==========================================
     // SHORT TERM LOAN LOGIC (Reducing Balance)
     // ==========================================
     const [stlAmount, setStlAmount] = useState(1000);
     const [stlDuration, setStlDuration] = useState(1); // 1, 2, or 3 months
-    const [stlSchedule, setStlSchedule] = useState([]);
+    const [stlSchedule, setStlSchedule] = useState({ breakdown: [], totalPaid: 0 });
 
     useEffect(() => {
         calculateStlSchedule();
-    }, [stlAmount, stlDuration]);
+    }, [stlAmount, stlDuration, activeProduct]);
 
     const calculateStlSchedule = () => {
         const principal = parseFloat(stlAmount) || 0;
         const months = parseInt(stlDuration) || 1;
-        const interestRate = 0.10; // 10% per month on reducing balance
+        const interestRate = (activeProduct?.interest_rate || 10) / 100;
 
         let schedule = [];
         let balance = principal;
         let totalPaid = 0;
 
-        // Base principal per month
         const principalPerMonth = principal / months;
 
         for (let i = 1; i <= months; i++) {
             const interest = balance * interestRate;
-            // For months 1 & 2 of a 3 month loan, payments might differ slightly in real world,
-            // but standard reducing balance logic:
-            // Payment = Principal Share + Interest on Balance
-
-            // However, looking at USER DATA for 3 months:
-            // 1000 loan -> Month 1: 433, Month 2: 400, Month 3: 367. Total 1200.
-            // 1000 / 3 = 333.33 principal.
-            // Month 1 Int = 100. Pay = 433. (333+100)
-            // Month 2 Bal = 666. Int = 66. Pay = 400. (333+66)
-            // Month 3 Bal = 333. Int = 33. Pay = 367. (333+33)
-
             const payment = Math.ceil(principalPerMonth + interest);
-            // Saving rounded values for display
 
             schedule.push({
                 month: i,
                 balanceStart: balance,
-                interest: Math.ceil(interest), // Round up for safety
+                interest: Math.ceil(interest),
                 principal: Math.ceil(principalPerMonth),
                 totalPayment: payment
             });
@@ -74,7 +79,6 @@ const LoanAdvisory = () => {
     // ==========================================
     const [ltlSelection, setLtlSelection] = useState(null);
 
-    // Data from User Request
     const ltlTableData = [
         { amount: 5000, installment: 500, principal: 345, interest: 55, shares: 100, period: "15 Months" },
         { amount: 10000, installment: 700, principal: 500, interest: 100, shares: 100, period: "20 Months" },
@@ -101,75 +105,106 @@ const LoanAdvisory = () => {
     ];
 
     // ==========================================
-    // APPLICATION LOGIC
+    // DATA LOADING
     // ==========================================
-    const [members, setMembers] = useState([]);
-    const [selectedMember, setSelectedMember] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
-        loadMembers();
+        initPage();
     }, []);
 
-    const loadMembers = async () => {
+    const initPage = async () => {
+        setLoading(true);
         try {
-            const data = await import('../services/api').then(m => m.default.getMembers());
-            if (data) setMembers(data);
+            const [membersData, productsData] = await Promise.all([
+                api.getMembers(),
+                api.getLoanProducts()
+            ]);
+            setMembers(membersData || []);
+            setLoanProducts(productsData || []);
         } catch (error) {
-            console.error("Failed to load members", error);
+            console.error("Initialization failed", error);
+            toast.error("Failed to load system data");
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleApply = async () => {
-        if (!selectedMember) {
-            alert("Please select a member first."); // Simple alert for now, or toast if available
+        if (!selectedMemberId) {
+            toast.warn("Please select a member first.");
             return;
         }
 
         setIsSubmitting(true);
         try {
-            const api = await import('../services/api').then(m => m.default);
-
             const loanData = activeTab === 'STL' ? {
-                memberId: selectedMember,
-                groupId: 1, // Default group or fetch from member
+                memberId: parseInt(selectedMemberId),
+                groupId: selectedMember?.group_id || 1,
                 loanType: 'STL',
                 amount: parseFloat(stlAmount),
-                interestRate: 10,
+                interestRate: activeProduct?.interest_rate || 10,
                 duration: parseInt(stlDuration),
-                officerId: 1 // Default
+                officerId: 1
             } : {
-                memberId: selectedMember,
-                groupId: 1,
+                memberId: parseInt(selectedMemberId),
+                groupId: selectedMember?.group_id || 1,
                 loanType: 'LTL',
                 amount: ltlSelection.amount,
-                interestRate: 15, // Standard LTL
+                interestRate: activeProduct?.interest_rate || 15,
                 duration: parseInt(ltlSelection.period.split(' ')[0]),
                 officerId: 1
             };
 
             await api.issueLoan(loanData);
-            alert("✅ Loan Application Submitted Successfully!");
-            // Reset or Redirect?
-            window.location.href = '/loans'; // Redirect to loans page to see it
+            toast.success("✅ Loan Application Submitted!");
+            setTimeout(() => window.location.href = '/loans', 1500);
         } catch (error) {
             console.error(error);
-            alert("Failed to submit application. Check console.");
+            toast.error("Failed to submit application");
         } finally {
             setIsSubmitting(false);
         }
     };
 
+    // ==========================================
+    // ADVISORY LOGIC
+    // ==========================================
+    const coverage = useMemo(() => {
+        if (!selectedMember) return null;
+        const loanTotal = activeTab === 'STL' ? stlAmount : (ltlSelection?.amount || 0);
+        const savings = selectedMember.savings || 0;
+
+        return {
+            isCovered: savings >= loanTotal,
+            ratio: loanTotal > 0 ? (savings / loanTotal) * 100 : 0,
+            gap: Math.max(0, loanTotal - savings)
+        };
+    }, [selectedMember, activeTab, stlAmount, ltlSelection]);
+
+    const handlePrint = () => {
+        toast.info("Generating Repayment Advisory PDF...");
+        // PDF logic integration point
+    };
+
     return (
         <div className="space-y-6 pb-20">
             {/* Header */}
-            <div>
-                <h2 className="text-2xl font-black text-gray-800 flex items-center gap-2">
-                    <FaCalculator className="text-safaricom-green" /> Loan Advisory Panel
-                </h2>
-                <p className="text-sm font-bold text-gray-500 uppercase tracking-wide">
-                    Member Advisory & Repayment Simulator
-                </p>
+            <div className="flex justify-between items-start">
+                <div>
+                    <h2 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+                        <FaCalculator className="text-safaricom-green" /> Loan Advisory Panel
+                    </h2>
+                    <p className="text-sm font-bold text-gray-500 uppercase tracking-wide">
+                        Member Advisory & Repayment Simulator
+                    </p>
+                </div>
+                <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
+                >
+                    <FaFilePdf className="text-red-500" /> Export PDF
+                </button>
             </div>
 
             {/* Tab Switcher */}
@@ -195,11 +230,11 @@ const LoanAdvisory = () => {
                     </button>
                 </div>
 
-                {/* Member Selector (NEW) */}
+                {/* Member Selector */}
                 <div className="w-full md:w-auto flex items-center gap-2">
                     <select
-                        value={selectedMember}
-                        onChange={(e) => setSelectedMember(e.target.value)}
+                        value={selectedMemberId}
+                        onChange={(e) => setSelectedMemberId(e.target.value)}
                         className="w-full md:w-64 bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-safaricom-green focus:border-safaricom-green block p-2.5 font-bold"
                     >
                         <option value="">-- Select Member to Apply --</option>
@@ -251,12 +286,18 @@ const LoanAdvisory = () => {
                                 </div>
                             </div>
 
-                            <div className="p-4 bg-orange-50 rounded-xl border border-orange-100">
-                                <h4 className="font-bold text-orange-800 text-sm mb-2 flex items-center gap-2">
-                                    <FaExclamationTriangle /> Guarantor Policy
+                            {/* Dynamic Guarantor Policy Advice */}
+                            <div className={`p-4 rounded-xl border transition-all ${coverage?.isCovered ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
+                                <h4 className={`font-bold text-sm mb-2 flex items-center gap-2 ${coverage?.isCovered ? 'text-green-800' : 'text-orange-800'}`}>
+                                    {coverage?.isCovered ? <FaCheckCircle /> : <FaExclamationTriangle />}
+                                    Guarantor Policy Advice
                                 </h4>
-                                <p className="text-xs text-orange-700 leading-relaxed">
-                                    Short Term Loans require <strong>1 or 2 Guarantors</strong> depending on the member's savings coverage.
+                                <p className={`text-xs leading-relaxed ${coverage?.isCovered ? 'text-green-700' : 'text-orange-700'}`}>
+                                    {coverage ? (
+                                        coverage.isCovered
+                                            ? "Member's savings fully cover this loan. No Guarantors required."
+                                            : `Loan exceeds savings by KES ${coverage.gap?.toLocaleString() || '0'}. Require 1 or 2 Guarantors.`
+                                    ) : "Select a member to view guarantor requirements."}
                                 </p>
                             </div>
                         </div>
@@ -274,17 +315,22 @@ const LoanAdvisory = () => {
                                 >
                                     <option value="">-- Choose Amount --</option>
                                     {ltlTableData.map(r => (
-                                        <option key={r.amount} value={r.amount}>KES {r.amount.toLocaleString()}</option>
+                                        <option key={r.amount} value={r.amount}>KES {r.amount?.toLocaleString() || '0'}</option>
                                     ))}
                                 </select>
                             </div>
 
-                            <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
-                                <h4 className="font-bold text-purple-800 text-sm mb-2 flex items-center gap-2">
+                            {/* Dynamic Guarantor Policy Advice */}
+                            <div className={`p-4 rounded-xl border transition-all ${coverage?.isCovered ? 'bg-green-50 border-green-100' : 'bg-purple-50 border-purple-100'}`}>
+                                <h4 className={`font-bold text-sm mb-2 flex items-center gap-2 ${coverage?.isCovered ? 'text-green-800' : 'text-purple-800'}`}>
                                     <FaExclamationTriangle /> Guarantor Policy
                                 </h4>
-                                <p className="text-xs text-purple-700 leading-relaxed">
-                                    Long Term Loans require <strong>At least 3 Guarantors</strong> (More than 2). Ensure all forms are fully signed.
+                                <p className={`text-xs leading-relaxed ${coverage?.isCovered ? 'text-green-700' : 'text-purple-700'}`}>
+                                    {coverage ? (
+                                        coverage.isCovered
+                                            ? "Fully covered by savings. 1 reference guarantor still recommended for LTL."
+                                            : "Long Term Loans require At least 3 Guarantors (More than 2). Ensure all forms are fully signed."
+                                    ) : "Choose an amount to view requirements."}
                                 </p>
                             </div>
                         </div>
@@ -300,13 +346,13 @@ const LoanAdvisory = () => {
                                 <p className="text-gray-400 text-xs font-bold uppercase mb-1">Total Repayment Amount</p>
                                 <h2 className="text-4xl font-black text-white">
                                     KES {activeTab === 'STL'
-                                        ? stlSchedule.totalPaid?.toLocaleString()
-                                        : (ltlSelection ? (ltlSelection.installment * parseInt(ltlSelection.period)).toLocaleString() : '---')
+                                        ? stlSchedule.totalPaid?.toLocaleString() || '0'
+                                        : (ltlSelection ? (ltlSelection.installment * parseInt(ltlSelection.period)).toLocaleString() || '---' : '---')
                                     }
                                 </h2>
                                 <p className="text-gray-400 text-xs mt-2">
                                     {activeTab === 'STL'
-                                        ? `Includes principal + 10% reducing interest`
+                                        ? `Includes principal + ${activeProduct?.interest_rate || 10}% reducing interest`
                                         : ltlSelection ? `Standard LTL Rate • ${ltlSelection.period}` : 'Select an amount to view details'
                                     }
                                 </p>
@@ -317,7 +363,7 @@ const LoanAdvisory = () => {
                                 <div className="text-2xl font-bold text-green-400">
                                     {activeTab === 'STL'
                                         ? 'Variable (Reducing)'
-                                        : ltlSelection ? `KES ${ltlSelection.installment.toLocaleString()}` : '---'
+                                        : ltlSelection ? `KES ${ltlSelection.installment?.toLocaleString() || '0'}` : '---'
                                     }
                                 </div>
                                 {activeTab === 'STL' && (
@@ -326,7 +372,7 @@ const LoanAdvisory = () => {
                             </div>
                         </div>
 
-                        {/* ACTION BUTTON (NEW) */}
+                        {/* ACTION BUTTON */}
                         <div className="relative z-10 mt-6 pt-6 border-t border-gray-700 flex justify-end">
                             <button
                                 onClick={handleApply}
@@ -364,18 +410,18 @@ const LoanAdvisory = () => {
                                             <th className="px-6 py-3">Month</th>
                                             <th className="px-6 py-3 text-right">Balance B/F</th>
                                             <th className="px-6 py-3 text-right">Principal</th>
-                                            <th className="px-6 py-3 text-right">Interest (10%)</th>
+                                            <th className="px-6 py-3 text-right">Interest ({activeProduct?.interest_rate || 10}%)</th>
                                             <th className="px-6 py-3 text-right text-safaricom-green">Total Due</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 text-sm font-bold text-gray-700">
                                         {stlSchedule.breakdown?.map((row) => (
-                                            <tr key={row.month} className="hover:bg-green-50/30 transition-colors">
+                                            <tr key={row.month} className="hover:bg-green-50/30 transition-colors group">
                                                 <td className="px-6 py-4">Month {row.month}</td>
-                                                <td className="px-6 py-4 text-right text-gray-400">{(row.balanceStart).toLocaleString()}</td>
-                                                <td className="px-6 py-4 text-right">{row.principal.toLocaleString()}</td>
-                                                <td className="px-6 py-4 text-right text-orange-600">{row.interest.toLocaleString()}</td>
-                                                <td className="px-6 py-4 text-right text-lg text-safaricom-green">{row.totalPayment.toLocaleString()}</td>
+                                                <td className="px-6 py-4 text-right text-gray-400">{row.balanceStart?.toLocaleString() || '0'}</td>
+                                                <td className="px-6 py-4 text-right group-hover:text-safaricom-green transition-colors">{row.principal?.toLocaleString() || '0'}</td>
+                                                <td className="px-6 py-4 text-right text-orange-600">{row.interest?.toLocaleString() || '0'}</td>
+                                                <td className="px-6 py-4 text-right text-lg text-safaricom-green">{row.totalPayment?.toLocaleString() || '0'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -391,19 +437,19 @@ const LoanAdvisory = () => {
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-center">
                                             <div className="text-xs text-gray-500 font-bold uppercase mb-1">Shares Required</div>
-                                            <div className="text-xl font-black text-gray-800">{ltlSelection.shares}</div>
+                                            <div className="text-xl font-black text-gray-800">{ltlSelection.shares?.toLocaleString() || '0'}</div>
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-center">
                                             <div className="text-xs text-gray-500 font-bold uppercase mb-1">Principal Part</div>
-                                            <div className="text-xl font-black text-blue-600">{ltlSelection.principal}</div>
+                                            <div className="text-xl font-black text-blue-600">{ltlSelection.principal?.toLocaleString() || '0'}</div>
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 text-center">
                                             <div className="text-xs text-gray-500 font-bold uppercase mb-1">Interest Part</div>
-                                            <div className="text-xl font-black text-orange-600">{ltlSelection.interest}</div>
+                                            <div className="text-xl font-black text-orange-600">{ltlSelection.interest?.toLocaleString() || '0'}</div>
                                         </div>
 
                                         <div className="col-span-2 md:col-span-4 mt-4 p-4 bg-blue-50 text-blue-800 rounded-xl text-center text-sm">
-                                            Field Officer Advisory: Inform the member that they must pay <strong>KES {ltlSelection.installment.toLocaleString()}</strong> every month for <strong>{ltlSelection.period}</strong>.
+                                            Field Officer Advisory: Inform the member that they must pay <strong>KES {ltlSelection.installment?.toLocaleString() || '0'}</strong> every month for <strong>{ltlSelection.period}</strong>.
                                         </div>
                                     </div>
                                 ) : (
