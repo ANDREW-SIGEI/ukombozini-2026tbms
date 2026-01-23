@@ -30,15 +30,18 @@ COMMENT ON COLUMN profiles.role IS 'director: full access | admin: system manage
 -- ============================================
 CREATE TABLE IF NOT EXISTS groups (
     id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    group_name TEXT NOT NULL UNIQUE,
+    meeting_day TEXT CHECK (meeting_day IN ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')),
+    meeting_frequency TEXT CHECK (meeting_frequency IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY')),
     location TEXT,
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'dormant', 'closed')),
+    registration_date DATE DEFAULT CURRENT_DATE,
+    status TEXT DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'CLOSED')),
     opening_balance NUMERIC(15, 2) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-COMMENT ON TABLE groups IS 'Table banking groups - no financial data stored here';
+COMMENT ON TABLE groups IS 'Table banking groups with meeting schedule information';
 
 -- ============================================
 -- 3. OFFICER ASSIGNMENTS (Access Control)

@@ -31,9 +31,9 @@ CREATE TABLE IF NOT EXISTS daily_cash_reconciliation (
         declared_physical_cash + declared_mobile_money + banked_amount
     ) STORED,
     
-    -- Variance Detection
+    -- Variance Detection (calculated from base columns, not total_declared)
     variance DECIMAL(10, 2) GENERATED ALWAYS AS (
-        total_declared - expected_cash
+        declared_physical_cash + declared_mobile_money + banked_amount - expected_cash
     ) STORED,
     
     variance_type VARCHAR(20) GENERATED ALWAYS AS (
@@ -186,7 +186,7 @@ BEGIN
         json_agg(
             json_build_object(
                 'session_number', ms.session_number,
-                'group_name', g.name,
+                'group_name', g.group_name,
                 'total_collected', ms.total_collected,
                 'members_present', ms.members_present
             )
@@ -440,3 +440,5 @@ COMMENT ON FUNCTION check_repeat_variance_offender IS 'Flags officers with repea
 -- Requires explanation for any discrepancies
 -- Maintains complete audit trail
 -- =====================================================
+
+

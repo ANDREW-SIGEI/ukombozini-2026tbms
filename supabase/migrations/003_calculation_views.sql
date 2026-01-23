@@ -185,12 +185,20 @@ SELECT
     COUNT(DISTINCT t.id) AS total_transactions,
     COUNT(DISTINCT t.member_id) AS members_participated,
     
-    COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) AS total_cash_in,
-    COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END), 0) AS total_cash_out,
+    COALESCE(SUM(CASE 
+        WHEN t.amount > 0 AND t.type NOT IN ('dividend', 'reversal') THEN t.amount 
+        ELSE 0 
+    END), 0) AS total_cash_in,
+    
+    COALESCE(SUM(CASE 
+        WHEN t.amount < 0 AND t.type NOT IN ('dividend', 'reversal') THEN ABS(t.amount) 
+        ELSE 0 
+    END), 0) AS total_cash_out,
     
     COALESCE(SUM(CASE WHEN t.type = 'savings' THEN t.amount ELSE 0 END), 0) AS savings_collected,
     COALESCE(SUM(CASE WHEN t.type = 'loan_disbursement' THEN ABS(t.amount) ELSE 0 END), 0) AS loans_disbursed,
     COALESCE(SUM(CASE WHEN t.type = 'loan_repayment' THEN t.amount ELSE 0 END), 0) AS repayments_collected,
+    COALESCE(SUM(CASE WHEN t.type = 'dividend' THEN t.amount ELSE 0 END), 0) AS dividends_posted,
     
     mt.created_at
     
@@ -324,3 +332,4 @@ BEGIN
     RAISE NOTICE '🔒 All balances auto-calculated - NO manual editing';
     RAISE NOTICE '⚠️  Note: group_name uses group_id (update after adding name column)';
 END $$;
+

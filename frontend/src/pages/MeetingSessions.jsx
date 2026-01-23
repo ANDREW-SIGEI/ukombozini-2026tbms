@@ -13,6 +13,7 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { useTransactions } from '../context/TransactionContext';
+import MeetingLedger from '../components/MeetingLedger';
 
 // Mock data - replace with API
 const mockMeetings = [
@@ -63,6 +64,7 @@ const MeetingSessions = () => {
     const [showCloseModal, setShowCloseModal] = useState(false);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [closingNotes, setClosingNotes] = useState('');
+    const [showLedger, setShowLedger] = useState(false);
 
     // New meeting form
     const [newMeeting, setNewMeeting] = useState({
@@ -251,8 +253,8 @@ const MeetingSessions = () => {
                             key={status}
                             onClick={() => setFilterStatus(status)}
                             className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${filterStatus === status
-                                    ? 'bg-safaricom-green text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                ? 'bg-safaricom-green text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                         >
                             {status}
@@ -337,16 +339,28 @@ const MeetingSessions = () => {
                                                     <FaFileAlt />
                                                 </button>
                                                 {meeting.status === 'ACTIVE' && (
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedMeeting(meeting);
-                                                            setShowCloseModal(true);
-                                                        }}
-                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                        title="Close & Lock Meeting"
-                                                    >
-                                                        <FaLock />
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedMeeting(meeting);
+                                                                setShowLedger(true);
+                                                            }}
+                                                            className="px-3 py-1 bg-green-50 text-safaricom-green rounded-lg text-xs font-black border border-green-100 hover:bg-green-100 transition-all flex items-center gap-1"
+                                                            title="Analyze Session Cash"
+                                                        >
+                                                            <FaMoneyBillWave /> Manage Cash
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedMeeting(meeting);
+                                                                setShowCloseModal(true);
+                                                            }}
+                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Emergency Lock"
+                                                        >
+                                                            <FaLock />
+                                                        </button>
+                                                    </>
                                                 )}
                                             </div>
                                         </td>
@@ -357,6 +371,26 @@ const MeetingSessions = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Meeting Ledger Modal */}
+            {showLedger && selectedMeeting && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+                    <MeetingLedger
+                        sessionId={selectedMeeting.id}
+                        onClose={() => {
+                            setShowLedger(false);
+                            // Refresh meetings list after closing
+                            setTimeout(() => window.location.reload(), 1500);
+                        }}
+                    />
+                    <button
+                        onClick={() => setShowLedger(false)}
+                        className="absolute top-8 right-8 text-white/50 hover:text-white text-4xl font-light"
+                    >
+                        &times;
+                    </button>
+                </div>
+            )}
 
             {/* Warning Banner for Active Meetings */}
             {stats.activeMeetings > 0 && (

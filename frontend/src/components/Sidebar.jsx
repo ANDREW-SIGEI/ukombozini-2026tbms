@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
     FaHome, FaUsers, FaMoneyBillWave, FaChartBar, FaFileAlt,
     FaHandHoldingUsd, FaFileInvoiceDollar, FaUserTie,
-    FaBalanceScale, FaCog, FaBell, FaUserCircle, FaCheckCircle, FaSms, FaChartLine, FaClipboardList, FaSignOutAlt
+    FaBalanceScale, FaCog, FaBell, FaUserCircle, FaCheckCircle, FaSms, FaChartLine, FaClipboardList, FaSignOutAlt, FaCalculator
 } from 'react-icons/fa';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -14,6 +14,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
         { path: '/contribution-compliance', name: 'Contribution Compliance', icon: <FaChartLine /> },
         { path: '/loans', name: 'Loans', icon: <FaHandHoldingUsd /> },
         { path: '/loan-approvals', name: 'Loan Approvals', icon: <FaCheckCircle /> },
+        { path: '/loan-advisory', name: 'Loan Advisory & Calculator', icon: <FaCalculator /> },
         { path: '/loan-repayment-tracking', name: 'Loan Repayment Tracking', icon: <FaClipboardList /> },
         { path: '/dividends', name: 'Dividends', icon: <FaMoneyBillWave /> },
         { path: '/officers', name: 'Officers', icon: <FaUserTie /> },

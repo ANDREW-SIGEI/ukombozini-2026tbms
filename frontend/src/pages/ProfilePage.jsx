@@ -2,10 +2,15 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getProfile, updateProfile } from '../services/profileService';
 import { toast } from 'react-toastify';
-import { FaUser, FaShieldAlt, FaHistory, FaCheck, FaTimes } from 'react-icons/fa';
+import {
+  FaUser, FaShieldAlt, FaHistory, FaCheck, FaTimes, FaCamera,
+  FaWallet, FaUsers, FaChartLine, FaCheckCircle, FaLock,
+  FaBell, FaEdit, FaSignOutAlt, FaGem
+} from 'react-icons/fa';
+import '../styles/ProfileStyles.css';
 
 const ProfilePage = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [profile, setProfile] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
@@ -15,13 +20,27 @@ const ProfilePage = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
 
+  // Performance Metrics (Mock Data for Demo - Institutional Standard)
+  const metrics = {
+    managedAssets: "KES 420,500",
+    portfolioQuality: "98.4%",
+    activeMembers: "48 Members",
+    meetingEfficiency: "100%"
+  };
+
+  const recentActivity = [
+    { type: 'Post', text: 'Posted Group A weekly contributions', time: '2 hours ago' },
+    { type: 'Approve', text: 'Approved loan for Alice Wanjiku', time: '5 hours ago' },
+    { type: 'Update', text: 'Updated group meeting schedule', time: 'Yesterday' },
+  ];
+
   useEffect(() => {
     const loadProfile = async () => {
       if (!user?.id) return;
-      
+
       setIsLoading(true);
       const { data, error } = await getProfile(user.id);
-      
+
       if (data) {
         setProfile(data);
         setFormData({
@@ -32,10 +51,10 @@ const ProfilePage = () => {
       } else if (error) {
         toast.error('Failed to load profile');
       }
-      
+
       setIsLoading(false);
     };
-    
+
     loadProfile();
   }, [user]);
 
@@ -50,17 +69,12 @@ const ProfilePage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user?.id) return;
-    
+
     try {
       const { data, error } = await updateProfile(user.id, formData);
-      
       if (error) throw error;
-      
-      setProfile(prev => ({
-        ...prev,
-        ...data
-      }));
-      
+
+      setProfile(prev => ({ ...prev, ...data }));
       toast.success('Profile updated successfully');
       setIsEditing(false);
     } catch (error) {
@@ -71,251 +85,249 @@ const ProfilePage = () => {
 
   const getInitials = (name) => {
     if (!name) return 'U';
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 2);
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
   };
 
   if (isLoading) {
-    return <div className="flex justify-center items-center h-64">Loading profile...</div>;
+    return (
+      <div className="flex flex-col justify-center items-center h-screen bg-gray-50">
+        <div className="w-12 h-12 border-4 border-safaricom-green border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-500 font-bold animate-pulse">INITIALIZING SECURE SESSION...</p>
+      </div>
+    );
   }
 
   if (!profile) {
-    return <div className="text-center py-10">Profile not found</div>;
+    return (
+      <div className="flex flex-col justify-center items-center h-screen bg-gray-50 px-4">
+        <div className="glass-card p-8 rounded-3xl text-center max-w-md">
+          <FaTimes className="text-red-500 text-5xl mx-auto mb-4" />
+          <h2 className="text-2xl font-black text-gray-800 mb-2">Security Access Denied</h2>
+          <p className="text-gray-500 font-bold mb-6">We could not establish a connection to your profile data. Please ensure you are authorized.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full py-3 bg-safaricom-green text-white rounded-2xl font-black shadow-lg"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-safaricom-green to-safaricom-dark p-6 text-white">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center text-3xl font-bold">
-                {getInitials(profile.full_name || user.email)}
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">{profile.full_name || 'User'}</h1>
-                <p className="text-blue-100">{user.email}</p>
-                <div className="mt-2">
-                  <span className="inline-block bg-blue-100 text-safaricom-dark text-xs px-2 py-1 rounded-full font-medium">
-                    {profile.role || 'Member'}
-                  </span>
+    <div className="profile-container container mx-auto px-4 py-8 max-w-6xl space-y-8">
+
+      {/* 1. HERO HEADER */}
+      <div className="hero-gradient rounded-3xl p-8 text-white relative shadow-2xl overflow-hidden">
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-8">
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            <div className="profile-avatar-container">
+              <div className="w-24 h-24 md:w-32 md:h-32 rounded-3xl bg-white/20 backdrop-blur-md flex items-center justify-center text-4xl font-black border-2 border-white/30 shadow-xl overflow-hidden group">
+                {formData.avatar ? (
+                  <img src={formData.avatar} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  getInitials(profile.full_name || user.email)
+                )}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                  <FaCamera />
                 </div>
               </div>
+              <div className="status-indicator status-online"></div>
             </div>
-            <div className="text-sm text-blue-100">
-              <div className="flex items-center gap-2">
-                <FaShieldAlt className="inline" />
-                <span>ID: {user.id.substring(0, 8)}</span>
+            <div className="text-center md:text-left space-y-2">
+              <div className="flex items-center gap-2 justify-center md:justify-start">
+                <h1 className="text-3xl md:text-4xl font-black tracking-tight">
+                  {profile.full_name || 'System User'}
+                </h1>
+                <FaGem className="text-yellow-400 animate-bounce" />
               </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className={`inline-block w-2 h-2 rounded-full ${profile.active ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                <span>{profile.active ? 'Active' : 'Inactive'}</span>
+              <p className="text-blue-50 font-medium tracking-wide flex items-center gap-2 justify-center md:justify-start">
+                <FaShieldAlt className="text-sm" />
+                {user.email}
+              </p>
+              <div className="flex flex-wrap gap-2 pt-2 justify-center md:justify-start">
+                <span className="badge-officer text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest flex items-center gap-1">
+                  <FaUser /> {profile.role || 'Member'}
+                </span>
+                <span className="bg-white/10 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest">
+                  ID: #{user.id.substring(0, 4)}
+                </span>
               </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-3 w-full md:w-auto">
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              className="flex items-center justify-center gap-2 bg-white text-safaricom-dark px-6 py-3 rounded-2xl font-black text-sm hover:bg-gray-100 transition-all shadow-lg active:scale-95"
+            >
+              {isEditing ? <FaTimes /> : <FaEdit />} {isEditing ? 'Cancel Edit' : 'Edit Profile'}
+            </button>
+            <button
+              onClick={logout}
+              className="flex items-center justify-center gap-2 bg-red-500/20 backdrop-blur-md text-white border border-red-500/30 px-6 py-3 rounded-2xl font-black text-sm hover:bg-red-500/40 transition-all"
+            >
+              <FaSignOutAlt /> Secure Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+        {/* LEFT COLUMN: INFO & PERFORMANCE */}
+        <div className="lg:col-span-2 space-y-8">
+
+          {/* PERFORMANCE METRICS DASHBOARD */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Managed Assets', value: metrics.managedAssets, icon: <FaWallet />, color: 'text-green-600', bg: 'bg-green-50' },
+              { label: 'Recovery Rate', value: metrics.portfolioQuality, icon: <FaChartLine />, color: 'text-blue-600', bg: 'bg-blue-50' },
+              { label: 'Coverage', value: metrics.activeMembers, icon: <FaUsers />, color: 'text-purple-600', bg: 'bg-purple-50' },
+              { label: 'Efficiency', value: metrics.meetingEfficiency, icon: <FaCheckCircle />, color: 'text-orange-600', bg: 'bg-orange-50' },
+            ].map((m, idx) => (
+              <div key={idx} className="metric-card glass-card p-4 rounded-3xl space-y-2">
+                <div className={`${m.bg} ${m.color} w-10 h-10 rounded-2xl flex items-center justify-center text-xl`}>
+                  {m.icon}
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">{m.label}</p>
+                  <p className="text-lg font-black text-gray-800">{m.value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* MAIN FORM / INFO CARD */}
+          <div className="glass-card rounded-3xl p-8 border border-gray-100">
+            <h2 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2">
+              <FaUser className="text-safaricom-green" /> Profile Configuration
+            </h2>
+
+            {isEditing ? (
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-1">Full Identity</label>
+                    <input
+                      type="text"
+                      name="full_name"
+                      value={formData.full_name}
+                      onChange={handleInputChange}
+                      className="premium-input w-full px-4 py-3 rounded-2xl font-bold text-gray-700"
+                      placeholder="Enter full name..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-1">Secure Contact</label>
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      className="premium-input w-full px-4 py-3 rounded-2xl font-bold text-gray-700"
+                      placeholder="07XX XXX XXX"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-6 border-t border-gray-50">
+                  <button
+                    type="submit"
+                    className="px-8 py-3 bg-safaricom-green text-white rounded-2xl font-black shadow-lg shadow-green-200 hover:bg-green-700 transition-all active:scale-95"
+                  >
+                    Protect & Save Changes
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div>
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Full Name</h3>
+                  <p className="text-lg font-black text-gray-800">{profile.full_name || '—'}</p>
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Phone</h3>
+                  <p className="text-lg font-black text-gray-800">{profile.phone || '—'}</p>
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Registration</h3>
+                  <p className="text-lg font-black text-gray-800">
+                    {new Date(profile.member_since).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SECURITY & PERMISSIONS */}
+          <div className="glass-card rounded-3xl p-8">
+            <h3 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2 uppercase tracking-tight">
+              <FaLock className="text-blue-500" /> Authorized Permissions
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {profile.permissions?.map((p, i) => (
+                <div key={i} className="flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100 group hover:border-blue-200 transition-all">
+                  <div className="bg-white p-2 rounded-xl shadow-sm text-blue-500">
+                    <FaCheck />
+                  </div>
+                  <span className="text-sm font-black text-gray-600 uppercase tracking-tight group-hover:text-gray-900">
+                    {p.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              )) || <p className="text-gray-400 font-bold italic">No specialized permissions assigned.</p>}
             </div>
           </div>
         </div>
 
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold text-gray-800">Profile Information</h2>
-            <button
-              onClick={() => setIsEditing(!isEditing)}
-              className="px-4 py-2 bg-safaricom-green hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              {isEditing ? 'Cancel' : 'Edit Profile'}
+        {/* RIGHT COLUMN: ACTIVITY & SETTINGS */}
+        <div className="space-y-8">
+
+          {/* QUICK PREFERENCES */}
+          <div className="glass-card rounded-3xl p-8 space-y-6">
+            <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
+              <FaBell className="text-orange-500" /> System Alerts
+            </h3>
+            <div className="space-y-4">
+              {[
+                { label: 'SMS Notifications', desc: 'Alerts for group payouts', enabled: true },
+                { label: 'Fraud Detection', desc: 'Secure login warnings', enabled: true },
+                { label: 'Weekly Summary', desc: 'Performance report email', enabled: false }
+              ].map((pref, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-black text-gray-700">{pref.label}</p>
+                    <p className="text-[10px] text-gray-400 font-bold">{pref.desc}</p>
+                  </div>
+                  <div className={`w-12 h-6 rounded-full relative cursor-pointer transition-all ${pref.enabled ? 'bg-safaricom-green' : 'bg-gray-200'}`}>
+                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${pref.enabled ? 'right-1' : 'left-1'}`}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* RECENT ACTIVITY TIMELINE */}
+          <div className="glass-card rounded-3xl p-8">
+            <h3 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2">
+              <FaHistory className="text-purple-500" /> Activity Stream
+            </h3>
+            <div className="space-y-1">
+              {recentActivity.map((act, i) => (
+                <div key={i} className="timeline-item">
+                  <p className="text-sm font-black text-gray-800 leading-tight">{act.text}</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase">{act.time}</p>
+                </div>
+              ))}
+            </div>
+            <button className="w-full mt-6 py-3 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] font-black text-gray-400 hover:border-purple-300 hover:text-purple-500 transition-all uppercase tracking-widest">
+              Load Audit Logs
             </button>
           </div>
 
-          {isEditing ? (
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                  <input
-                    type="text"
-                    name="full_name"
-                    value={formData.full_name}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green focus:border-transparent"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Profile Photo</label>
-                  <div className="mt-1 flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center">
-                      {formData.avatar ? (
-                        <img src={formData.avatar} alt="Profile" className="w-full h-full rounded-full object-cover" />
-                      ) : (
-                        <FaUser className="text-gray-400 text-2xl" />
-                      )}
-                    </div>
-                    <div>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setFormData(prev => ({
-                                ...prev,
-                                avatar: reader.result
-                              }));
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                        className="text-sm text-gray-500"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">JPG, GIF or PNG. Max size 2MB</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-safaricom-green hover:bg-green-700 text-white rounded-lg font-medium"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Full Name</h3>
-                  <p className="mt-1 text-gray-900">{profile.full_name || 'Not provided'}</p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Email</h3>
-                  <p className="mt-1 text-gray-900">{user.email}</p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Phone</h3>
-                  <p className="mt-1 text-gray-900">{profile.phone || 'Not provided'}</p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Member Since</h3>
-                  <p className="mt-1 text-gray-900">
-                    {new Date(profile.member_since).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </p>
-                </div>
-              </div>
-
-              {/* Permissions Section */}
-              <div className="border-t border-gray-100 pt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Permissions</h3>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-3">
-                    Your role <span className="font-medium">{profile.role}</span> has the following permissions:
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {profile.permissions?.length > 0 ? (
-                      profile.permissions.map((permission, index) => (
-                        <div key={index} className="flex items-start gap-2">
-                          <FaCheck className="text-green-500 mt-0.5 flex-shrink-0" />
-                          <span className="text-sm text-gray-700">
-                            {formatPermissionLabel(permission)}
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-gray-500">No specific permissions assigned</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Account Status */}
-              <div className="border-t border-gray-100 pt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Account Status</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${profile.active ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                        {profile.active ? <FaCheck /> : <FaTimes />}
-                      </div>
-                      <div>
-                        <h4 className="font-medium">Account Status</h4>
-                        <p className="text-sm text-gray-500">
-                          {profile.active ? 'Active' : 'Inactive'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {profile.active ? 'Your account is active' : 'Your account is inactive'}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-full bg-blue-100 text-blue-600">
-                        <FaHistory />
-                      </div>
-                      <div>
-                        <h4 className="font-medium">Last Login</h4>
-                        <p className="text-sm text-gray-500">
-                          {profile.last_sign_in_at 
-                            ? new Date(profile.last_sign_in_at).toLocaleString()
-                            : 'Never logged in'}
-                        </p>
-                      </div>
-                    </div>
-                    <button 
-                      className="text-sm text-safaricom-green hover:underline"
-                      onClick={() => {
-                        // TODO: Implement session management view
-                        toast.info('Session management coming soon');
-                      }}
-                    >
-                      View Sessions
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 };
-
-// Helper function to format permission keys into readable text
-function formatPermissionLabel(permission) {
-  return permission
-    .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 export default ProfilePage;

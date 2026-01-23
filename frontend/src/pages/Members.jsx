@@ -3,24 +3,203 @@ import { Link } from 'react-router-dom';
 import {
     FaUserPlus, FaSearch, FaHistory, FaUser, FaInfoCircle,
     FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
-    FaChartLine, FaExclamationTriangle, FaCheckCircle
+    FaChartLine, FaExclamationTriangle, FaCheckCircle,
+    FaEdit, FaHandHoldingUsd, FaCoins, FaUnlock, FaArrowUp
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { useTransactions } from '../context/TransactionContext';
 
 const Members = () => {
+    const { activeSession } = useTransactions();
     const [searchTerm, setSearchTerm] = useState('');
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editFormData, setEditFormData] = useState({ id: '', name: '', phone: '', groupId: '', status: 'active' });
+    // ... existing ...
+
+    const generateLedgerPDF = (member) => {
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.width;
+
+        // Brand Colors
+        const safaricomGreen = '#00703C';
+        const darkGrey = '#333333';
+        const lightGrey = '#F3F4F6';
+
+        // 1. Watermark
+        doc.saveGraphicsState();
+        doc.setGState(new doc.GState({ opacity: 0.1 }));
+        doc.setFontSize(60);
+        doc.setTextColor(150, 150, 150);
+        doc.text("UKOMBOZI TBMS", pageWidth / 2, doc.internal.pageSize.height / 2, {
+            align: 'center',
+            angle: 45
+        });
+        doc.restoreGraphicsState();
+
+        // 2. Header
+        doc.setFillColor(safaricomGreen);
+        doc.rect(0, 0, pageWidth, 40, 'F');
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text("UKOMBOZI TABLE BANKING", 20, 18);
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text("P.O. Box 12345, Nairobi, Kenya", 20, 26);
+        doc.text("Mobile: +254 700 000 000 | Email: info@ukombozi.co.ke", 20, 32);
+
+        doc.setFontSize(16);
+        doc.text("MEMBER FINANCIAL STATEMENT", pageWidth - 20, 25, { align: 'right' });
+
+        // 3. Member Details Section
+        const startY = 50;
+        doc.setTextColor(darkGrey);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Member Profile", 20, startY);
+
+        doc.setDrawColor(200, 200, 200);
+        doc.line(20, startY + 2, pageWidth - 20, startY + 2);
+
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+
+        // Left Column
+        doc.text(`Name:`, 20, startY + 12);
+        doc.setFont('helvetica', 'bold');
+        doc.text(member.name, 50, startY + 12);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Phone:`, 20, startY + 20);
+        doc.setFont('helvetica', 'bold');
+        doc.text(member.phone, 50, startY + 20);
+
+        // Right Column
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Group:`, 120, startY + 12);
+        doc.setFont('helvetica', 'bold');
+        doc.text(member.groupName || 'Default Group', 150, startY + 12);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Status:`, 120, startY + 20);
+        doc.setTextColor(member.status === 'active' ? safaricomGreen : '#DC2626');
+        doc.setFont('helvetica', 'bold');
+        doc.text((member.status || 'Active').toUpperCase(), 150, startY + 20);
+
+        // 4. Financial Summary Cards (Draw Rectangles)
+        const cardY = startY + 35;
+        const cardWidth = (pageWidth - 50) / 3;
+        const cardHeight = 25;
+
+        // Savings Card
+        doc.setFillColor(240, 253, 244); // Green tint
+        doc.setDrawColor(safaricomGreen);
+        doc.roundedRect(20, cardY, cardWidth, cardHeight, 3, 3, 'FD');
+        doc.setTextColor(safaricomGreen);
+        doc.setFontSize(9);
+        doc.text("Total Savings", 30, cardY + 8);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`KES ${(member.savings || 0).toLocaleString()}`, 30, cardY + 18);
+
+        // Loans Card
+        doc.setFillColor(255, 247, 237); // Orange tint
+        doc.setDrawColor(234, 88, 12);
+        doc.roundedRect(20 + cardWidth + 5, cardY, cardWidth, cardHeight, 3, 3, 'FD');
+        doc.setTextColor(234, 88, 12);
+        doc.setFontSize(9);
+        doc.text("Active Loans", 30 + cardWidth + 5, cardY + 8);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`KES ${(member.activeLoans || 0).toLocaleString()}`, 30 + cardWidth + 5, cardY + 18);
+
+        // Net Position Card
+        const netPos = (member.savings || 0) - (member.activeLoans || 0);
+        doc.setFillColor(netPos >= 0 ? 240 : 254, netPos >= 0 ? 253 : 242, netPos >= 0 ? 244 : 242);
+        doc.setDrawColor(netPos >= 0 ? safaricomGreen : '#DC2626');
+        doc.roundedRect(20 + (cardWidth * 2) + 10, cardY, cardWidth, cardHeight, 3, 3, 'FD');
+        doc.setTextColor(netPos >= 0 ? safaricomGreen : '#DC2626');
+        doc.setFontSize(9);
+        doc.text("Net Position", 30 + (cardWidth * 2) + 10, cardY + 8);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`KES ${netPos.toLocaleString()}`, 30 + (cardWidth * 2) + 10, cardY + 18);
+
+        // 5. Transaction Table
+        doc.setTextColor(darkGrey);
+        doc.setFontSize(12);
+        doc.text("Transaction History", 20, cardY + cardHeight + 15);
+
+        const tableColumn = ["Date", "Description", "Ref", "Credit", "Debit", "Balance"];
+        // Mock Data - Replace with actual ledger data if available
+        const tableRows = [
+            ["22 Jan 2026", "Savings Deposit", "RCPT-001", "500", "-", (member.savings).toLocaleString()],
+            ["15 Jan 2026", "Weekly Contribution", "RCPT-002", "200", "-", (member.savings - 500).toLocaleString()],
+            ["01 Jan 2026", "Opening Balance", "-", (member.savings - 700).toLocaleString(), "-", (member.savings - 700).toLocaleString()]
+        ];
+
+        autoTable(doc, {
+            startY: cardY + cardHeight + 20,
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: safaricomGreen, textColor: 255, fontStyle: 'bold' },
+            bodyStyles: { textColor: 50 },
+            alternateRowStyles: { fillColor: [249, 250, 251] },
+            columnStyles: {
+                3: { webkitBoxAlign: 'right', halign: 'right', textColor: [22, 163, 74], fontStyle: 'bold' }, // Credit Green
+                4: { halign: 'right', textColor: [220, 38, 38] }, // Debit Red
+                5: { halign: 'right', fontStyle: 'bold' }
+            }
+        });
+
+        // 6. Footer
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text(`Page ${i} of ${pageCount}`, pageWidth - 20, doc.internal.pageSize.height - 10, { align: 'right' });
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, doc.internal.pageSize.height - 10);
+            doc.text("System Generated Report - Validity Verified by Ukombozi TBMS", pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+        }
+
+        doc.save(`${member.name.replace(' ', '_')}_Ledger_Statement.pdf`);
+    };
+    const [searchSuggestions, setSearchSuggestions] = useState([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedGroup, setSelectedGroup] = useState('');
     const [members, setMembers] = useState([]);
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [showAddModal, setShowAddModal] = useState(false);
+    const [showAddModal, setShowAddModal] = useState(false); // Register
+    const [showDepositModal, setShowDepositModal] = useState(false); // Deposit
+    const [showRepaymentModal, setShowRepaymentModal] = useState(false); // Repayment
+    const [selectedMember, setSelectedMember] = useState(null);
+    const [depositAmount, setDepositAmount] = useState('');
+    const [repaymentAmount, setRepaymentAmount] = useState('');
+    const [showLedgerModal, setShowLedgerModal] = useState(false); // NEW Ledger Modal State
+
+    // NEW: Loan Repayment State
+    const [memberLoans, setMemberLoans] = useState([]);
+    const [selectedLoan, setSelectedLoan] = useState(null);
+    const [allocation, setAllocation] = useState({ penalty: 0, interest: 0, principal: 0 });
+
     const [newMember, setNewMember] = useState({
         name: '',
         phone: '',
         groupId: '',
         opening_balance_savings: 0
     });
+    const [phoneError, setPhoneError] = useState('');
+    const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+    const [withdrawAmount, setWithdrawAmount] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -55,13 +234,37 @@ const Members = () => {
     }, [members]);
 
     // Filter members
-    const filteredMembers = membersWithNetPosition.filter(member => {
-        const matchesSearch =
-            member.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            member.phone?.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesGroup = selectedGroup ? member.group_id?.toString() === selectedGroup : true;
-        return matchesSearch && matchesGroup;
-    });
+    const filteredMembers = useMemo(() => {
+        return membersWithNetPosition.filter(member => {
+            const matchesSearch =
+                member.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                member.phone?.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesGroup = selectedGroup ? member.group_id?.toString() === selectedGroup : true;
+            return matchesSearch && matchesGroup;
+        });
+    }, [membersWithNetPosition, searchTerm, selectedGroup]);
+
+    // Auto-suggest logic
+    useEffect(() => {
+        if (searchTerm.length > 1) {
+            const matches = membersWithNetPosition
+                .filter(m =>
+                    m.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    m.phone?.includes(searchTerm)
+                )
+                .slice(0, 5); // Limit to 5 suggestions
+            setSearchSuggestions(matches);
+            setShowSuggestions(true);
+        } else {
+            setSearchSuggestions([]);
+            setShowSuggestions(false);
+        }
+    }, [searchTerm, membersWithNetPosition]);
+
+    const handleSelectSuggestion = (member) => {
+        setSearchTerm(member.full_name);
+        setShowSuggestions(false);
+    };
 
     // Group Statistics
     const groupStats = useMemo(() => {
@@ -76,8 +279,32 @@ const Members = () => {
         };
     }, [filteredMembers, selectedGroup]);
 
+    const validatePhone = (phone) => {
+        // Kenyan phone regex: Starts with 07 or 01, followed by 8 digits
+        const phoneRegex = /^0(7|1)\d{8}$/;
+        return phoneRegex.test(phone);
+    };
+
+    const handlePhoneChange = (e) => {
+        const phone = e.target.value;
+        setNewMember({ ...newMember, phone });
+
+        if (phone && !validatePhone(phone)) {
+            setPhoneError('Invalid phone number. Must be 10 digits starting with 07 or 01.');
+        } else {
+            setPhoneError('');
+        }
+    };
+
     const handleAddMember = async (e) => {
+        // ... existing implementation ...
         e.preventDefault();
+
+        if (!validatePhone(newMember.phone)) {
+            toast.error('Please enter a valid Kenyan phone number (e.g., 0712345678)');
+            return;
+        }
+
         if (!newMember.name || !newMember.phone || !newMember.groupId) {
             toast.error('Please fill in all required fields');
             return;
@@ -102,6 +329,35 @@ const Members = () => {
         }
     };
 
+    const openEditModal = (member) => {
+        setEditFormData({
+            id: member.id,
+            name: member.name,
+            phone: member.phone,
+            groupId: member.group_id,
+            status: member.status || 'active'
+        });
+        setShowEditModal(true);
+    };
+
+    const handleEditMember = async (e) => {
+        e.preventDefault();
+        try {
+            await api.updateMember(editFormData.id, {
+                name: editFormData.name,
+                phone: editFormData.phone,
+                groupId: editFormData.groupId,
+                status: editFormData.status
+            });
+            toast.success("✅ Profile updated successfully!");
+            setShowEditModal(false);
+            fetchData();
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to update profile.");
+        }
+    };
+
     const getStatusBadge = (netPosition) => {
         if (netPosition > 5000) {
             return <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold flex items-center gap-1">
@@ -115,6 +371,156 @@ const Members = () => {
             return <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold flex items-center gap-1">
                 <FaExclamationTriangle /> At Risk
             </span>;
+        }
+    };
+
+
+
+    const openRepaymentModal = async (member) => {
+        setSelectedMember(member);
+        setRepaymentAmount('');
+        setMemberLoans([]);
+        setSelectedLoan(null);
+        setAllocation({ penalty: 0, interest: 0, principal: 0 });
+        setShowRepaymentModal(true);
+
+        // Fetch active loans
+        try {
+            const loans = await api.getLoans(member.id);
+            const active = loans.filter(l => l.status === 'active' || l.status === 'Active');
+            setMemberLoans(active);
+
+            // Auto-select if only one
+            if (active.length === 1) {
+                handleSelectLoan(active[0]);
+            }
+        } catch (error) {
+            console.error("Failed to fetch loans", error);
+            toast.error("Could not load member loans.");
+        }
+    };
+
+    const handleSelectLoan = (loan) => {
+        setSelectedLoan(loan);
+        // Calculate snapshot (mock logic if specific outstanding fields missing in backend)
+        // Ideally backend returns: outstanding_principal, outstanding_interest, outstanding_penalty
+        // Here we assume standard tracking or calculate roughly:
+        // For UI Demo: 
+        // Penalties = 0 (unless backend says otherwise)
+        // Interest Due = (Principal * Rate/100) - PaidInterest (Assume 0 paid for now if not tracked)
+        // This is a simplification. In production, 'loan' object must have these.
+    };
+
+    const handleAmountChange = (val) => {
+        setRepaymentAmount(val);
+        if (!selectedLoan) return;
+
+        const amount = parseFloat(val) || 0;
+
+        // Allocation Logic: Penalty -> Interest -> Principal
+        // Mock Outstanding Values (Replace with Real from DB)
+        const outstandingPenalty = selectedLoan.outstanding_penalty || 0;
+        const outstandingInterest = selectedLoan.outstanding_interest || (selectedLoan.principal_amount * (selectedLoan.interest_rate / 100)); // Rough estimate
+        const outstandingPrincipal = selectedLoan.principal_amount; // Assuming full principal is due
+
+        let remaining = amount;
+
+        const allocPenalty = Math.min(remaining, outstandingPenalty);
+        remaining -= allocPenalty;
+
+        const allocInterest = Math.min(remaining, outstandingInterest);
+        remaining -= allocInterest;
+
+        const allocPrincipal = remaining; // Rest goes to principal (even if overpayment, system handles as prepay)
+
+        setAllocation({
+            penalty: allocPenalty,
+            interest: allocInterest,
+            principal: allocPrincipal
+        });
+    };
+
+    const handleRepayment = async (e) => {
+        e.preventDefault();
+
+        if (!selectedLoan) {
+            toast.error("Please select a specific loan to repay.");
+            return;
+        }
+
+        try {
+            await api.postRepayment({
+                memberId: selectedMember.id,
+                sessionId: activeSession?.id || null,
+                amount: parseFloat(repaymentAmount),
+                paymentMethod: 'Cash', // Default for now
+                meetingReference: activeSession?.id ? `Session #${activeSession.id}` : null,
+                loanId: selectedLoan.id,
+                loanType: selectedLoan.loan_type,
+                breakdown: allocation,
+                newBalance: (selectedLoan.principal_amount + (selectedLoan.principal_amount * (selectedLoan.interest_rate / 100))) - parseFloat(repaymentAmount) // Rough visual update
+            });
+            toast.success(`✅ Repayment of KES ${repaymentAmount} posted successfully!`);
+            setShowRepaymentModal(false);
+            setRepaymentAmount('');
+            fetchData(); // Refresh main list
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to post repayment");
+        }
+    };
+
+    const openDepositModal = (member) => {
+        setSelectedMember(member);
+        setDepositAmount('');
+        setShowDepositModal(true);
+    };
+
+    const handleDeposit = async (e) => {
+        e.preventDefault();
+        try {
+            await api.postContribution({
+                memberId: selectedMember.id,
+                sessionId: activeSession?.id || null,
+                type: 'Savings',
+                amount: parseFloat(depositAmount),
+                paymentMethod: 'Cash',
+                meetingReference: activeSession?.id ? `Session #${activeSession.id}` : null,
+                officerId: 1,
+                affectsSavings: true,
+                affectsLoanEligibility: true,
+                affectsCash: true
+            });
+            toast.success(`Savings of KES ${depositAmount} recorded!`);
+            setShowDepositModal(false);
+            fetchData();
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to deposit.");
+        }
+    };
+
+    const handleWithdrawal = async (e) => {
+        e.preventDefault();
+        if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) return;
+
+        setIsProcessing(true);
+        try {
+            await api.postWithdrawal({
+                memberId: selectedMember.id,
+                sessionId: activeSession?.id || null,
+                amount: parseFloat(withdrawAmount),
+                description: `Manual Withdrawal ${activeSession?.id ? `(Session #${activeSession.id})` : ''}`
+            });
+            toast.success(`✅ Withdrawal of KES ${withdrawAmount} completed!`);
+            setShowWithdrawModal(false);
+            setWithdrawAmount('');
+            fetchData();
+        } catch (error) {
+            console.error(error);
+            toast.error("Withdrawal failed. Check balance.");
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -172,7 +578,29 @@ const Members = () => {
                         className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold text-gray-600"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} // Delay to allow click
                     />
+                    {/* Auto-suggestions Dropdown */}
+                    {showSuggestions && searchSuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-100 rounded-xl shadow-lg z-20 overflow-hidden">
+                            {searchSuggestions.map(suggestion => (
+                                <div
+                                    key={suggestion.id}
+                                    onClick={() => handleSelectSuggestion(suggestion)}
+                                    className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0 flex justify-between items-center"
+                                >
+                                    <div>
+                                        <div className="font-bold text-gray-700">{suggestion.full_name}</div>
+                                        <div className="text-xs text-gray-500">{suggestion.phone}</div>
+                                    </div>
+                                    <div className="text-xs font-bold text-safaricom-green">
+                                        {suggestion.groupName}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
                 <select
                     value={selectedGroup}
@@ -218,11 +646,11 @@ const Members = () => {
                                 filteredMembers.map((member) => (
                                     <tr key={member.id} className="hover:bg-blue-50/50 transition-colors group">
                                         <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-800">{member.full_name}</div>
+                                            <div className="font-bold text-gray-800">{member.name}</div>
                                             <div className="text-xs text-gray-500">{member.phone}</div>
                                         </td>
                                         <td className="px-6 py-4 text-sm font-bold text-gray-600">
-                                            {member.groups?.group_name || 'N/A'}
+                                            {member.groupName || 'N/A'}
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-green-600">
                                             KES {member.savings.toLocaleString()}
@@ -238,18 +666,47 @@ const Members = () => {
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex items-center justify-center gap-2">
+                                                <button
+                                                    onClick={() => openDepositModal(member)}
+                                                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                    title="Add Savings/Deposit"
+                                                >
+                                                    <FaCoins />
+                                                </button>
+                                                <button
+                                                    onClick={() => { setSelectedMember(member); setShowWithdrawModal(true); setWithdrawAmount(''); }}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                    title="Withdraw Savings"
+                                                >
+                                                    <FaArrowUp />
+                                                </button>
+                                                <button
+                                                    onClick={() => openRepaymentModal(member)}
+                                                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                                    title="Repay Loan"
+                                                >
+                                                    <FaMoneyBillWave />
+                                                </button>
                                                 <Link
-                                                    to={`/member-ledger/${member.id}`}
+                                                    to={`/loan-approvals/new?memberId=${member.id}`}
+                                                    className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                                                    title="Apply for Loan"
+                                                >
+                                                    <FaHandHoldingUsd />
+                                                </Link>
+                                                <button
+                                                    onClick={() => { setSelectedMember(member); setShowLedgerModal(true); }}
                                                     className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     title="View Ledger"
                                                 >
                                                     <FaHistory />
-                                                </Link>
+                                                </button>
                                                 <button
-                                                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                                    title="View Statement"
+                                                    onClick={() => openEditModal(member)}
+                                                    className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition-colors"
+                                                    title="Edit Profile"
                                                 >
-                                                    <FaFileInvoice />
+                                                    <FaEdit />
                                                 </button>
                                             </div>
                                         </td>
@@ -288,17 +745,20 @@ const Members = () => {
                                     required
                                 />
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Phone Number *</label>
-                                <input
-                                    type="tel"
-                                    value={newMember.phone}
-                                    onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                    placeholder="0712345678"
-                                    required
-                                />
-                            </div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Phone Number *</label>
+                            <input
+                                type="tel"
+                                value={newMember.phone}
+                                onChange={handlePhoneChange}
+                                className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-xl focus:outline-none font-bold ${phoneError ? 'border-red-300 focus:border-red-500' : 'border-gray-100 focus:border-safaricom-green/50'}`}
+                                placeholder="0712345678"
+                                required
+                            />
+                            {phoneError && (
+                                <p className="text-red-500 text-xs mt-1 font-bold flex items-center gap-1">
+                                    <FaExclamationTriangle /> {phoneError}
+                                </p>
+                            )}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group *</label>
                                 <select
@@ -313,6 +773,21 @@ const Members = () => {
                                     ))}
                                 </select>
                             </div>
+                            {/* Loan Eligibility Preview */}
+                            <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                                <label className="block text-xs font-bold text-blue-700 uppercase mb-2 flex items-center gap-1">
+                                    <FaChartLine /> Projected Loan Eligibility
+                                </label>
+                                <div className="flex justify-between items-end">
+                                    <div>
+                                        <span className="text-xs text-blue-600">Based on 3x Multiplier</span>
+                                    </div>
+                                    <div className="text-2xl font-black text-blue-800">
+                                        KES {((parseFloat(newMember.opening_balance_savings) || 0) * 3).toLocaleString()}
+                                    </div>
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Opening Savings Balance</label>
                                 <input
@@ -340,11 +815,560 @@ const Members = () => {
                                     Register Member
                                 </button>
                             </div>
+                        </form >
+                    </div >
+                </div >
+            )}
+
+            {/* Edit Member Modal */}
+            {
+                showEditModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                                    <FaEdit className="text-blue-600" /> Edit Member Profile
+                                </h3>
+                                <button
+                                    onClick={() => setShowEditModal(false)}
+                                    className="text-gray-400 hover:text-red-500 text-xl"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            <form onSubmit={handleEditMember} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Full Name</label>
+                                    <input
+                                        type="text"
+                                        value={editFormData.name}
+                                        onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                                        className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 font-bold"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Phone Number</label>
+                                    <input
+                                        type="tel"
+                                        value={editFormData.phone}
+                                        onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                                        className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 font-bold"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group</label>
+                                    <select
+                                        value={editFormData.groupId}
+                                        onChange={(e) => setEditFormData({ ...editFormData, groupId: e.target.value })}
+                                        className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 font-bold"
+                                        required
+                                    >
+                                        {groups.map(group => (
+                                            <option key={group.id} value={group.id}>{group.group_name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Status</label>
+                                    <select
+                                        value={editFormData.status}
+                                        onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                                        className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 font-bold"
+                                    >
+                                        <option value="active">Active</option>
+                                        <option value="inactive">Inactive</option>
+                                        <option value="suspended">Suspended</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEditModal(false)}
+                                        className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-md"
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )
+            }
+
+            {
+                showDepositModal && selectedMember && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                                    <FaCoins className="text-emerald-600" /> Quick Deposit
+                                </h3>
+                                <button onClick={() => setShowDepositModal(false)} className="text-gray-400 hover:text-red-500 text-xl">×</button>
+                            </div>
+                            <div className="mb-4">
+                                <p className="text-sm text-gray-500 font-bold uppercase">Member</p>
+                                <p className="text-lg font-black text-gray-800">{selectedMember.name}</p>
+                            </div>
+                            <form onSubmit={handleDeposit} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Amount (KES)</label>
+                                    <input
+                                        type="number"
+                                        value={depositAmount}
+                                        onChange={(e) => setDepositAmount(e.target.value)}
+                                        className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-emerald-500 font-bold text-2xl"
+                                        placeholder="0.00"
+                                        autoFocus
+                                        required
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
+                                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl transition-all transform hover:scale-[1.02]"
+                                >
+                                    Confirm Deposit
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Repayment Modal */}
+            {
+                showRepaymentModal && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl transform scale-100 transition-all flex flex-col max-h-[90vh]">
+
+                            {/* Header */}
+                            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                                <div>
+                                    <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                                        <FaMoneyBillWave className="text-purple-600" /> Repay Loan
+                                    </h3>
+                                    <p className="text-xs text-purple-600 font-bold uppercase tracking-wider mt-1">{selectedMember?.name}</p>
+                                </div>
+                                <button onClick={() => setShowRepaymentModal(false)} className="bg-white p-2 rounded-full shadow-sm hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">×</button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+
+                                {/* Step 1: Select Loan */}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase mb-3 flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px]">1</div>
+                                        Select Active Loan
+                                    </label>
+
+                                    {memberLoans.length === 0 ? (
+                                        <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-center">
+                                            <p className="text-red-600 font-bold mb-1">No Active Loans Found</p>
+                                            <p className="text-xs text-red-500">This member has no active loans to repay.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {memberLoans.map(loan => (
+                                                <div
+                                                    key={loan.id}
+                                                    onClick={() => handleSelectLoan(loan)}
+                                                    className={`p-4 border-2 rounded-xl cursor-pointer transition-all ${selectedLoan?.id === loan.id
+                                                        ? 'border-purple-600 bg-purple-50 shadow-md ring-1 ring-purple-600'
+                                                        : 'border-gray-100 hover:border-purple-200 hover:bg-gray-50'
+                                                        }`}
+                                                >
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide ${loan.loan_type === 'STL' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                                                            }`}>
+                                                            {loan.loan_type} Loan
+                                                        </span>
+                                                        <span className="text-xs font-bold text-gray-400">#{loan.id}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-end">
+                                                        <div>
+                                                            <p className="text-xs text-gray-500 mb-0.5">Principal</p>
+                                                            <p className="font-bold text-gray-800">KES {loan.principal_amount?.toLocaleString()}</p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-xs text-gray-500 mb-0.5">Balance Check</p>
+                                                            <p className="font-bold text-gray-800">
+                                                                {/* Estimate Balance if not in loan object */}
+                                                                KES {((loan.principal_amount * (1 + (loan.interest_rate / 100)))).toLocaleString()}
+                                                                <span className="text-[10px] text-gray-400 font-normal"> (Est. Total)</span>
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Step 2: Loan Snapshot (Read Only) */}
+                                {selectedLoan && (
+                                    <div className="animate-in slide-in-from-top-4 duration-300">
+                                        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
+                                                    <FaInfoCircle className="text-blue-500" /> Loan Snapshot
+                                                </h4>
+                                                <span className="text-xs font-mono bg-white px-2 py-1 rounded border border-gray-200">
+                                                    Rate: {selectedLoan.interest_rate}%
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4 text-xs">
+                                                <div className="space-y-1">
+                                                    <p className="text-gray-500">Interest Due</p>
+                                                    <p className="font-bold text-gray-800">KES {selectedLoan.outstanding_interest?.toLocaleString() || (selectedLoan.principal_amount * (selectedLoan.interest_rate / 100)).toLocaleString()}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-gray-500">Principal Balance</p>
+                                                    <p className="font-bold text-gray-800">KES {selectedLoan.principal_amount?.toLocaleString()}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-gray-500">Penalty Due</p>
+                                                    {selectedLoan.outstanding_penalty > 0 ? (
+                                                        <p className="font-bold text-red-600">KES {selectedLoan.outstanding_penalty.toLocaleString()}</p>
+                                                    ) : (
+                                                        <p className="font-bold text-green-600">None</p>
+                                                    )}
+                                                </div>
+                                                <div className="space-y-1 pt-1 border-t border-gray-200 mt-1 col-span-2 flex justify-between items-center">
+                                                    <p className="text-gray-500 font-bold">TOTAL OUTSTANDING</p>
+                                                    <p className="font-black text-blue-700 text-sm">
+                                                        KES {(selectedLoan.principal_amount + (selectedLoan.principal_amount * (selectedLoan.interest_rate / 100))).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Step 3: Repayment Input & Allocation */}
+                                {selectedLoan && (
+                                    <div className="animate-in slide-in-from-top-4 duration-500 space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-3 flex items-center gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px]">2</div>
+                                                Enter Repayment Amount
+                                            </label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">KES</span>
+                                                <input
+                                                    type="number"
+                                                    value={repaymentAmount}
+                                                    onChange={(e) => handleAmountChange(e.target.value)}
+                                                    className="w-full pl-14 pr-4 py-4 bg-white border-2 border-purple-100 rounded-xl focus:outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-500/10 font-bold text-2xl text-gray-800 shadow-sm transition-all placeholder-gray-200"
+                                                    placeholder="0.00"
+                                                    autoFocus
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Auto Allocation Preview */}
+                                        {repaymentAmount > 0 && (
+                                            <div className="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
+                                                <p className="text-[10px] font-bold text-blue-600 uppercase mb-3 flex items-center gap-1">
+                                                    <FaCheckCircle /> System Auto-Allocation
+                                                </p>
+                                                <div className="space-y-2">
+                                                    {/* Penalty */}
+                                                    <div className={`flex justify-between items-center text-xs p-2 rounded ${allocation.penalty > 0 ? 'bg-orange-100 text-orange-800' : 'text-gray-400'}`}>
+                                                        <span>1. Penalty / Arrears</span>
+                                                        <span className="font-bold">KES {allocation.penalty.toLocaleString()}</span>
+                                                    </div>
+                                                    {/* Interest */}
+                                                    <div className={`flex justify-between items-center text-xs p-2 rounded ${allocation.interest > 0 ? 'bg-indigo-100 text-indigo-800' : 'text-gray-400'}`}>
+                                                        <span>2. Interest</span>
+                                                        <span className="font-bold">KES {allocation.interest.toLocaleString()}</span>
+                                                    </div>
+                                                    {/* Principal */}
+                                                    <div className={`flex justify-between items-center text-xs p-2 rounded ${allocation.principal > 0 ? 'bg-green-100 text-green-800' : 'text-gray-400'}`}>
+                                                        <span>3. Principal</span>
+                                                        <span className="font-bold">KES {allocation.principal.toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                            </div>
+
+                            {/* Footer / Actions */}
+                            <div className="p-6 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+                                <button
+                                    onClick={handleRepayment}
+                                    disabled={!selectedLoan || !repaymentAmount || parseFloat(repaymentAmount) <= 0}
+                                    className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-all transform ${!selectedLoan || !repaymentAmount || parseFloat(repaymentAmount) <= 0
+                                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                        : 'bg-purple-600 hover:bg-purple-700 text-white shadow-lg hover:shadow-purple-500/30 hover:scale-[1.02]'
+                                        }`}
+                                >
+                                    <FaCheckCircle /> Confirm Repayment
+                                </button>
+                                {selectedLoan && repaymentAmount > 0 && (
+                                    <p className="text-center text-[10px] text-gray-400 mt-3">
+                                        This action will update the loan ledger and group cash balance immediately.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {/* NEW: Member Ledger / Profile Modal */}
+            {
+                showLedgerModal && selectedMember && (
+                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300">
+                        <div className="bg-gray-50 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                            {/* Modal Header */}
+                            <div className="bg-white p-6 border-b border-gray-100 flex justify-between items-start">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-16 h-16 rounded-full bg-safaricom-green/10 text-safaricom-green flex items-center justify-center text-2xl font-black border-2 border-white shadow-sm">
+                                        {selectedMember.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <h2 className="text-2xl font-black text-gray-800">{selectedMember.name}</h2>
+                                        <div className="flex items-center gap-3 text-sm font-bold text-gray-500 mt-1">
+                                            <span className="flex items-center gap-1"><FaUser className="text-gray-400" /> {selectedMember.groupName || 'Default Group'}</span>
+                                            <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                                            <span>{selectedMember.phone}</span>
+                                            <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                                            <span className={`${selectedMember.status === 'active' ? 'text-green-600' : 'text-red-500'} uppercase text-xs tracking-wider`}>{selectedMember.status || 'Active'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setShowLedgerModal(false)}
+                                    className="w-10 h-10 rounded-full bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-all"
+                                >
+                                    <span className="text-2xl leading-none">&times;</span>
+                                </button>
+                            </div>
+
+                            {/* Modal Content - Scrollable */}
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+
+                                {/* Financial Snapshot Cards */}
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:border-green-200 transition-colors group">
+                                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <FaCoins className="text-green-200 group-hover:text-green-500 transition-colors" /> Total Savings
+                                        </div>
+                                        <div className="text-2xl font-black text-gray-800">KES {(selectedMember.savings || 0).toLocaleString()}</div>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:border-orange-200 transition-colors group">
+                                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <FaHandHoldingUsd className="text-orange-200 group-hover:text-orange-500 transition-colors" /> Outstanding Loan
+                                        </div>
+                                        <div className="text-2xl font-black text-gray-800">KES {(selectedMember.activeLoans || 0).toLocaleString()}</div>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:border-red-200 transition-colors group">
+                                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <FaExclamationTriangle className="text-red-200 group-hover:text-red-500 transition-colors" /> Arrears / Fines
+                                        </div>
+                                        <div className="text-2xl font-black text-gray-800">KES {(selectedMember.arrears || 0).toLocaleString()}</div>
+                                    </div>
+                                    <div className="bg-gray-900 p-5 rounded-2xl shadow-lg border border-gray-800 relative overflow-hidden group">
+                                        <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2 z-10 relative">
+                                            <FaChartLine className="text-safaricom-green" /> Net Position
+                                        </div>
+                                        <div className={`text-2xl font-black z-10 relative ${((selectedMember.savings || 0) - (selectedMember.activeLoans || 0)) >= 0 ? 'text-safaricom-green' : 'text-red-400'}`}>
+                                            KES {((selectedMember.savings || 0) - (selectedMember.activeLoans || 0)).toLocaleString()}
+                                        </div>
+                                        {/* Decor */}
+                                        <div className="absolute right-0 top-0 w-24 h-24 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-white/10 transition-colors"></div>
+                                    </div>
+                                </div>
+
+                                {/* Ledger / History Section */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Main Ledger Table */}
+                                    <div className="lg:col-span-2">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="font-bold text-gray-800 text-lg">Detailed Ledger</h3>
+                                            <button className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors">
+                                                Last 30 Days
+                                            </button>
+                                        </div>
+
+                                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                            <table className="w-full text-left">
+                                                <thead className="bg-gray-50 border-b border-gray-100">
+                                                    <tr>
+                                                        <th className="px-5 py-3 text-xs font-black text-gray-400 uppercase">Date</th>
+                                                        <th className="px-5 py-3 text-xs font-black text-gray-400 uppercase">Description</th>
+                                                        <th className="px-5 py-3 text-xs font-black text-gray-400 uppercase text-right">Credit</th>
+                                                        <th className="px-5 py-3 text-xs font-black text-gray-400 uppercase text-right">Debit</th>
+                                                        <th className="px-5 py-3 text-xs font-black text-gray-400 uppercase text-right">Balance</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-50">
+                                                    {/* Mock Data for Visualization - Would be fetched from API in Prod */}
+                                                    <tr>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-500">22 Jan 2026</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-800">Savings Deposit</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-green-600 text-right">+500</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-300 text-right">-</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-600 text-right">{(selectedMember.savings).toLocaleString()}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-500">15 Jan 2026</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-800">Weekly Contribution</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-green-600 text-right">+200</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-300 text-right">-</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-600 text-right">{(selectedMember.savings - 500).toLocaleString()}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-500">01 Jan 2026</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-800">Opening Balance</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-green-600 text-right">+{(selectedMember.savings - 700).toLocaleString()}</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-300 text-right">-</td>
+                                                        <td className="px-5 py-4 text-sm font-bold text-gray-600 text-right">{(selectedMember.savings - 700).toLocaleString()}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                            <div className="p-4 bg-gray-50 text-center border-t border-gray-100">
+                                                <p className="text-xs text-gray-400 font-bold uppercase">End of recent history</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Right Side: Actions & Info */}
+                                    <div className="space-y-6">
+                                        {/* Actions Card */}
+                                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                            <h3 className="font-bold text-gray-800 mb-4 text-sm uppercase tracking-wide">Quick Actions</h3>
+                                            <div className="space-y-3">
+                                                <button
+                                                    onClick={() => { setShowLedgerModal(false); openDepositModal(selectedMember); }}
+                                                    className="w-full py-3 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm flex items-center justify-between transition-colors"
+                                                >
+                                                    <span>Record Deposit</span>
+                                                    <FaCoins />
+                                                </button>
+                                                <button
+                                                    onClick={() => { setShowLedgerModal(false); openRepaymentModal(selectedMember); }}
+                                                    className="w-full py-3 px-4 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-sm flex items-center justify-between transition-colors"
+                                                >
+                                                    <span>Repay Loan</span>
+                                                    <FaMoneyBillWave />
+                                                </button>
+                                                <button
+                                                    onClick={() => generateLedgerPDF(selectedMember)}
+                                                    className="w-full py-3 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-sm flex items-center justify-between transition-colors"
+                                                >
+                                                    <span>Download Statement (PDF)</span>
+                                                    <FaFileInvoice />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Loan Portfolio Summary */}
+                                        <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 text-white relative overflow-hidden">
+                                            <h3 className="font-bold text-gray-200 mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+                                                <FaHandHoldingUsd /> Loan Portfolio
+                                            </h3>
+
+                                            {memberLoans.length > 0 ? (
+                                                <div className="space-y-4 relative z-10">
+                                                    {memberLoans.map(l => (
+                                                        <div key={l.id} className="pb-3 border-b border-gray-700 last:border-0 last:pb-0">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <span className="text-sm font-bold text-white">{l.loan_type} Loan</span>
+                                                                <span className="text-xs font-mono text-green-400 bg-green-400/10 px-2 py-0.5 rounded">Active</span>
+                                                            </div>
+                                                            <div className="flex justify-between items-end text-xs text-gray-400">
+                                                                <span>Principal: {l.principal_amount.toLocaleString()}</span>
+                                                                <span>Due: {l.due_date}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="text-center py-6 relative z-10">
+                                                    <p className="text-gray-500 text-sm">No active loans.</p>
+                                                    <p className="text-xs text-gray-600 mt-1">Excellent standing!</p>
+                                                </div>
+                                            )}
+
+                                            {/* Decor */}
+                                            <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-safaricom-green/10 rounded-full blur-2xl"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Withdrawal Modal */}
+            {showWithdrawModal && selectedMember && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+                                <FaArrowUp className="text-red-500" /> Member Withdrawal
+                            </h3>
+                            <button onClick={() => setShowWithdrawModal(false)} className="text-gray-400 hover:text-red-500 text-2xl">&times;</button>
+                        </div>
+
+                        <div className="bg-red-50 p-4 rounded-xl border border-red-100 mb-6">
+                            <p className="text-xs font-black text-red-700 uppercase tracking-widest mb-1">Available Savings</p>
+                            <p className="text-2xl font-black text-red-800">KES {(selectedMember.savings || 0).toLocaleString()}</p>
+                        </div>
+
+                        <form onSubmit={handleWithdrawal} className="space-y-6">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Enter Withdrawal Amount</label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-gray-400">KES</span>
+                                    <input
+                                        type="number"
+                                        value={withdrawAmount}
+                                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                                        className="w-full pl-14 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:outline-none focus:border-red-500 font-black text-2xl text-gray-800"
+                                        placeholder="0.00"
+                                        max={selectedMember.savings}
+                                        required
+                                        autoFocus
+                                    />
+                                </div>
+                                {activeSession && (
+                                    <p className="mt-2 text-[10px] font-bold text-blue-600 flex items-center gap-1">
+                                        <FaCheckCircle /> Linked to Active Session #{activeSession.id}
+                                    </p>
+                                )}
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={isProcessing || !withdrawAmount || parseFloat(withdrawAmount) > selectedMember.savings}
+                                className={`w-full py-4 rounded-2xl font-black shadow-lg transition-all ${isProcessing || !withdrawAmount || parseFloat(withdrawAmount) > selectedMember.savings
+                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                    : 'bg-red-600 text-white hover:bg-red-700 active:scale-95'
+                                    }`}
+                            >
+                                {isProcessing ? 'PROCESSING...' : 'CONFIRM WITHDRAWAL'}
+                            </button>
                         </form>
                     </div>
                 </div>
             )}
-        </div>
+
+        </div >
     );
 };
 

@@ -11,7 +11,7 @@ const DailyReports = lazy(() => import('./pages/DailyReports'));
 const Members = lazy(() => import('./pages/Members'));
 const Contributions = lazy(() => import('./pages/Contributions'));
 const Loans = lazy(() => import('./pages/Loans'));
-const Dividends = lazy(() => import('./pages/Dividends'));
+const DividendManagement = lazy(() => import('./pages/DividendManagement'));
 const Officers = lazy(() => import('./pages/Officers'));
 const Reconciliation = lazy(() => import('./pages/Reconciliation'));
 // const MemberProfile = lazy(() => import('./pages/MemberProfile'));
@@ -28,6 +28,7 @@ const ContributionCompliance = lazy(() => import('./pages/ContributionCompliance
 const LoanRepaymentTracking = lazy(() => import('./pages/LoanRepaymentTracking'));
 const SMSAutomationTest = lazy(() => import('./pages/SMSAutomationTest'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const LoanAdvisory = lazy(() => import('./pages/LoanAdvisory'));
 
 // Simple notifications component
 const Notifications = ({ notifications = [] }) => (
@@ -112,7 +113,7 @@ function App() {
             {/* <Route path="/members/:id" element={<MemberProfile />} /> */}
             <Route path="/contributions" element={<Contributions />} />
             <Route path="/loans" element={<Loans />} />
-            <Route path="/dividends" element={<Dividends />} />
+            <Route path="/dividends" element={<DividendManagement />} />
             <Route path="/officers" element={<Officers />} />
             <Route path="/reconciliation" element={<Reconciliation />} />
             <Route path="/admin" element={<AdminPanel />} />
@@ -128,6 +129,7 @@ function App() {
             <Route path="/loan-repayment-tracking" element={<LoanRepaymentTracking />} />
             <Route path="/sms-automation-test" element={<SMSAutomationTest />} />
             {/* <Route path="/group-monthly" element={<GroupMonthly />} /> */}
+            <Route path="/loan-advisory" element={<LoanAdvisory />} />
           </Routes>
         </Layout>
         <ToastContainer position="top-right" autoClose={3000} />

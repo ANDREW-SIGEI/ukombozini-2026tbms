@@ -285,7 +285,7 @@ SELECT
     l.member_id,
     m.full_name AS member_name,
     l.group_id,
-    g.name AS group_name,
+    g.group_name AS group_name,
     l.loan_type,
     l.principal_amount,
     l.issued_date,
@@ -310,7 +310,7 @@ FROM loans l
 LEFT JOIN members m ON m.id = l.member_id
 LEFT JOIN groups g ON g.id = l.group_id
 LEFT JOIN repayment_schedule rs ON rs.loan_id = l.id
-GROUP BY l.id, l.member_id, m.full_name, l.group_id, g.name, l.loan_type, l.principal_amount, 
+GROUP BY l.id, l.member_id, m.full_name, l.group_id, g.group_name, l.loan_type, l.principal_amount, 
          l.issued_date, l.due_date, l.status;
 
 -- ============================================
@@ -377,4 +377,5 @@ BEGIN
     RAISE NOTICE '   - Track arrears in real-time';
     RAISE NOTICE '   - Record payments accurately';
 END $$;
+
 

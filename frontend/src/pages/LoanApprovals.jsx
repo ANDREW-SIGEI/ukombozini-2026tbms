@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
     FaCheckCircle,
     FaTimesCircle,
@@ -10,10 +11,12 @@ import {
     FaHistory,
     FaExclamationTriangle,
     FaPlus,
-    FaSync
+    FaSync,
+    FaCalculator
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import LoanAdvisoryPanel from '../components/LoanAdvisoryPanel';
 
 // Mock User for Role-Based Access (To be replaced with real Auth Context)
 const CURRENT_USER = {
@@ -23,6 +26,7 @@ const CURRENT_USER = {
 };
 
 const LoanApprovals = () => {
+    const location = useLocation();
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('ALL');
@@ -30,6 +34,7 @@ const LoanApprovals = () => {
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [showApprovalModal, setShowApprovalModal] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showAdvisoryPanel, setShowAdvisoryPanel] = useState(false);
 
     // Action State
     const [comments, setComments] = useState('');
@@ -43,7 +48,8 @@ const LoanApprovals = () => {
         loanType: 'STL',
         amount: '',
         duration: '',
-        purpose: ''
+        purpose: '',
+        selectedProduct: null // Track selected loan product
     });
     const [members, setMembers] = useState([]);
     const [groups, setGroups] = useState([]);
@@ -53,6 +59,16 @@ const LoanApprovals = () => {
         fetchApplications();
         fetchDropdowns();
     }, []);
+
+    // Check for Auto-Open from URL
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const memberId = params.get('memberId');
+        if (memberId) {
+            setShowCreateModal(true);
+            setFormData(prev => ({ ...prev, memberId: memberId }));
+        }
+    }, [location]);
 
     const fetchApplications = async () => {
         setLoading(true);
@@ -120,6 +136,17 @@ const LoanApprovals = () => {
         return false;
     };
 
+    // Handle Loan Product Selection (From Advisory Panel)
+    const handleLoanProductSelect = (product) => {
+        setFormData({
+            ...formData,
+            amount: product.loan_amount.toString(),
+            duration: product.repayment_period_months.toString(),
+            selectedProduct: product
+        });
+        toast.success(`✓ Selected: KES ${product.loan_amount.toLocaleString()} loan product`);
+    };
+
     // Handle Create Application
     const handleCreateSubmit = async (e) => {
         e.preventDefault();
@@ -138,6 +165,10 @@ const LoanApprovals = () => {
                 amount: parseFloat(formData.amount),
                 duration: parseInt(formData.duration),
                 purpose: formData.purpose,
+                monthly_installment: formData.selectedProduct?.monthly_installment || 0,
+                principal_portion: formData.selectedProduct?.principal_portion || 0,
+                interest_portion: formData.selectedProduct?.interest_portion || 0,
+                shares_contribution: formData.selectedProduct?.shares_contribution || 0,
                 officerId: CURRENT_USER.id // Assuming self for now
             };
 
@@ -344,6 +375,35 @@ const LoanApprovals = () => {
                                     ))}
                                 </select>
                             </div>
+
+                            {/* LOAN ADVISORY PANEL BUTTON */}
+                            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-xl p-4">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <FaCalculator className="text-blue-600" />
+                                        <span className="text-xs font-bold text-gray-700 uppercase">Official Loan Products</span>
+                                    </div>
+                                    {formData.selectedProduct && (
+                                        <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full font-bold">
+                                            ✓ Selected
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAdvisoryPanel(true)}
+                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all shadow-md"
+                                >
+                                    <FaCalculator />
+                                    {formData.selectedProduct ? 'Change Loan Product' : 'View Loan Products'}
+                                </button>
+                                {formData.selectedProduct && (
+                                    <p className="text-xs text-gray-600 mt-2 text-center">
+                                        Selected: KES {parseInt(formData.amount).toLocaleString()} for {formData.duration} months
+                                    </p>
+                                )}
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-bold text-gray-700 mb-1">Loan Type</label>
@@ -358,27 +418,41 @@ const LoanApprovals = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">Amount (KES)</label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">
+                                        Amount (KES) {formData.selectedProduct && '🔒'}
+                                    </label>
                                     <input
                                         type="number"
-                                        className="w-full p-3 border rounded-lg bg-gray-50 outline-none"
+                                        className={`w-full p-3 border rounded-lg outline-none ${formData.selectedProduct
+                                            ? 'bg-gray-100 cursor-not-allowed font-bold text-safaricom-green'
+                                            : 'bg-gray-50'
+                                            }`}
                                         value={formData.amount}
-                                        onChange={e => setFormData({ ...formData, amount: e.target.value })}
+                                        onChange={e => !formData.selectedProduct && setFormData({ ...formData, amount: e.target.value })}
                                         required
                                         min="100"
+                                        readOnly={!!formData.selectedProduct}
+                                        title={formData.selectedProduct ? 'Amount locked by selected loan product' : ''}
                                     />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">Duration (Months)</label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">
+                                        Duration (Months) {formData.selectedProduct && '🔒'}
+                                    </label>
                                     <input
                                         type="number"
-                                        className="w-full p-3 border rounded-lg bg-gray-50 outline-none"
+                                        className={`w-full p-3 border rounded-lg outline-none ${formData.selectedProduct
+                                            ? 'bg-gray-100 cursor-not-allowed font-bold text-safaricom-green'
+                                            : 'bg-gray-50'
+                                            }`}
                                         value={formData.duration}
-                                        onChange={e => setFormData({ ...formData, duration: e.target.value })}
+                                        onChange={e => !formData.selectedProduct && setFormData({ ...formData, duration: e.target.value })}
                                         required
                                         min="1"
+                                        readOnly={!!formData.selectedProduct}
+                                        title={formData.selectedProduct ? 'Duration locked by selected loan product' : ''}
                                     />
                                 </div>
                             </div>
@@ -471,6 +545,22 @@ const LoanApprovals = () => {
                                     <p className="text-xs text-gray-500 font-bold uppercase">Loan Amount</p>
                                     <p className="text-2xl font-black text-safaricom-green">KES {selectedApplication.amount_requested?.toLocaleString()}</p>
                                     <p className="text-sm font-bold text-gray-500">{selectedApplication.loan_type} loan for {selectedApplication.duration_months} months</p>
+                                    {selectedApplication.monthly_installment > 0 && (
+                                        <div className="mt-2 space-y-1 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                            <div className="flex justify-between text-xs">
+                                                <span className="text-gray-500">Monthly:</span>
+                                                <span className="font-bold text-gray-800 text-sm">KES {selectedApplication.monthly_installment.toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex justify-between text-[10px]">
+                                                <span className="text-gray-500">Interest:</span>
+                                                <span className="text-gray-700">KES {selectedApplication.interest_portion?.toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex justify-between text-[10px]">
+                                                <span className="text-gray-500">Shares:</span>
+                                                <span className="text-gray-700">KES {selectedApplication.shares_contribution?.toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="space-y-4">
@@ -507,6 +597,13 @@ const LoanApprovals = () => {
                     </div>
                 </div>
             )}
+
+            {/* LOAN ADVISORY PANEL */}
+            <LoanAdvisoryPanel
+                isOpen={showAdvisoryPanel}
+                onClose={() => setShowAdvisoryPanel(false)}
+                onSelectLoan={handleLoanProductSelect}
+            />
         </div>
     );
 };

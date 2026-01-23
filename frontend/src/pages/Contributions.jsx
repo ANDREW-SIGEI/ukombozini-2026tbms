@@ -1,42 +1,97 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { mockContributions, mockMembers, mockMeetings } from '../data/mockData';
-import { FaPlus, FaSearch, FaPiggyBank, FaExclamationCircle, FaUserClock, FaCheckCircle, FaLock, FaUnlock } from 'react-icons/fa';
+import { FaPlus, FaSearch, FaPiggyBank, FaUserClock, FaCheckCircle, FaLock, FaUnlock } from 'react-icons/fa';
 import ContributionModal from '../components/ContributionModal';
-import { useTransactions } from '../context/TransactionContext';
 import { toast } from 'react-toastify';
+import api from '../services/api';
+
+const Step = ({ number, label, active, completed }) => (
+    <div className="flex items-center gap-2">
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm transition-all duration-500 ${completed ? 'bg-safaricom-green text-white' :
+            active ? 'bg-safaricom-green text-white ring-4 ring-green-100 scale-110' :
+                'bg-gray-100 text-gray-400'
+            }`}>
+            {completed ? <FaCheckCircle /> : number}
+        </div>
+        <span className={`text-xs font-bold tracking-tight hidden md:block ${active || completed ? 'text-gray-800' : 'text-gray-400'
+            }`}>{label}</span>
+    </div>
+);
 
 const Contributions = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState('');
     const [selectedMember, setSelectedMember] = useState(null);
-    const [contributions, setContributions] = useState(mockContributions);
+    const [loading, setLoading] = useState(true);
 
-    const { groups } = useTransactions();
+    const [groups, setGroups] = useState([]);
+    const [members, setMembers] = useState([]);
+    const [activeMeeting, setActiveMeeting] = useState(null);
 
     const selectedGroup = groups.find(g => g.id === parseInt(selectedGroupId));
 
-    // Get active meeting context
-    const activeMeeting = useMemo(() => {
-        if (!selectedGroupId) return null;
-        return mockMeetings.find(m => m.group_id === parseInt(selectedGroupId) && m.status === 'ACTIVE');
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    useEffect(() => {
+        if (selectedGroupId) {
+            fetchActiveMeeting(selectedGroupId);
+        } else {
+            setActiveMeeting(null);
+        }
     }, [selectedGroupId]);
 
-    // Enhanced member list with status and arrears logic
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            const [groupsData, membersData] = await Promise.all([
+                api.getGroups(),
+                api.getMembers()
+            ]);
+
+            const enrichedGroups = await Promise.all((groupsData || []).map(async (group) => {
+                const activeMeeting = await api.getActiveMeeting(group.id);
+                return {
+                    ...group,
+                    hasActiveMeeting: !!activeMeeting,
+                    activeMeeting: activeMeeting
+                };
+            }));
+
+            setGroups(enrichedGroups);
+            setMembers(membersData || []);
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to load data');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchActiveMeeting = async (groupId) => {
+        try {
+            const meeting = await api.getActiveMeeting(groupId);
+            setActiveMeeting(meeting);
+        } catch (error) {
+            console.error(error);
+            setActiveMeeting(null);
+        }
+    };
+
     const displayedMembers = useMemo(() => {
         if (!selectedGroupId) return [];
-        return mockMembers.filter(m => {
-            const matchesGroup = m.groupId === parseInt(selectedGroupId);
+        return members.filter(m => {
+            const matchesGroup = m.group_id === parseInt(selectedGroupId);
             const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
             return matchesGroup && matchesSearch;
         }).map(m => ({
             ...m,
-            expectedContribution: 2000, // Hardcoded standard for demo
+            expectedContribution: 100, // Matrix default
             hasArrears: m.arrears > 0,
             canPost: !!activeMeeting
         }));
-    }, [selectedGroupId, searchTerm, activeMeeting]);
-
+    }, [selectedGroupId, searchTerm, activeMeeting, members]);
 
     const handlePostClick = (member) => {
         if (!activeMeeting) {
@@ -49,163 +104,222 @@ const Contributions = () => {
 
     return (
         <div className="space-y-6">
-            {/* 1. Header & Group Selector */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Post Contributions</h2>
-                    <p className="text-sm text-gray-500">Record member deposits securely within active meetings.</p>
+            {/* 1. Header & Workflow Stepper */}
+            <div className="flex flex-col gap-6">
+                <div className="flex justify-between items-center">
+                    <div>
+                        <h2 className="text-2xl font-black text-gray-800 tracking-tight">Post Contributions</h2>
+                        <p className="text-sm text-gray-500 font-medium">Record member deposits securely within active meetings.</p>
+                    </div>
+                    {selectedGroupId && (
+                        <button
+                            onClick={() => setSelectedGroupId('')}
+                            className="text-xs font-bold text-safaricom-green hover:underline flex items-center gap-1"
+                        >
+                            ← Change Group
+                        </button>
+                    )}
                 </div>
-                <div className="w-full md:w-auto">
-                    <select
-                        className="w-full md:w-64 px-4 py-2 border border-gray-100 rounded-xl bg-white shadow-sm focus:ring-2 focus:ring-safaricom-green/20 outline-none font-bold text-gray-700"
-                        value={selectedGroupId}
-                        onChange={(e) => setSelectedGroupId(e.target.value)}
-                    >
-                        <option value="">Select Group Context...</option>
-                        {groups.map(g => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                    </select>
+
+                <div className="flex items-center justify-center max-w-2xl mx-auto w-full mb-4">
+                    <Step number="1" label="Select Group" active={!selectedGroupId} completed={!!selectedGroupId} />
+                    <div className={`h-1 w-12 mx-2 rounded-full ${selectedGroupId ? 'bg-safaricom-green' : 'bg-gray-200'}`} />
+                    <Step number="2" label="Post Deposits" active={!!selectedGroupId && !!activeMeeting} completed={false} />
+                    <div className={`h-1 w-12 mx-2 rounded-full bg-gray-200`} />
+                    <Step number="3" label="Finalize" active={false} completed={false} />
                 </div>
             </div>
 
-            {/* 2. Context Banner / Warning */}
+            {/* 2. Group Dashboard Selection */}
             {!selectedGroupId ? (
-                <div className="bg-yellow-50 border border-yellow-100 p-6 rounded-3xl flex items-center gap-4 text-yellow-800 animate-pulse">
-                    <div className="p-3 bg-yellow-100 rounded-full text-yellow-600">
-                        <FaExclamationCircle size={24} />
-                    </div>
-                    <div>
-                        <p className="font-black text-sm uppercase tracking-wider">Group Selection Required</p>
-                        <p className="text-sm opacity-80">Please select a group above to verify meeting status.</p>
-                    </div>
-                </div>
-            ) : activeMeeting ? (
-                <div className="bg-green-50 border border-green-100 p-6 rounded-3xl flex items-center justify-between text-green-800 shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-green-100 rounded-full text-green-600 animate-pulse">
-                            <FaUnlock size={24} />
-                        </div>
-                        <div>
-                            <p className="font-black text-sm uppercase tracking-wider">Active Meeting: {activeMeeting.session_number}</p>
-                            <p className="text-sm opacity-80">
-                                Date: {new Date(activeMeeting.meeting_date).toLocaleDateString()} | Started by: {activeMeeting.opened_by_name}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="px-4 py-1 bg-green-200 text-green-900 rounded-full text-xs font-black uppercase">
-                        Posting Enabled
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {groups.map(group => (
+                            <div
+                                key={group.id}
+                                onClick={() => setSelectedGroupId(group.id.toString())}
+                                className="group relative bg-white border border-gray-100 rounded-3xl p-6 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all cursor-pointer overflow-hidden"
+                            >
+                                <div className="absolute -right-4 -top-4 w-24 h-24 bg-safaricom-green/5 rounded-full blur-2xl group-hover:bg-safaricom-green/10 transition-colors" />
+
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className={`p-3 rounded-2xl ${group.hasActiveMeeting ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+                                        <FaPiggyBank size={24} />
+                                    </div>
+                                    <div className="flex flex-col items-end">
+                                        {group.hasActiveMeeting ? (
+                                            <span className="flex items-center gap-1.5 px-3 py-1 bg-green-500 text-white text-[10px] font-black uppercase rounded-full shadow-sm">
+                                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                                                Active Session
+                                            </span>
+                                        ) : (
+                                            <span className="px-3 py-1 bg-gray-100 text-gray-400 text-[10px] font-black uppercase rounded-full">
+                                                Closed
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <h3 className="text-xl font-black text-gray-800 mb-1">{group.group_name}</h3>
+                                <p className="text-xs text-gray-500 mb-4 flex items-center gap-1">
+                                    <FaUserClock /> {group.meeting_day} • {group.meeting_frequency}
+                                </p>
+
+                                <button className="w-full mt-6 py-3 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-green-200 group-hover:from-green-600 group-hover:to-green-700 transition-all">
+                                    Select Group
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 </div>
             ) : (
-                <div className="bg-red-50 border border-red-100 p-6 rounded-3xl flex items-center justify-between text-red-800 shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-red-100 rounded-full text-red-600">
-                            <FaLock size={24} />
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
+                    {/* Meeting Status Banner */}
+                    {activeMeeting ? (
+                        <div className="bg-green-50 border border-green-100 p-6 rounded-3xl flex items-center justify-between text-green-800 shadow-sm">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-green-100 rounded-full text-green-600 animate-pulse">
+                                    <FaUnlock size={24} />
+                                </div>
+                                <div>
+                                    <p className="font-black text-sm uppercase tracking-wider">Active Meeting: {activeMeeting.session_number}</p>
+                                    <p className="text-sm opacity-80">
+                                        Date: {new Date(activeMeeting.meeting_date).toLocaleDateString()}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="px-4 py-1 bg-green-200 text-green-900 rounded-full text-xs font-black uppercase">
+                                Posting Enabled
+                            </div>
                         </div>
-                        <div>
-                            <p className="font-black text-sm uppercase tracking-wider">No Active Meeting</p>
-                            <p className="text-sm opacity-80">Posting is disabled. Please open a meeting session first.</p>
+                    ) : (
+                        <div className="bg-red-50 border border-red-100 p-6 rounded-3xl flex items-center justify-between text-red-800 shadow-sm">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-red-100 rounded-full text-red-600">
+                                    <FaLock size={24} />
+                                </div>
+                                <div>
+                                    <p className="font-black text-sm uppercase tracking-wider">No Active Meeting</p>
+                                    <p className="text-sm opacity-80">Please open a meeting session first.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => window.location.href = '/meetings'}
+                                className="px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-red-100 hover:bg-red-700 transition-all"
+                            >
+                                Open Session
+                            </button>
                         </div>
-                    </div>
-                    <div className="px-4 py-1 bg-red-200 text-red-900 rounded-full text-xs font-black uppercase">
-                        Posting Disabled
-                    </div>
-                </div>
-            )}
+                    )}
 
-            {/* 3. Member Action Table */}
-            {selectedGroupId && (
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                    <div className="relative mb-4">
-                        <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Find member to post..."
-                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-safaricom-green/20"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
+                    {/* Member Action Table */}
+                    <div className="bg-white p-6 rounded-3xl shadow-xl shadow-gray-100/50 border border-gray-100">
+                        <div className="relative mb-6">
+                            <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Find member to post deposits..."
+                                className="w-full pl-12 pr-4 py-4 bg-gray-50 border-none rounded-2xl focus:outline-none focus:ring-2 focus:ring-safaricom-green/20 font-medium text-gray-700"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
 
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
-                                <tr>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Member</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Savings Bal.</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Arrears</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Expected</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {displayedMembers.length > 0 ? displayedMembers.map((member) => (
-                                    <tr key={member.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-900">{member.name}</div>
-                                            <div className="text-xs text-gray-400">{member.phone}</div>
-                                        </td>
-                                        <td className="px-6 py-4 font-medium text-gray-700">
-                                            KES {member.savings.toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {member.hasArrears ? (
-                                                <span className="px-2 py-1 bg-red-100 text-red-700 rounded-md text-xs font-bold">
-                                                    KES {member.arrears.toLocaleString()}
-                                                </span>
-                                            ) : (
-                                                <span className="text-gray-400 text-xs">-</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-gray-600 font-medium">
-                                            KES {member.expectedContribution.toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <button
-                                                onClick={() => handlePostClick(member)}
-                                                disabled={!member.canPost}
-                                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${member.canPost
-                                                        ? 'bg-safaricom-green text-white hover:bg-safaricom-dark shadow'
-                                                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                                    }`}
-                                            >
-                                                {member.canPost ? (
-                                                    <><FaPlus /> Post</>
-                                                ) : (
-                                                    <><FaLock /> Closed</>
-                                                )}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                )) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="border-b border-gray-100">
                                     <tr>
-                                        <td colSpan="5" className="px-6 py-8 text-center text-gray-400">
-                                            No members found.
-                                        </td>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Member</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Savings Bal.</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Arrears</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Expected</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Action</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {displayedMembers.length > 0 ? displayedMembers.map((member) => (
+                                        <tr key={member.id} className="hover:bg-gray-50/50 transition-colors group">
+                                            <td className="px-6 py-5">
+                                                <div className="font-black text-gray-900">{member.name}</div>
+                                                <div className="text-[10px] font-bold text-gray-400 uppercase mt-0.5">{member.phone}</div>
+                                            </td>
+                                            <td className="px-6 py-5 font-bold text-gray-700">
+                                                KES {member.savings?.toLocaleString() || '0'}
+                                            </td>
+                                            <td className="px-6 py-5">
+                                                {member.hasArrears ? (
+                                                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] font-black">
+                                                        KES {member.arrears?.toLocaleString() || '0'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-300 text-[10px] font-black uppercase">None</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-5 text-gray-600 font-bold">
+                                                KES {member.expectedContribution?.toLocaleString() || '0'}
+                                            </td>
+                                            <td className="px-6 py-5">
+                                                <button
+                                                    onClick={() => handlePostClick(member)}
+                                                    disabled={!member.canPost}
+                                                    className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${member.canPost
+                                                        ? 'bg-safaricom-green text-white hover:bg-safaricom-dark shadow-lg shadow-green-100 active:scale-95'
+                                                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                                        }`}
+                                                >
+                                                    {member.canPost ? <><FaPlus /> Post Deposit</> : <><FaLock /> Locked</>}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )) : (
+                                        <tr>
+                                            <td colSpan="5" className="px-6 py-12 text-center">
+                                                <div className="flex flex-col items-center gap-3 text-gray-300">
+                                                    <FaSearch size={40} className="opacity-20" />
+                                                    <p className="font-bold text-sm">No members found matching your search</p>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
+
+                    <ContributionModal
+                        isOpen={showModal}
+                        onClose={() => {
+                            setShowModal(false);
+                            setSelectedMember(null);
+                        }}
+                        selectedGroupId={parseInt(selectedGroupId)}
+                        selectedGroupName={selectedGroup?.group_name}
+                        member={selectedMember}
+                        activeMeeting={activeMeeting}
+                        onSuccess={async (contributionData) => {
+                            try {
+                                await api.postContribution({
+                                    memberId: contributionData.memberId,
+                                    type: contributionData.type,
+                                    amount: contributionData.amount,
+                                    paymentMethod: contributionData.paymentMethod,
+                                    meetingReference: contributionData.meetingReference,
+                                    officerId: contributionData.officerId || 1,
+                                    affectsSavings: contributionData.contributionRule.affectsSavings,
+                                    affectsLoanEligibility: contributionData.contributionRule.affectsLoanEligibility,
+                                    affectsCash: contributionData.contributionRule.affectsCash
+                                });
+                                toast.success("✅ Recorded successfully!");
+                                fetchData();
+                            } catch (error) {
+                                console.error(error);
+                                toast.error("Failed to record contribution");
+                                throw error;
+                            }
+                        }}
+                    />
                 </div>
             )}
-
-            <ContributionModal
-                isOpen={showModal}
-                onClose={() => {
-                    setShowModal(false);
-                    setSelectedMember(null);
-                }}
-                selectedGroupId={parseInt(selectedGroupId)}
-                selectedGroupName={selectedGroup?.name}
-                member={selectedMember}
-                activeMeeting={activeMeeting}
-                onSuccess={(newEntry) => {
-                    setContributions([newEntry, ...contributions]);
-                    toast.success("Contribution recorded successfully!");
-                }}
-            />
         </div>
     );
 };

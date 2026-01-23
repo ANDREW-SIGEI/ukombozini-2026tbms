@@ -41,9 +41,9 @@ const Loans = () => {
     };
 
     const calculateStats = (data) => {
-        const active = data.filter(l => l.status === 'Active');
-        const defaulted = data.filter(l => l.status === 'Defaulted');
-        const principal = active.reduce((sum, l) => sum + (l.principal || 0), 0);
+        const active = data.filter(l => l.status === 'active' || l.status === 'Active');
+        const defaulted = data.filter(l => l.status === 'defaulted' || l.status === 'Defaulted');
+        const principal = active.reduce((sum, l) => sum + (l.principal_amount || 0), 0);
 
         setStats({
             totalPrincipal: principal,
@@ -54,10 +54,12 @@ const Loans = () => {
 
     const filteredLoans = loans.filter(loan => {
         const matchesSearch =
-            loan.members?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            loan.members?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             loan.id.toString().includes(searchTerm);
 
-        const matchesFilter = filterStatus === 'ALL' || loan.status === filterStatus;
+        const matchesFilter = filterStatus === 'ALL' || loan.status === filterStatus ||
+            (filterStatus === 'Active' && loan.status === 'active') ||
+            (filterStatus === 'Defaulted' && loan.status === 'defaulted');
 
         return matchesSearch && matchesFilter;
     });
@@ -97,8 +99,23 @@ const Loans = () => {
                 </div>
             </div>
 
+            {/* Advisory Banner */}
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-4 text-white shadow-lg flex justify-between items-center">
+                <div>
+                    <h3 className="font-bold text-lg flex items-center gap-2"><FaCheckCircle /> Need to issue a new loan?</h3>
+                    <p className="text-blue-100 text-sm">Use the Loan Advisory Panel to calculate repayment schedules and verify eligibility.</p>
+                </div>
+                <button
+                    onClick={() => navigate('/loan-advisory')}
+                    className="bg-white text-blue-600 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 transition-all shadow-sm"
+                >
+                    Go to Advisory Panel
+                </button>
+            </div>
+
             {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* ... stats ... */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
                     <div className="p-4 bg-green-50 text-green-600 rounded-xl">
                         <FaMoneyBillWave size={24} />
@@ -181,17 +198,21 @@ const Loans = () => {
                                 <tr>
                                     <td colSpan="6" className="px-6 py-12 text-center text-gray-400 font-bold">
                                         No loans found matching your search.
+                                        <button onClick={() => navigate('/loan-advisory')} className="block mx-auto mt-2 text-blue-600 hover:underline">
+                                            Start a new loan application via Advisory Panel
+                                        </button>
                                     </td>
                                 </tr>
+
                             ) : (
                                 filteredLoans.map((loan) => (
                                     <tr key={loan.id} className="hover:bg-blue-50/50 transition-colors group">
                                         <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-800">{loan.members?.name || 'Unknown Member'}</div>
-                                            <div className="text-xs font-mono text-gray-500">#{loan.id.substr(0, 8)}...</div>
+                                            <div className="font-bold text-gray-800">{loan.members?.full_name || 'Unknown Member'}</div>
+                                            <div className="text-xs font-mono text-gray-500">#{loan.id.toString().substring(0, 8)}...</div>
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-gray-700">
-                                            KES {loan.principal?.toLocaleString()}
+                                            KES {(loan.principal_amount || 0).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-safaricom-green">
                                             KES {loan.total_repayable?.toLocaleString()}

@@ -8,7 +8,7 @@ VALUES
     ('Ukombozi Group A', '2025-01-01', 'ACTIVE', 'Monday', 'WEEKLY'),
     ('Ukombozi Group B', '2025-01-15', 'ACTIVE', 'Wednesday', 'WEEKLY'),
     ('Victory Women Group', '2025-02-01', 'ACTIVE', 'Friday', 'MONTHLY')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (group_name) DO NOTHING;
 
 -- Success message
 DO $$

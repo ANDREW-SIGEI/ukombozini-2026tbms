@@ -12,7 +12,7 @@ DROP TABLE IF EXISTS meeting_sessions CASCADE;
 CREATE TABLE IF NOT EXISTS meeting_sessions (
     id SERIAL PRIMARY KEY,
     session_number VARCHAR(50) UNIQUE NOT NULL,
-    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     
     -- Session Details
     meeting_date DATE NOT NULL,
@@ -354,7 +354,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE VIEW active_meetings AS
 SELECT 
     ms.*,
-    g.name AS group_name,
+    g.group_name AS group_name,
     u.full_name AS opened_by_name,
     EXTRACT(EPOCH FROM (NOW() - ms.start_time))/3600 AS hours_open
 FROM meeting_sessions ms
@@ -367,7 +367,7 @@ ORDER BY ms.start_time DESC;
 CREATE OR REPLACE VIEW recent_locked_meetings AS
 SELECT 
     ms.*,
-    g.name AS group_name,
+    g.group_name AS group_name,
     u_open.full_name AS opened_by_name,
     u_close.full_name AS closed_by_name,
     EXTRACT(EPOCH FROM (ms.closed_at - ms.start_time))/3600 AS meeting_duration_hours
@@ -385,7 +385,7 @@ SELECT
     ms.id,
     ms.session_number,
     ms.group_id,
-    g.name AS group_name,
+    g.group_name AS group_name,
     ms.meeting_date,
     ms.status,
     ms.total_collected,
@@ -399,7 +399,7 @@ FROM meeting_sessions ms
 JOIN groups g ON ms.group_id = g.id
 LEFT JOIN transactions t ON t.session_id = ms.id
 LEFT JOIN meeting_attendance ma ON ma.session_id = ms.id
-GROUP BY ms.id, g.name
+GROUP BY ms.id, g.group_name
 ORDER BY ms.meeting_date DESC;
 
 -- Grant permissions
@@ -422,3 +422,5 @@ COMMENT ON FUNCTION is_meeting_locked IS 'Checks if a meeting is locked (returns
 -- Once a meeting is LOCKED, no changes are possible
 -- This ensures audit compliance and prevents fraud
 -- =====================================================
+
+

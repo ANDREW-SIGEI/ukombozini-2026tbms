@@ -422,3 +422,4 @@ COMMENT ON FUNCTION mark_sms_delivered IS 'Mark SMS as delivered (callback from 
 -- - Gateway integration ready
 -- - Admin-controlled templates
 -- =====================================================
+
