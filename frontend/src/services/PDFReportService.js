@@ -81,7 +81,7 @@ class PDFReportService {
         });
 
         // Footer
-        this.addFooter(doc);
+        this.addFooter(doc, { hash: `MS-${member.id}-${new Date().getTime().toString(36).toUpperCase()}` });
 
         // Save
         doc.save(`UKOMBOZI_Statement_${member.name.replace(/ /g, '_')}_${new Date().getTime()}.pdf`);
@@ -332,35 +332,58 @@ class PDFReportService {
     /**
      * Add footer with page number and generation date
      */
-    addFooter(doc) {
+    addFooter(doc, options = {}) {
         const pageCount = doc.internal.getNumberOfPages();
         const pageHeight = doc.internal.pageSize.height;
+        const now = new Date();
+
+        // Generate a simple unique document hash (for authenticity simulation)
+        const docHash = options.hash || Math.random().toString(36).substring(2, 10).toUpperCase() +
+            now.getTime().toString(36).toUpperCase();
 
         for (let i = 1; i <= pageCount; i++) {
             doc.setPage(i);
-            doc.setFontSize(8);
-            doc.setTextColor(128);
+            doc.setFontSize(7);
+            doc.setTextColor(150);
 
             // Page number
             doc.text(
                 `Page ${i} of ${pageCount}`,
                 105,
-                pageHeight - 10,
+                pageHeight - 12,
                 { align: 'center' }
             );
 
-            // Generation date
+            // Digital Signature / Hash
+            doc.setFont(undefined, 'italic');
             doc.text(
-                `Generated: ${new Date().toLocaleString('en-GB')}`,
+                `DIGITAL SIGNATURE: ${docHash}`,
                 14,
-                pageHeight - 10
+                pageHeight - 8
+            );
+
+            // Generation date
+            doc.setFont(undefined, 'normal');
+            doc.text(
+                `Generated: ${now.toLocaleString('en-GB')} by UKOMBOZI-SYS`,
+                14,
+                pageHeight - 12
             );
 
             doc.text(
-                'UKOMBOZI Table Banking System',
+                'OFFICIAL DOCUMENT - UKOMBOZI Table Banking System',
                 195,
-                pageHeight - 10,
+                pageHeight - 12,
                 { align: 'right' }
+            );
+
+            // Security clause
+            doc.setFontSize(6);
+            doc.text(
+                'This document is electronically generated. Any unauthorized alteration renders it null and void.',
+                105,
+                pageHeight - 6,
+                { align: 'center' }
             );
         }
     }

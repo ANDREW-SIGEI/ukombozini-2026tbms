@@ -51,6 +51,9 @@ const GroupsManagement = () => {
                 meeting_day: newGroup.meeting_day,
                 meeting_frequency: newGroup.meeting_frequency,
                 location: newGroup.location || null,
+                chairperson: newGroup.chairperson,
+                secretary: newGroup.secretary,
+                treasurer: newGroup.treasurer,
                 registration_date: new Date().toISOString().split('T')[0]
             });
 
@@ -60,7 +63,10 @@ const GroupsManagement = () => {
                 group_name: '',
                 meeting_day: 'Monday',
                 meeting_frequency: 'WEEKLY',
-                location: ''
+                location: '',
+                chairperson: '',
+                secretary: '',
+                treasurer: ''
             });
             fetchGroups();
         } catch (error) {
@@ -263,6 +269,45 @@ const GroupsManagement = () => {
                                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
                                     placeholder="e.g., Community Hall, Nairobi"
                                 />
+                            </div>
+
+                            {/* Group Officials */}
+                            <div className="pt-4 border-t border-gray-100">
+                                <h4 className="text-sm font-black text-gray-800 mb-3 flex items-center gap-2">
+                                    <FaUsers className="text-safaricom-green" /> Group Officials (Governance)
+                                </h4>
+                                <div className="grid grid-cols-1 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Chairperson Name</label>
+                                        <input
+                                            type="text"
+                                            value={newGroup.chairperson || ''}
+                                            onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm"
+                                            placeholder="Enter full name"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Secretary Name</label>
+                                        <input
+                                            type="text"
+                                            value={newGroup.secretary || ''}
+                                            onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm"
+                                            placeholder="Enter full name"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Treasurer Name</label>
+                                        <input
+                                            type="text"
+                                            value={newGroup.treasurer || ''}
+                                            onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm"
+                                            placeholder="Enter full name"
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="flex gap-3 pt-4">

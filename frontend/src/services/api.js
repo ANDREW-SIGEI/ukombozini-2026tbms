@@ -17,23 +17,31 @@ export const api = {
     // ========================================
 
     /**
-     * Get all members with their financial summary
+     * Get all members with their financial summary (Supabase View)
      */
     async getMembers() {
         try {
-            const res = await fetch(`${API_URL}/members`);
-            if (!res.ok) throw new Error('Failed to fetch members');
-            const data = await res.json();
+            const { data, error } = await supabase
+                .from('member_net_position_view')
+                .select('*')
+                .order('full_name');
 
-            // Transform data to ensure UI-ready fields
+            if (error) throw error;
+
+            // Transformed to camelCase for UI compatibility
             return data.map(member => ({
-                ...member,
-                savings: member.current_savings || 0,
-                arrears: member.arrears || 0,
-                groupName: member.group_name || 'Generic Group'
+                id: member.member_id,
+                name: member.full_name,
+                phone: member.phone,
+                groupId: member.group_id,
+                groupName: member.group_name || 'N/A',
+                status: member.status,
+                savings: member.savings || 0,
+                active_loan_balance: member.active_loans || 0,
+                arrears: member.arrears || 0
             }));
         } catch (error) {
-            console.error(error);
+            console.error('getMembers error:', error);
             return [];
         }
     },
@@ -44,27 +52,24 @@ export const api = {
     async getMember(id) {
         try {
             const { data, error } = await supabase
-                .from('members')
-                .select(`
-                    *,
-                    groups:group_id (name)
-                `)
-                .eq('id', id)
+                .from('member_net_position_view')
+                .select('*')
+                .eq('member_id', id)
                 .single();
 
             if (error) throw error;
 
             return {
-                id: data.id,
-                name: data.name,
+                id: data.member_id,
+                name: data.full_name,
                 groupId: data.group_id,
-                groupName: data.groups?.name || 'Unknown',
+                groupName: data.group_name || 'Unknown',
                 phone: data.phone,
                 status: data.status,
-                savings: data.current_savings || 0,
-                activeLoans: data.active_loan_balance || 0,
+                savings: data.savings || 0,
+                activeLoans: data.active_loans || 0,
                 arrears: data.arrears || 0,
-                balance: data.current_savings || 0
+                balance: data.savings || 0
             };
         } catch (error) {
             handleSupabaseError(error);
@@ -76,20 +81,22 @@ export const api = {
      */
     async createMember(memberData) {
         try {
-            const res = await fetch(`${API_URL}/members`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(memberData)
-            });
+            const { data, error } = await supabase
+                .from('members')
+                .insert([{
+                    group_id: memberData.group_id,
+                    full_name: memberData.full_name,
+                    phone: memberData.phone,
+                    opening_balance_savings: memberData.opening_balance_savings || 0,
+                    status: 'active'
+                }])
+                .select()
+                .single();
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Failed to create member');
-            }
-            return await res.json();
+            if (error) throw error;
+            return data;
         } catch (error) {
-            console.error(error);
-            throw error;
+            handleSupabaseError(error);
         }
     },
 
@@ -98,20 +105,22 @@ export const api = {
      */
     async updateMember(id, memberData) {
         try {
-            const res = await fetch(`${API_URL}/members/${id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(memberData)
-            });
+            const { data, error } = await supabase
+                .from('members')
+                .update({
+                    full_name: memberData.full_name,
+                    phone: memberData.phone,
+                    group_id: memberData.group_id,
+                    status: memberData.status
+                })
+                .eq('id', id)
+                .select()
+                .single();
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Failed to update member');
-            }
-            return await res.json();
+            if (error) throw error;
+            return data;
         } catch (error) {
-            console.error(error);
-            throw error;
+            handleSupabaseError(error);
         }
     },
 
@@ -415,36 +424,36 @@ export const api = {
     // GROUP MANAGEMENT
     // ========================================
 
-    // GROUPS (Switched to Local)
+    // GROUPS (Supabase Integrated)
     async getGroups() {
         try {
-            const res = await fetch(`${API_URL}/groups`);
-            if (!res.ok) throw new Error('Failed to fetch groups');
-            return await res.json();
+            const { data, error } = await supabase
+                .from('groups')
+                .select('*')
+                .order('group_name');
+
+            if (error) throw error;
+            return data;
         } catch (error) {
-            console.error(error);
+            console.error('getGroups error:', error);
             return [];
         }
     },
 
     async deleteGroup(id) {
         try {
-            const res = await fetch(`${API_URL}/groups/${id}`, { method: 'DELETE' });
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Failed to delete group');
-            }
-            return await res.json();
+            const { error } = await supabase
+                .from('groups')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+            return { success: true };
         } catch (error) {
-            console.error(error);
-            throw error;
+            handleSupabaseError(error);
         }
     },
 
-    /**
-     * Create a new group (Supabase)
-     */
-    /*
     async createGroup(groupData) {
         try {
             const { data, error } = await supabase
@@ -454,6 +463,9 @@ export const api = {
                     meeting_day: groupData.meeting_day,
                     meeting_frequency: groupData.meeting_frequency,
                     location: groupData.location || null,
+                    chairperson: groupData.chairperson,
+                    secretary: groupData.secretary,
+                    treasurer: groupData.treasurer,
                     registration_date: groupData.registration_date || new Date().toISOString().split('T')[0],
                     status: groupData.status || 'ACTIVE'
                 }])
@@ -464,10 +476,9 @@ export const api = {
             return data;
         } catch (error) {
             handleSupabaseError(error);
-            throw error; // Re-throw so the caller can handle it
+            throw error;
         }
     },
-    */
 
     // ========================================
     // ADMIN & SYSTEM MANAGEMENT
@@ -556,17 +567,93 @@ export const api = {
         }
     },
 
-    // ========================================
-    // OFFICER MANAGEMENT
-    // ========================================
+    async downloadTableExport(table) {
+        try {
+            window.location.href = `${API_URL}/admin/export/${table}`;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    },
 
+    // ========================================
+    // OFFICER MANAGEMENT (Supabase Integrated)
+    // ========================================
     async getOfficers() {
         try {
             const { data, error } = await supabase
                 .from('profiles')
                 .select('*')
-                .eq('role', 'field_officer')
                 .order('full_name');
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('getOfficers error:', error);
+            return [];
+        }
+    },
+
+    async saveOfficer(officer) {
+        try {
+            const isUpdate = !!officer.id;
+            const profileData = {
+                full_name: officer.name || officer.full_name,
+                email: officer.email,
+                phone: officer.phone,
+                role: officer.role,
+                status: officer.status || 'active'
+            };
+
+            let result;
+            if (isUpdate) {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .update(profileData)
+                    .eq('id', officer.id)
+                    .select()
+                    .single();
+                if (error) throw error;
+                result = data;
+            } else {
+                // For new officers, we'd typically use Supabase Auth and let the trigger handle profile creation
+                // But for manual CRUD (if allowed):
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .insert([profileData])
+                    .select()
+                    .single();
+                if (error) throw error;
+                result = data;
+            }
+            return result;
+        } catch (error) {
+            handleSupabaseError(error);
+        }
+    },
+
+    async deleteOfficer(id) {
+        try {
+            const { error } = await supabase
+                .from('profiles')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+            return { success: true };
+        } catch (error) {
+            handleSupabaseError(error);
+        }
+    },
+
+    async updateOfficerStatus(id, status) {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .update({ status })
+                .eq('id', id)
+                .select()
+                .single();
 
             if (error) throw error;
             return data;
@@ -575,23 +662,17 @@ export const api = {
         }
     },
 
-    async assignGroup(officerId, groupId) {
-        try {
-            const { data, error } = await supabase
-                .from('officer_groups')
-                .insert([{
-                    officer_id: officerId,
-                    group_id: groupId,
-                    assigned_at: new Date().toISOString()
-                    // assigned_by is optional or handled by default/trigger if auth context is missing
-                }])
-                .select();
-
-            if (error) throw error;
-            return data;
-        } catch (error) {
-            handleSupabaseError(error);
+    async resetOfficerPassword(officerId, passwordHash) {
+        const res = await fetch(`${API_URL}/officers/${officerId}/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password_hash: passwordHash })
+        });
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to reset password');
         }
+        return await res.json();
     },
 
     // ========================================
@@ -767,84 +848,7 @@ export const api = {
         }
     },
 
-    // ========================================
-    // ========================================
-    // DIVIDEND ENGINE (LOCAL ENGINE)
-    // ========================================
-
-    async getDividendRuns() {
-        try {
-            const res = await fetch(`${API_URL}/dividends/runs`);
-            if (!res.ok) throw new Error('Failed to fetch runs');
-            return await res.json();
-        } catch (error) {
-            console.error(error);
-            return [];
-        }
-    },
-
-    async createDividendRun(runData) {
-        try {
-            const res = await fetch(`${API_URL}/dividends/runs`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(runData)
-            });
-            if (!res.ok) throw new Error('Failed to create run');
-            return await res.json();
-        } catch (error) {
-            console.error(error);
-            throw error;
-        }
-    },
-
-    async calculateDividend(runId) {
-        try {
-            const res = await fetch(`${API_URL}/dividends/${runId}/calculate`, { method: 'POST' });
-            if (!res.ok) throw new Error('Calculation failed');
-            return await res.json();
-        } catch (error) {
-            console.error(error);
-            throw error;
-        }
-    },
-
-    async getDividendAllocations(runId) {
-        try {
-            const res = await fetch(`${API_URL}/dividends/${runId}/allocations`);
-            if (!res.ok) throw new Error('Failed to fetch allocations');
-            return await res.json();
-        } catch (error) {
-            console.error(error);
-            return [];
-        }
-    },
-
-    async approveDividendRun(runId) {
-        try {
-            const res = await fetch(`${API_URL}/dividends/${runId}/approve`, { method: 'POST' });
-            if (!res.ok) throw new Error('Approval failed');
-            return await res.json();
-        } catch (error) {
-            console.error(error);
-            throw error;
-        }
-    },
-
-    async postDividendRun(runId) {
-        try {
-            const res = await fetch(`${API_URL}/dividends/post`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ runId })
-            });
-            if (!res.ok) throw new Error('Posting failed');
-            return await res.json();
-        } catch (error) {
-            console.error(error);
-            throw error;
-        }
-    },
+    // Dividend Engine methods have been migrated to the Supabase section below.
 
     async getFinancialYearSummary(year) {
         // Mock implementation for local engine

@@ -15,18 +15,27 @@ import {
  * Replaces paper cashbook - ONE meeting = ONE session
  * ONE row = ONE member transaction
  */
-// Input cell component with auto-focus
-const TransactionInput = ({ value, onChange, disabled, memberId, field }) => {
+// Input cell component with Excel-like navigation
+const TransactionInput = ({ value, onChange, disabled, memberId, field, rowIndex, colIndex, totalRows, totalCols }) => {
     const inputRef = useRef(null);
 
     const handleKeyDown = (e) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
+        const { key } = e;
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(key)) {
             e.preventDefault();
-            // Focus next input
-            const inputs = document.querySelectorAll('input[type="number"]');
-            const currentIndex = Array.from(inputs).indexOf(e.target);
-            if (currentIndex < inputs.length - 1) {
-                inputs[currentIndex + 1].focus();
+
+            let nextRow = rowIndex;
+            let nextCol = colIndex;
+
+            if (key === 'ArrowUp') nextRow = Math.max(0, rowIndex - 1);
+            if (key === 'ArrowDown' || key === 'Enter') nextRow = Math.min(totalRows - 1, rowIndex + 1);
+            if (key === 'ArrowLeft') nextCol = Math.max(0, colIndex - 1);
+            if (key === 'ArrowRight') nextCol = Math.min(totalCols - 1, colIndex + 1);
+
+            const nextInput = document.querySelector(`input[data-row="${nextRow}"][data-col="${nextCol}"]`);
+            if (nextInput) {
+                nextInput.focus();
+                nextInput.select();
             }
         }
     };
@@ -37,13 +46,15 @@ const TransactionInput = ({ value, onChange, disabled, memberId, field }) => {
             type="number"
             min="0"
             step="0.01"
-            value={value || ''}
+            value={value === 0 ? '' : value} // Show empty for 0 to make typing easier
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            className={`w-full px-2 py-1 text-right border rounded focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+            data-row={rowIndex}
+            data-col={colIndex}
+            className={`w-full px-2 py-1 text-right border rounded focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none font-mono ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
                 }`}
-            placeholder="0.00"
+            placeholder="0"
         />
     );
 };
@@ -58,6 +69,10 @@ const DailyMeetingReport = () => {
     const [sessionId, setSessionId] = useState(null);
     const [supervisorApprovalRequested, setSupervisorApprovalRequested] = useState(false);
     const [approvalReason, setApprovalReason] = useState('');
+
+    // Cash Verification State
+    const [actualCashStart, setActualCashStart] = useState('');
+    const [actualCashEnd, setActualCashEnd] = useState('');
 
     // Access Transaction Context
     const {
@@ -316,7 +331,7 @@ const DailyMeetingReport = () => {
 
         // Use context to start (persisted)
         // Mock Officer
-        const officer = { id: user?.id || '4052', name: user?.name || 'Hilda Sigei' };
+        const officer = { id: user?.id || 1, name: user?.name || 'Hilda Sigei' };
         startSession(selectedGroup, officer);
     };
 
@@ -666,6 +681,9 @@ const DailyMeetingReport = () => {
                             <tbody>
                                 {memberTransactions.map((transaction, index) => {
                                     const memberTotal = calculateMemberTotal(transaction);
+                                    // Define validation cols
+                                    const cols = ['savings_amount', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'welfare', 'project', 'fines'];
+
                                     return (
                                         <tr
                                             key={transaction.id}
@@ -685,78 +703,23 @@ const DailyMeetingReport = () => {
                                             <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
                                                 {transaction.savings_bf.toLocaleString()}
                                             </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.savings_amount}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'savings_amount', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="savings_amount"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.stl_repayment}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'stl_repayment', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="stl_repayment"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.ltl_repayment}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'ltl_repayment', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="ltl_repayment"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.loan_interest}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'loan_interest', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="loan_interest"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.loan_principal}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'loan_principal', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="loan_principal"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.welfare}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'welfare', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="welfare"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.project}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'project', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="project"
-                                                />
-                                            </td>
-                                            <td className="px-2 py-2">
-                                                <TransactionInput
-                                                    value={transaction.fines}
-                                                    onChange={(v) => updateMemberTransaction(transaction.memberId, 'fines', v)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    memberId={transaction.memberId}
-                                                    field="fines"
-                                                />
-                                            </td>
+
+                                            {cols.map((col, colIndex) => (
+                                                <td key={col} className="px-2 py-2">
+                                                    <TransactionInput
+                                                        value={transaction[col]}
+                                                        onChange={(v) => updateMemberTransaction(transaction.memberId, col, v)}
+                                                        disabled={sessionStatus !== 'draft'}
+                                                        memberId={transaction.memberId}
+                                                        field={col}
+                                                        rowIndex={index}
+                                                        colIndex={colIndex}
+                                                        totalRows={memberTransactions.length}
+                                                        totalCols={cols.length}
+                                                    />
+                                                </td>
+                                            ))}
+
                                             <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50">
                                                 KES {memberTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </td>
@@ -830,30 +793,74 @@ const DailyMeetingReport = () => {
                 </div>
             )}
 
-            {/* Action Buttons */}
-            {sessionId && (sessionStatus === 'ACTIVE') && (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                    <div className="flex gap-4">
-                        <button
-                            onClick={handleSaveDraft}
-                            className="flex-1 flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors"
-                        >
-                            <FaSave /> Save Draft
-                        </button>
-                        <button
-                            onClick={handleCloseMeeting}
-                            disabled={isExpired || (needsSupervisorApproval && !supervisorApprovalRequested)}
-                            className={`flex-1 flex items-center justify-center gap-2 font-bold py-3 rounded-lg transition-colors shadow-lg ${(isExpired || (needsSupervisorApproval && !supervisorApprovalRequested))
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                                : closingBalance < 0
-                                    ? 'bg-red-600 hover:bg-red-700 text-white'
-                                    : 'bg-safaricom-green hover:bg-safaricom-dark text-white'
-                                }`}
-                        >
-                            <FaLock /> CLOSE MEETING (Submit)
-                        </button>
+            {/* Action Buttons & Cash Verification */}
+            {sessionId && (sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
+                <>
+                    {/* Cash Verification (Required) */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
+                        <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <FaUserShield className="text-blue-600" /> Cash Verification (Required)
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="p-4 bg-gray-50 rounded-lg">
+                                <label className="block text-sm font-bold text-gray-600 mb-2">Expected Cash in Hand</label>
+                                <div className="text-3xl font-black text-gray-800">
+                                    KES {(openingBalance + systemTotals.total_cash_in).toLocaleString()}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">Opening ({openingBalance.toLocaleString()}) + Collected ({systemTotals.total_cash_in.toLocaleString()})</p>
+                            </div>
+                            <div className="p-4 bg-white border-2 border-green-100 rounded-lg">
+                                <label className="block text-sm font-bold text-gray-600 mb-2">Actual Cash Counted *</label>
+                                <input
+                                    type="number"
+                                    value={actualCashEnd}
+                                    onChange={(e) => setActualCashEnd(e.target.value)}
+                                    className={`w-full px-4 py-3 text-2xl font-bold border-2 rounded-xl outline-none transition-colors ${actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in))
+                                        ? 'border-red-300 bg-red-50 text-red-700'
+                                        : 'border-green-200 focus:border-green-500 text-green-800'
+                                        }`}
+                                    placeholder="0.00"
+                                />
+                                {actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in)) && (
+                                    <p className="text-red-600 font-bold text-sm mt-2 flex items-center gap-2">
+                                        <FaExclamationTriangle /> Variance: KES {(parseFloat(actualCashEnd) - (openingBalance + systemTotals.total_cash_in)).toLocaleString()}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                </div>
+
+                    {/* Footer Actions */}
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50 flex flex-col md:flex-row justify-between items-center md:px-10 gap-4">
+                        <div className="text-sm">
+                            <span className="font-bold text-gray-500 uppercase mr-2">Session Status:</span>
+                            <span className="font-bold text-blue-600">IN PROGRESS</span>
+                        </div>
+
+                        <div className="flex gap-4 w-full md:w-auto">
+                            <button
+                                onClick={handleSaveDraft}
+                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                            >
+                                <FaSave /> Save Draft
+                            </button>
+
+                            <button
+                                onClick={handleCloseMeeting}
+                                disabled={
+                                    !actualCashEnd ||
+                                    (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in) && !approvalReason) ||
+                                    closingBalance < 0
+                                }
+                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-safaricom-green text-white font-bold rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-900/20"
+                            >
+                                <FaPaperPlane /> Submit & Close Session
+                            </button>
+                        </div>
+                    </div>
+                    {/* Padding for fixed footer */}
+                    <div className="h-24"></div>
+                </>
             )}
 
             {/* SUPERVISOR VIEW (PENDING APPROVAL) */}

@@ -26,6 +26,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
         { path: '/meeting-sessions', name: 'Meeting Sessions', icon: <FaChartBar /> },
         { path: '/cash-reconciliation', name: 'Cash Reconciliation', icon: <FaBalanceScale /> },
         { path: '/sms-reports', name: 'SMS Reports', icon: <FaSms /> },
+        { path: '/groups', name: 'Groups', icon: <FaUsers /> },
         { path: '/daily-meeting-report', name: 'Meeting Report', icon: <FaFileAlt /> },
         { path: '/group-monthly', name: 'Group Monthly', icon: <FaFileAlt /> },
     ];

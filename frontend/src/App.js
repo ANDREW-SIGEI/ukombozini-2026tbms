@@ -29,6 +29,7 @@ const LoanRepaymentTracking = lazy(() => import('./pages/LoanRepaymentTracking')
 const SMSAutomationTest = lazy(() => import('./pages/SMSAutomationTest'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const LoanAdvisory = lazy(() => import('./pages/LoanAdvisory'));
+const GroupsManagement = lazy(() => import('./pages/GroupsManagement'));
 
 // Simple notifications component
 const Notifications = ({ notifications = [] }) => (
@@ -130,6 +131,7 @@ function App() {
             <Route path="/sms-automation-test" element={<SMSAutomationTest />} />
             {/* <Route path="/group-monthly" element={<GroupMonthly />} /> */}
             <Route path="/loan-advisory" element={<LoanAdvisory />} />
+            <Route path="/groups" element={<GroupsManagement />} />
           </Routes>
         </Layout>
         <ToastContainer position="top-right" autoClose={3000} />

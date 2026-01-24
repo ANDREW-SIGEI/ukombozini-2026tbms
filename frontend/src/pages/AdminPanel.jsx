@@ -125,7 +125,7 @@ const AdminPanel = () => {
             });
             toast.success(`✅ ${newGroup.group_name} created successfully!`);
             setShowGroupModal(false);
-            setNewGroup({ group_name: '', meeting_day: 'Monday', meeting_frequency: 'WEEKLY', location: '' });
+            setNewGroup({ group_name: '', meeting_day: 'Monday', meeting_frequency: 'WEEKLY', location: '', chairperson: '', secretary: '', treasurer: '' });
             fetchSystemData();
         } catch (error) {
             console.error(error);
@@ -548,11 +548,23 @@ const AdminPanel = () => {
                                         Generate Excel/CSV exports for financial reports and member data
                                     </p>
                                     <div className="space-y-2">
-                                        <button className="w-full bg-white text-green-700 px-4 py-2 rounded-xl font-bold hover:bg-green-100 transition-colors border-2 border-green-200">
-                                            Export Members List
+                                        <button
+                                            onClick={() => api.downloadTableExport('members')}
+                                            className="w-full bg-white text-green-700 px-4 py-2 rounded-xl font-bold hover:bg-green-100 transition-colors border-2 border-green-200 text-left flex justify-between items-center"
+                                        >
+                                            Export Members List <FaFileExport className="text-xs" />
                                         </button>
-                                        <button className="w-full bg-white text-green-700 px-4 py-2 rounded-xl font-bold hover:bg-green-100 transition-colors border-2 border-green-200">
-                                            Export Transactions
+                                        <button
+                                            onClick={() => api.downloadTableExport('transactions')}
+                                            className="w-full bg-white text-green-700 px-4 py-2 rounded-xl font-bold hover:bg-green-100 transition-colors border-2 border-green-200 text-left flex justify-between items-center"
+                                        >
+                                            Export Transactions <FaFileExport className="text-xs" />
+                                        </button>
+                                        <button
+                                            onClick={() => api.downloadTableExport('loans')}
+                                            className="w-full bg-white text-green-700 px-4 py-2 rounded-xl font-bold hover:bg-green-100 transition-colors border-2 border-green-200 text-left flex justify-between items-center"
+                                        >
+                                            Export Loans Data <FaFileExport className="text-xs" />
                                         </button>
                                     </div>
                                 </div>
@@ -599,6 +611,29 @@ const AdminPanel = () => {
                             onChange={(e) => setNewGroup({ ...newGroup, location: e.target.value })}
                             placeholder="e.g., Community Hall, Nairobi"
                         />
+                        <div className="pt-2 border-t border-gray-100">
+                            <p className="text-xs font-bold text-gray-400 uppercase mb-2">Group Officials</p>
+                            <div className="grid grid-cols-1 gap-2">
+                                <InputField
+                                    label="Chairperson"
+                                    value={newGroup.chairperson || ''}
+                                    onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
+                                    placeholder="Full Name"
+                                />
+                                <InputField
+                                    label="Secretary"
+                                    value={newGroup.secretary || ''}
+                                    onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
+                                    placeholder="Full Name"
+                                />
+                                <InputField
+                                    label="Treasurer"
+                                    value={newGroup.treasurer || ''}
+                                    onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
+                                    placeholder="Full Name"
+                                />
+                            </div>
+                        </div>
                     </div>
                 </Modal>
             )}

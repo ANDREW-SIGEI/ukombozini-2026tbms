@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
+import { supabase } from '../services/supabase';
 
 const TransactionContext = createContext();
 
@@ -24,12 +25,17 @@ export const TransactionProvider = ({ children }) => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [groupsRes, sessionsRes] = await Promise.all([
-                    fetch(`${API_URL}/groups`),
-                    fetch(`${API_URL}/sessions`)
-                ]);
+                // Fetch Groups from Supabase
+                const { data: groupsData, error: groupsError } = await supabase
+                    .from('groups')
+                    .select('*')
+                    .order('group_name');
 
-                if (groupsRes.ok) setGroups(await groupsRes.json());
+                if (groupsError) throw groupsError;
+                setGroups(groupsData || []);
+
+                // Fetch Sessions from Local API (keeping sessions local for now as per hybrid strategy)
+                const sessionsRes = await fetch(`${API_URL}/sessions`);
                 if (sessionsRes.ok) {
                     const fetchedSessions = await sessionsRes.json();
                     setSessions(fetchedSessions);
@@ -144,23 +150,31 @@ export const TransactionProvider = ({ children }) => {
     };
 
     /**
-     * Register a New Group
+     * Register a New Group (Supabase)
      */
     const addGroup = async (groupData) => {
         try {
-            const res = await fetch(`${API_URL}/groups`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(groupData)
-            });
+            const { data, error } = await supabase
+                .from('groups')
+                .insert([{
+                    group_name: groupData.group_name || groupData.name,
+                    meeting_day: groupData.meeting_day,
+                    meeting_frequency: groupData.meeting_frequency,
+                    location: groupData.location || null,
+                    chairperson: groupData.chairperson,
+                    secretary: groupData.secretary,
+                    treasurer: groupData.treasurer
+                }])
+                .select()
+                .single();
 
-            if (!res.ok) throw new Error('Failed to register group');
+            if (error) throw error;
 
-            const newGroup = await res.json();
-            setGroups(prev => [...prev, newGroup]);
-            toast.success(`Group "${groupData.name}" registered successfully!`);
-            return newGroup;
+            setGroups(prev => [...prev, data]);
+            toast.success(`Group "${data.group_name}" registered successfully!`);
+            return data;
         } catch (error) {
+            console.error(error);
             toast.error(error.message);
         }
     };

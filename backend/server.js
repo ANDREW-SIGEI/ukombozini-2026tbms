@@ -124,6 +124,39 @@ app.get('/api/admin/backup', (req, res) => {
         res.status(404).json({ error: "Database file not found", path: dbFile });
     }
 });
+
+// CSV Export Utility
+app.get('/api/admin/export/:table', (req, res) => {
+    const { table } = req.params;
+    const allowedTables = ['members', 'groups', 'transactions', 'loans', 'audit_logs', 'loan_products', 'meeting_sessions'];
+
+    if (!allowedTables.includes(table)) {
+        return res.status(400).json({ error: "Invalid table name" });
+    }
+
+    db.all(`SELECT * FROM ${table}`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!rows || rows.length === 0) return res.status(404).json({ error: "No data found in table" });
+
+        // Simple CSV generation
+        const headers = Object.keys(rows[0]);
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row =>
+                headers.map(header => {
+                    let val = row[header];
+                    if (val === null || val === undefined) return '';
+                    val = String(val).replace(/"/g, '""'); // Escape quotes
+                    return `"${val}"`;
+                }).join(',')
+            )
+        ].join('\r\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=ukombozi_${table}_${new Date().toISOString().split('T')[0]}.csv`);
+        res.send(csvContent);
+    });
+});
 app.get('/api/groups', (req, res) => {
     db.all("SELECT * FROM groups ORDER BY name", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -133,13 +166,22 @@ app.get('/api/groups', (req, res) => {
 
 // Create new group
 app.post('/api/groups', (req, res) => {
-    const { name, location, meetingDay, officerId } = req.body;
-    const stmt = db.prepare("INSERT INTO groups (name, location, meetingDay) VALUES (?, ?, ?)");
-    stmt.run(name, location, meetingDay, function (err) {
+    const { name, location, meetingDay, chairperson, secretary, treasurer } = req.body;
+
+    // Check for duplicate name
+    db.get("SELECT id FROM groups WHERE name COLLATE NOCASE = ?", [name], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ id: this.lastID, name, location, meetingDay, status: 'active' });
+        if (row) {
+            return res.status(400).json({ error: `Group '${name}' already exists.` });
+        }
+
+        const stmt = db.prepare("INSERT INTO groups (name, location, meetingDay, chairperson, secretary, treasurer) VALUES (?, ?, ?, ?, ?, ?)");
+        stmt.run(name, location, meetingDay, chairperson, secretary, treasurer, function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ id: this.lastID, name, location, meetingDay, status: 'active' });
+        });
+        stmt.finalize();
     });
-    stmt.finalize();
 });
 
 // Get active session for a group
@@ -219,35 +261,48 @@ app.post('/api/members', (req, res) => {
         return res.status(400).json({ error: 'Opening balance reason is required when setting opening balances' });
     }
 
-    const stmt = db.prepare(`INSERT INTO members (
-        name, phone, group_id,
-        opening_balance_savings, opening_balance_ltl, opening_balance_stl,
-        opening_balance_set_by, opening_balance_set_at, opening_balance_reason, opening_balance_locked
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-
-    const now = new Date().toISOString();
-    const locked = hasOpeningBalance ? 1 : 0; // Lock if opening balance is set
-
-    stmt.run(
-        name, phone, groupId,
-        opening_balance_savings, opening_balance_ltl, opening_balance_stl,
-        userId || 1, now, opening_balance_reason || 'New member', locked,
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({
-                id: this.lastID,
-                name, phone,
-                group_id: groupId,
-                status: 'active',
-                opening_balance_savings,
-                opening_balance_ltl,
-                opening_balance_stl,
-                opening_balance_locked: locked,
-                registration_date: now
-            });
+    // Validation: Check for duplicate Name OR Phone
+    db.get("SELECT id, name, phone, group_id FROM members WHERE name COLLATE NOCASE = ? OR phone = ?", [name, phone], (err, existing) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (existing) {
+            let msg = `Member '${existing.name}' already registered`;
+            if (existing.group_id) {
+                // If we could fetch group name easily we would, but simply saying they are in a group is enough
+                msg += ` (already in a group).`;
+            }
+            return res.status(400).json({ error: msg });
         }
-    );
-    stmt.finalize();
+
+        const stmt = db.prepare(`INSERT INTO members (
+            name, phone, group_id,
+            opening_balance_savings, opening_balance_ltl, opening_balance_stl,
+            opening_balance_set_by, opening_balance_set_at, opening_balance_reason, opening_balance_locked
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+        const now = new Date().toISOString();
+        const locked = hasOpeningBalance ? 1 : 0; // Lock if opening balance is set
+
+        stmt.run(
+            name, phone, groupId,
+            opening_balance_savings, opening_balance_ltl, opening_balance_stl,
+            userId || 1, now, opening_balance_reason || 'New member', locked,
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({
+                    id: this.lastID,
+                    name, phone,
+                    group_id: groupId,
+                    status: 'active',
+                    opening_balance_savings,
+                    opening_balance_ltl,
+                    opening_balance_stl,
+                    opening_balance_locked: locked,
+                    registration_date: now
+                });
+            }
+        );
+        stmt.finalize();
+    });
 });
 
 // Update Member Profile
@@ -868,6 +923,108 @@ app.post('/api/contributions', (req, res) => {
         res.json({ id: this.lastID, status: 'Completed', message: 'Contribution recorded' });
     });
     stmt.finalize();
+});
+
+
+// ==========================================
+// OFFICERS API
+// ==========================================
+
+// Get all officers with their assigned groups
+app.get('/api/officers', (req, res) => {
+    const query = `
+        SELECT o.*, GROUP_CONCAT(g.name) as groupNames, GROUP_CONCAT(g.id) as groupIds
+        FROM officers o
+        LEFT JOIN officer_groups og ON o.id = og.officer_id
+        LEFT JOIN groups g ON og.group_id = g.id
+        GROUP BY o.id
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows.map(row => ({
+            ...row,
+            assignedGroups: row.groupNames ? row.groupNames.split(',').map((name, i) => ({
+                id: row.groupIds.split(',')[i],
+                name: name
+            })) : []
+        })));
+    });
+});
+
+// Create/Update officer
+app.post('/api/officers', (req, res) => {
+    const { id, name, role, phone, email, status, password_hash, password } = req.body;
+    const final_password_hash = password_hash || password || null;
+
+    if (id) {
+        const stmt = db.prepare("UPDATE officers SET name=?, role=?, phone=?, email=?, status=? WHERE id=?");
+        stmt.run(name, role, phone, email, status, id, function (err) {
+            if (err) {
+                console.error("Update Officer Error:", err);
+                return res.status(500).json({ error: err.message });
+            }
+            logAudit(`Update Officer: ${name}`, 'admin', { id, email });
+            res.json({ success: true, id });
+        });
+        stmt.finalize();
+    } else {
+        const stmt = db.prepare("INSERT INTO officers (name, role, phone, email, status, password_hash) VALUES (?, ?, ?, ?, ?, ?)");
+        stmt.run(name, role, phone, email, status || 'active', final_password_hash, function (err) {
+            if (err) {
+                console.error("Create Officer Error:", err);
+                if (err.message.includes('UNIQUE constraint failed: officers.email')) {
+                    return res.status(400).json({ error: "An officer with this email already exists." });
+                }
+                return res.status(500).json({ error: err.message });
+            }
+            logAudit(`Create Officer: ${name}`, 'admin', { id: this.lastID, email });
+            res.json({ success: true, id: this.lastID });
+        });
+        stmt.finalize();
+    }
+});
+
+// Reset Officer Password
+app.post('/api/officers/:id/reset-password', (req, res) => {
+    const { id } = req.params;
+    const { password_hash } = req.body;
+
+    if (!password_hash) return res.status(400).json({ error: "Password hash required" });
+
+    const stmt = db.prepare("UPDATE officers SET password_hash = ? WHERE id = ?");
+    stmt.run(password_hash, id, function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        logAudit(`Reset Password: Officer ID ${id}`, 'admin', { id });
+        res.json({ success: true, message: "Password reset successful" });
+    });
+    stmt.finalize();
+});
+
+// Allocate Groups to Officer
+app.post('/api/officers/:id/groups', (req, res) => {
+    const officerId = req.params.id;
+    const { groupIds } = req.body; // Array of group IDs
+
+    db.serialize(() => {
+        db.run("DELETE FROM officer_groups WHERE officer_id = ?", [officerId]);
+        const stmt = db.prepare("INSERT INTO officer_groups (officer_id, group_id) VALUES (?, ?)");
+        groupIds.forEach(groupId => {
+            stmt.run(officerId, groupId);
+        });
+        stmt.finalize((err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    });
+});
+
+// Delete Officer
+app.delete('/api/officers/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM officers WHERE id = ?", [id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
 });
 
 

@@ -8,9 +8,20 @@ const serialize = () => {
             name TEXT NOT NULL,
             location TEXT,
             meetingDay TEXT,
+            chairperson TEXT,
+            secretary TEXT,
+            treasurer TEXT,
             status TEXT DEFAULT 'active' CHECK( status IN ('active', 'suspended', 'inactive') ),
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // Migration for existing groups table
+        const columnsToAdd = ['chairperson', 'secretary', 'treasurer'];
+        columnsToAdd.forEach(col => {
+            db.run(`ALTER TABLE groups ADD COLUMN ${col} TEXT`, (err) => {
+                // Ignore error if column exists
+            });
+        });
 
         // 2. MEMBERS TABLE (STRICT OPENING BALANCE RULES)
         db.run(`CREATE TABLE IF NOT EXISTS members (
@@ -168,6 +179,26 @@ const serialize = () => {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        // 7. OFFICER MANAGEMENT TABLES
+        db.run(`CREATE TABLE IF NOT EXISTS officers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK( role IN ('Field Officer', 'Chairman', 'Secretary', 'Treasurer', 'Admin') ),
+            phone TEXT,
+            email TEXT UNIQUE,
+            password_hash TEXT,
+            status TEXT DEFAULT 'active' CHECK( status IN ('active', 'inactive') ),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS officer_groups (
+            officer_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            PRIMARY KEY (officer_id, group_id),
+            FOREIGN KEY (officer_id) REFERENCES officers(id) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+        )`);
+
         // INITIAL SETTINGS SEED
         db.get("SELECT count(*) as count FROM settings", (err, row) => {
             if (row && row.count === 0) {
@@ -222,6 +253,21 @@ const serialize = () => {
                 // Seed members for Group 2 (new member with zero opening balance)
                 stmt.run("David Kamau", "0745678901", 2, 0, 0, 0, 1, now, "New member - zero opening balance", 1, 0);
                 stmt.finalize();
+            }
+        });
+
+        // 8. SEED OFFICERS
+        db.get("SELECT count(*) as count FROM officers", (err, row) => {
+            if (row && row.count === 0) {
+                console.log("Seeding Officers...");
+                const stmt = db.prepare("INSERT INTO officers (name, role, phone, email) VALUES (?, ?, ?, ?)");
+                stmt.run("Sarah Wanjiku", "Chairman", "0711111111", "sarah.wanjiku@tbms.com");
+                stmt.run("David Omari", "Secretary", "0722222222", "david.omari@tbms.com");
+                stmt.run("Mary Atieno", "Treasurer", "0733333333", "mary.atieno@tbms.com");
+                stmt.finalize();
+
+                // Assign groups
+                db.run("INSERT INTO officer_groups (officer_id, group_id) VALUES (1, 2), (2, 2), (3, 3)");
             }
         });
 
