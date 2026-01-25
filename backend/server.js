@@ -34,6 +34,30 @@ const logAudit = (action, category, details, officerId = 1, officerName = 'Admin
 };
 
 // ==========================================
+// AUTH MIDDLEWARE
+// ==========================================
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'Access token required' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+        req.user = user;
+        next();
+    });
+};
+
+const isAdmin = (req, res, next) => {
+    if (req.user && req.user.role && req.user.role.toLowerCase() === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Access denied: Admin privileges required' });
+    }
+};
+
+// ==========================================
 // SERVER HEALTH DASHBOARD (Visual)
 // ==========================================
 app.get('/', (req, res) => {
@@ -493,8 +517,8 @@ app.put('/api/groups/:id', (req, res) => {
     });
 });
 
-// Delete Group (Safe Deletion)
-app.delete('/api/groups/:id', (req, res) => {
+// Delete Group (Safe Deletion) - ADMIN ONLY
+app.delete('/api/groups/:id', authenticateToken, isAdmin, (req, res) => {
     const { id } = req.params;
 
     // Check for members first
@@ -644,6 +668,49 @@ app.put('/api/members/:id', (req, res) => {
         res.json({ id, name, phone, groupId, status, message: 'Member updated successfully' });
     });
     stmt.finalize();
+});
+
+// Delete Member (Safe Deletion) - ADMIN ONLY
+app.get('/api/admin/check-member-safety/:id', authenticateToken, isAdmin, (req, res) => {
+    const { id } = req.params;
+
+    // Check for active loans or high savings
+    db.get(`
+        SELECT 
+            (SELECT COUNT(*) FROM loans WHERE member_id = ? AND status = 'active') as active_loans,
+            (SELECT current_savings FROM members WHERE id = ?) as current_savings
+        FROM members WHERE id = ?
+    `, [id, id, id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: "Member not found" });
+
+        res.json({
+            isSafe: row.active_loans === 0 && (row.current_savings || 0) <= 0,
+            activeLoans: row.active_loans,
+            currentSavings: row.current_savings || 0
+        });
+    });
+});
+
+app.delete('/api/members/:id', authenticateToken, isAdmin, (req, res) => {
+    const { id } = req.params;
+
+    // Check for active loans OR transactions before hard delete
+    db.get("SELECT COUNT(*) as count FROM loans WHERE member_id = ? AND status = 'active'", [id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (row.count > 0) {
+            return res.status(400).json({ error: `Cannot delete member: They still have ${row.count} active loans.` });
+        }
+
+        // Hard delete member (soft delete would be better, but system seems to use hard delete for groups)
+        db.run("DELETE FROM members WHERE id = ?", [id], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: "Member not found" });
+
+            logAudit(`Delete Member ID: ${id}`, 'admin', { memberId: id });
+            res.json({ success: true, message: "Member record removed from system" });
+        });
+    });
 });
 
 // ==========================================

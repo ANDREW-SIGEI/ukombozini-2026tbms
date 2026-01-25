@@ -4,13 +4,16 @@ import {
     FaUserPlus, FaMagnifyingGlass, FaClockRotateLeft, FaUser, FaCircleInfo,
     FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
     FaChartLine, FaTriangleExclamation, FaCircleCheck,
-    FaPenToSquare, FaHandHoldingDollar, FaCoins, FaLockOpen, FaArrowUp, FaLock
+    FaPenToSquare, FaHandHoldingDollar, FaCoins, FaLockOpen, FaArrowUp, FaLock,
+    FaTrash
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
+import { useAuth } from '../context/AuthContext';
 
 const Members = () => {
+    const { user } = useAuth();
     const { activeSession } = useTransactions();
     const [searchTerm, setSearchTerm] = useState('');
     const [showEditModal, setShowEditModal] = useState(false);
@@ -190,6 +193,20 @@ const Members = () => {
         } catch (error) {
             console.error(error);
             toast.error("Failed to add member");
+        }
+    };
+
+    const handleDeleteMember = async (id, name) => {
+        if (window.confirm(`Are you sure you want to delete member ${name}? This action cannot be undone if they have no financial history.`)) {
+            try {
+                const response = await api.deleteMember(id);
+                if (response.success) {
+                    toast.success("Member record removed successfully");
+                    fetchData();
+                }
+            } catch (error) {
+                console.error("Delete Member Error:", error);
+            }
         }
     };
 
@@ -619,6 +636,19 @@ const Members = () => {
                                                     >
                                                         <FaPenToSquare />
                                                     </button>
+
+                                                    {user?.role === 'admin' && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteMember(member.id, member.name);
+                                                            }}
+                                                            className="w-8 h-8 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-50 transition-colors"
+                                                            title="Delete Member"
+                                                        >
+                                                            <FaTrash size={12} />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

@@ -4,9 +4,11 @@ import {
     FaSpinner, FaCalendarDays, FaLocationDot, FaCircleCheck
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 const GroupsManagement = () => {
+    const { user } = useAuth();
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -252,15 +254,17 @@ const GroupsManagement = () => {
                                 key={group.id}
                                 className="group relative bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-safaricom-green/30 transition-all duration-300 overflow-hidden"
                             >
-                                <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                    <button
-                                        onClick={() => handleDeleteGroup(group.id, group.group_name)}
-                                        className="bg-white/90 p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all shadow-sm"
-                                        title="Delete Group"
-                                    >
-                                        <FaTrash size={14} />
-                                    </button>
-                                </div>
+                                {user?.role === 'admin' && (
+                                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                        <button
+                                            onClick={() => handleDeleteGroup(group.id, group.group_name)}
+                                            className="bg-white/90 p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all shadow-sm"
+                                            title="Delete Group"
+                                        >
+                                            <FaTrash size={14} />
+                                        </button>
+                                    </div>
+                                )}
                                 <div className="p-6">
                                     <div className="flex items-start gap-4 mb-6">
                                         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-safaricom-green to-green-800 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-green-200 shrink-0">

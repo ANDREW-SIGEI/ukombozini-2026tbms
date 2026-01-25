@@ -272,6 +272,15 @@ export const api = {
         }
     },
 
+    async deleteMember(id) {
+        try {
+            const response = await axiosInstance.delete(`/members/${id}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     // ========================================
     // CONTRIBUTION MANAGEMENT
     // ========================================
