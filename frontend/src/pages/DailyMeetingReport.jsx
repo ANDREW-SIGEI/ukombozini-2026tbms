@@ -70,6 +70,11 @@ const DailyMeetingReport = () => {
     const [supervisorApprovalRequested, setSupervisorApprovalRequested] = useState(false);
     const [approvalReason, setApprovalReason] = useState('');
 
+    // SMART MEETING STATE
+    const [meetingType, setMeetingType] = useState('Regular'); // Regular, AGM, Special
+    const [meetingNotes, setMeetingNotes] = useState('');
+    const [showNotes, setShowNotes] = useState(false);
+
     // Cash Verification State
     const [actualCashStart, setActualCashStart] = useState('');
     const [actualCashEnd, setActualCashEnd] = useState('');
@@ -149,6 +154,7 @@ const DailyMeetingReport = () => {
                         id: `temp-${member.id}`,
                         memberId: member.id,
                         memberName: member.name,
+                        attended: true, // Default to present
                         // MOCK BF VALUES (Read-Only) - In future, fetch from api.getMemberBalances
                         ltl_bf: member.ltl_bf || 0,
                         stl_bf: member.stl_bf || 0,
@@ -179,6 +185,7 @@ const DailyMeetingReport = () => {
     // Calculate totals in real-time (SYSTEM-ONLY, prevents tampering)
     const systemTotals = useMemo(() => {
         return memberTransactions.reduce((totals, transaction) => {
+            if (transaction.attended) totals.total_present += 1;
             totals.total_savings += parseFloat(transaction.savings_amount || 0);
             totals.total_stl += parseFloat(transaction.stl_repayment || 0) +
                 parseFloat(transaction.loan_interest || 0) +
@@ -196,6 +203,7 @@ const DailyMeetingReport = () => {
                 parseFloat(transaction.fines || 0);
             return totals;
         }, {
+            total_present: 0,
             total_savings: 0,
             total_stl: 0,
             total_ltl: 0,
@@ -232,6 +240,16 @@ const DailyMeetingReport = () => {
     const updateMemberTransaction = (memberId, field, value) => {
         if (sessionStatus !== 'draft') {
             toast.error('Cannot edit after submission. Contact supervisor to unlock.');
+            return;
+        }
+
+        if (field === 'attended') {
+            setMemberTransactions(prev => prev.map(t => {
+                if (t.memberId === memberId) {
+                    return { ...t, attended: value };
+                }
+                return t;
+            }));
             return;
         }
 
@@ -303,8 +321,10 @@ const DailyMeetingReport = () => {
 
         // Check if all members have at least one transaction
         const membersWithNoTransactions = memberTransactions.filter(t => calculateMemberTotal(t) === 0);
-        if (membersWithNoTransactions.length === memberTransactions.length) {
-            errors.push('At least one member must have transactions');
+        // It's okay if not all have transactions if they are absent, but warn if attended and 0
+        const attendedWithNoTx = memberTransactions.filter(t => t.attended && calculateMemberTotal(t) === 0);
+        if (attendedWithNoTx.length > 0) {
+            warnings.push(`${attendedWithNoTx.length} present members have 0 transactions.`);
         }
 
         // Validate each transaction
@@ -452,7 +472,9 @@ const DailyMeetingReport = () => {
             status: 'POSTED',
             totals: systemTotals,
             openingBalance,
-            closingBalance
+            closingBalance,
+            meetingType,
+            meetingNotes // Add notes
         };
 
         const success = postSession(sessionMetadata, memberTransactions);
@@ -496,9 +518,9 @@ const DailyMeetingReport = () => {
                     <div>
                         <h2 className="text-2xl font-bold text-gray-800 flex items-center">
                             <FaCalendarAlt className="mr-3 text-safaricom-green" />
-                            Daily Meeting Report
+                            Smart Meeting Template
                         </h2>
-                        <p className="text-sm text-gray-500 mt-1">Enter member transactions - ONE ROW PER MEMBER</p>
+                        <p className="text-sm text-gray-500 mt-1">Daily Meeting Report & Minutes</p>
                     </div>
                     <div className="flex items-center gap-2">
                         <span className={`px-3 py-1 rounded-lg text-xs font-bold ${sessionStatus === 'draft' ? 'bg-yellow-100 text-yellow-700' :
@@ -512,8 +534,8 @@ const DailyMeetingReport = () => {
                 </div>
 
                 {/* Group & Date Selection */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="md:col-span-1">
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
                             <FaUsers className="inline mr-1" /> Select Group
                         </label>
@@ -534,7 +556,21 @@ const DailyMeetingReport = () => {
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                            <FaCalendarAlt className="inline mr-1" /> Meeting Date
+                            Meeting Type
+                        </label>
+                        <select
+                            value={meetingType}
+                            onChange={(e) => setMeetingType(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none"
+                        >
+                            <option value="Regular">Regular Meeting</option>
+                            <option value="AGM">Annual General Meeting (AGM)</option>
+                            <option value="Special">Special / Emergency</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                            <FaCalendarAlt className="inline mr-1" /> Date
                         </label>
                         <input
                             type="date"
@@ -546,10 +582,26 @@ const DailyMeetingReport = () => {
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                            Opening Balance
+                            Attendance
                         </label>
-                        <div className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg font-bold text-gray-800">
-                            KES {openingBalance.toLocaleString()}
+                        <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg font-bold text-blue-800 flex justify-between items-center">
+                            <span>{systemTotals.total_present} / {memberTransactions.length} Present</span>
+                            <FaUsers />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Opening Balance Widget */}
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 flex justify-between items-center">
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold">Opening Balance</p>
+                            <p className="text-xl font-bold text-gray-800">KES {openingBalance.toLocaleString()}</p>
+                        </div>
+                        <div className="h-10 w-1 bg-gray-300 rounded-full"></div>
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold">Total Disbursed</p>
+                            <p className="text-xl font-bold text-red-600">KES {cashOut.toLocaleString()}</p>
                         </div>
                     </div>
                 </div>
@@ -559,9 +611,9 @@ const DailyMeetingReport = () => {
                     <button
                         onClick={handleStartMeeting}
                         disabled={!selectedGroup}
-                        className="mt-4 w-full bg-safaricom-green hover:bg-safaricom-dark text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="mt-4 w-full bg-safaricom-green hover:bg-safaricom-dark text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
                     >
-                        <FaCalculator /> Start Group Meeting (2 Hours)
+                        <FaCalculator /> Start Smart Session (2 Hours)
                     </button>
                 ) : (
                     /* ACTIVE SESSION HEADER */
@@ -580,17 +632,26 @@ const DailyMeetingReport = () => {
                             </div>
                         </div>
 
-                        {/* ADMIN EXTEND (Mock) */}
-                        {isExpired && (
-                            <div className="mt-3 pt-3 border-t border-gray-200 flex justify-end">
-                                <button
-                                    onClick={() => extendSession(30, "Officer Request")}
-                                    className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-gray-700 font-bold"
-                                >
-                                    + Add 30 Mins (Admin)
-                                </button>
-                            </div>
-                        )}
+                        {/* Meeting Minutes Toggle */}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                            <button
+                                onClick={() => setShowNotes(!showNotes)}
+                                className="flex items-center gap-2 text-sm font-bold text-safaricom-green hover:underline"
+                            >
+                                <FaPaperPlane /> {showNotes ? 'Hide Minutes' : 'Show Meeting Minutes / Notes'}
+                            </button>
+                            {showNotes && (
+                                <div className="mt-2 animate-in fade-in slide-in-from-top-2">
+                                    <textarea
+                                        value={meetingNotes}
+                                        onChange={(e) => setMeetingNotes(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 outline-none"
+                                        rows="4"
+                                        placeholder="Enter meeting agenda, resolutions, and any special notes here..."
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
@@ -670,7 +731,10 @@ const DailyMeetingReport = () => {
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b-2 border-gray-200">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase sticky left-0 bg-gray-50 z-10 border-r border-gray-200">
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase sticky left-0 bg-gray-50 z-10 border-r border-gray-200 w-12">
+                                        <FaCheckCircle className="text-gray-400" title="Mark Present" />
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase sticky left-12 bg-gray-50 z-10 border-r border-gray-200">
                                         Member
                                     </th>
                                     {/* BF COLUMNS (READ-ONLY) */}
@@ -693,15 +757,26 @@ const DailyMeetingReport = () => {
                                     const memberTotal = calculateMemberTotal(transaction);
                                     // Define validation cols
                                     const cols = ['savings_amount', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'welfare', 'project', 'fines'];
+                                    const isPresent = transaction.attended;
 
                                     return (
                                         <tr
                                             key={transaction.id}
-                                            className={`border-b border-gray-100 hover:bg-gray-50 ${memberTotal > 0 ? 'bg-green-50/30' : ''
+                                            className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${!isPresent ? 'bg-gray-100 opacity-60' : memberTotal > 0 ? 'bg-green-50/30' : ''
                                                 }`}
                                         >
-                                            <td className="px-4 py-3 font-bold text-gray-800 sticky left-0 bg-white z-10 border-r border-gray-100">
+                                            <td className="px-4 py-3 sticky left-0 bg-white z-10 border-r border-gray-100 text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isPresent}
+                                                    onChange={(e) => updateMemberTransaction(transaction.memberId, 'attended', e.target.checked)}
+                                                    disabled={sessionStatus !== 'draft'}
+                                                    className="w-4 h-4 text-safaricom-green rounded border-gray-300 focus:ring-safaricom-green cursor-pointer"
+                                                />
+                                            </td>
+                                            <td className="px-4 py-3 font-bold text-gray-800 sticky left-12 bg-white z-10 border-r border-gray-100">
                                                 {transaction.memberName}
+                                                {!isPresent && <span className="ml-2 text-xs text-red-500 font-normal uppercase">(Absent)</span>}
                                             </td>
                                             {/* READ-ONLY BF VALUES */}
                                             <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
@@ -719,7 +794,7 @@ const DailyMeetingReport = () => {
                                                     <TransactionInput
                                                         value={transaction[col]}
                                                         onChange={(v) => updateMemberTransaction(transaction.memberId, col, v)}
-                                                        disabled={sessionStatus !== 'draft'}
+                                                        disabled={sessionStatus !== 'draft'} // Even absent members can be fined/pay, so don't disable based on attendance
                                                         memberId={transaction.memberId}
                                                         field={col}
                                                         rowIndex={index}

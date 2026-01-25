@@ -232,7 +232,7 @@ const MeetingSessions = () => {
                 </div>
                 <div className="bg-blue-50 p-4 rounded-xl shadow-sm border border-blue-100">
                     <p className="text-xs text-blue-700 uppercase font-bold">Total Collected</p>
-                    <p className="text-lg font-black text-blue-800 mt-1">KES {stats.totalCollected.toLocaleString()}</p>
+                    <p className="text-lg font-black text-blue-800 mt-1">KES {(stats.totalCollected || 0).toLocaleString()}</p>
                 </div>
             </div>
 
@@ -297,7 +297,7 @@ const MeetingSessions = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-gray-900">
-                                            KES {meeting.total_collected.toLocaleString()}
+                                            KES {(meeting.total_collected || 0).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex flex-col items-center">
@@ -305,7 +305,7 @@ const MeetingSessions = () => {
                                                     {meeting.members_present}/{meeting.members_present + meeting.members_absent}
                                                 </span>
                                                 <span className="text-xs text-gray-500">
-                                                    {meeting.attendance_percentage.toFixed(0)}%
+                                                    {(meeting.attendance_percentage || 0).toFixed(0)}%
                                                 </span>
                                             </div>
                                         </td>
@@ -313,7 +313,7 @@ const MeetingSessions = () => {
                                             {meeting.status === 'ACTIVE' ? (
                                                 <span className="text-green-600 font-bold flex items-center gap-1">
                                                     <FaClock />
-                                                    {meeting.hours_open.toFixed(1)}h
+                                                    {(meeting.hours_open || 0).toFixed(1)}h
                                                 </span>
                                             ) : (
                                                 <span className="text-gray-600">
@@ -553,7 +553,7 @@ const MeetingSessions = () => {
                                         <span className="font-bold">Session:</span> {selectedMeeting.session_number}
                                     </p>
                                     <p className="text-sm text-gray-600 mb-2">
-                                        <span className="font-bold">Total Collected:</span> KES {selectedMeeting.total_collected.toLocaleString()}
+                                        <span className="font-bold">Total Collected:</span> KES {(selectedMeeting.total_collected || 0).toLocaleString()}
                                     </p>
                                 </div>
 

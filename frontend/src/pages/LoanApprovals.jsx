@@ -157,7 +157,7 @@ const LoanApprovals = () => {
 
             const payload = {
                 memberId: selectedMember.id,
-                groupId: selectedMember.groupId,
+                groupId: selectedMember.group_id,
                 loanType: formData.loanType,
                 amount: parseFloat(formData.amount),
                 duration: parseInt(formData.duration),
@@ -368,7 +368,7 @@ const LoanApprovals = () => {
                                 >
                                     <option value="">Select Member...</option>
                                     {members.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name} - {m.groupName}</option>
+                                        <option key={m.id} value={m.id}>{m.name} - {m.group_name || 'No Group'}</option>
                                     ))}
                                 </select>
                             </div>

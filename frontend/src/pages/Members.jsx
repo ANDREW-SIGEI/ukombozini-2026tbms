@@ -14,7 +14,10 @@ const Members = () => {
     const { activeSession } = useTransactions();
     const [searchTerm, setSearchTerm] = useState('');
     const [showEditModal, setShowEditModal] = useState(false);
-    const [editFormData, setEditFormData] = useState({ id: '', name: '', phone: '', groupId: '', status: 'active' });
+    const [editFormData, setEditFormData] = useState({
+        id: '', name: '', phone: '', groupId: '', status: 'active',
+        nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: ''
+    });
     // ... existing ...
 
     const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -196,7 +199,10 @@ const Members = () => {
             name: member.name,
             phone: member.phone,
             groupId: member.group_id,
-            status: member.status || 'active'
+            status: member.status || 'active',
+            nextOfKinName: member.next_of_kin_name || '',
+            nextOfKinPhone: member.next_of_kin_phone || '',
+            nextOfKinRelationship: member.next_of_kin_relationship || ''
         });
         setShowEditModal(true);
     };
@@ -208,7 +214,10 @@ const Members = () => {
                 name: editFormData.name,
                 phone: editFormData.phone,
                 groupId: editFormData.groupId,
-                status: editFormData.status
+                status: editFormData.status,
+                next_of_kin_name: editFormData.nextOfKinName,
+                next_of_kin_phone: editFormData.nextOfKinPhone,
+                next_of_kin_relationship: editFormData.nextOfKinRelationship
             });
             toast.success("✅ Profile updated successfully!");
             setShowEditModal(false);
@@ -588,8 +597,8 @@ const Members = () => {
                                                         }}
                                                         disabled={(member.activeLoans || 0) <= 0}
                                                         className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${(member.activeLoans || 0) > 0
-                                                                ? 'text-purple-600 hover:bg-purple-50 cursor-pointer'
-                                                                : 'text-gray-300 cursor-not-allowed opacity-50'
+                                                            ? 'text-purple-600 hover:bg-purple-50 cursor-pointer'
+                                                            : 'text-gray-300 cursor-not-allowed opacity-50'
                                                             }`}
                                                         title={(member.activeLoans || 0) > 0 ? "Quick Loaning / Repayment" : "No Active Loans to Repay"}
                                                     >
@@ -675,6 +684,38 @@ const Members = () => {
                                         <option key={group.id} value={group.id}>{group.group_name}</option>
                                     ))}
                                 </select>
+                            </div>
+
+                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
+                                <div className="flex items-center gap-2 text-blue-800">
+                                    <FaUser className="text-sm" />
+                                    <h4 className="text-xs font-black uppercase tracking-wide">Next of Kin Details</h4>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3">
+                                    <input
+                                        type="text"
+                                        value={newMember.nextOfKinName}
+                                        onChange={(e) => setNewMember({ ...newMember, nextOfKinName: e.target.value })}
+                                        className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                        placeholder="NoK Full Name"
+                                    />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input
+                                            type="tel"
+                                            value={newMember.nextOfKinPhone}
+                                            onChange={(e) => setNewMember({ ...newMember, nextOfKinPhone: e.target.value })}
+                                            className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                            placeholder="NoK Phone"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={newMember.nextOfKinRelationship}
+                                            onChange={(e) => setNewMember({ ...newMember, nextOfKinRelationship: e.target.value })}
+                                            className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                            placeholder="Relationship"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                             {/* Loan Eligibility Preview */}
                             <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
@@ -831,6 +872,38 @@ const Members = () => {
                                         <option value="inactive">Inactive</option>
                                         <option value="suspended">Suspended</option>
                                     </select>
+                                </div>
+
+                                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
+                                    <div className="flex items-center gap-2 text-blue-800">
+                                        <FaUser className="text-sm" />
+                                        <h4 className="text-xs font-black uppercase tracking-wide">Next of Kin Details</h4>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <input
+                                            type="text"
+                                            value={editFormData.nextOfKinName}
+                                            onChange={(e) => setEditFormData({ ...editFormData, nextOfKinName: e.target.value })}
+                                            className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                            placeholder="NoK Full Name"
+                                        />
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input
+                                                type="tel"
+                                                value={editFormData.nextOfKinPhone}
+                                                onChange={(e) => setEditFormData({ ...editFormData, nextOfKinPhone: e.target.value })}
+                                                className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                                placeholder="NoK Phone"
+                                            />
+                                            <input
+                                                type="text"
+                                                value={editFormData.nextOfKinRelationship}
+                                                onChange={(e) => setEditFormData({ ...editFormData, nextOfKinRelationship: e.target.value })}
+                                                className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                                placeholder="Relationship"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="flex gap-3 pt-4">
@@ -1096,6 +1169,11 @@ const Members = () => {
                                             <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                                             <span className={`${selectedMember.status === 'active' ? 'text-green-600' : 'text-red-500'} uppercase text-xs tracking-wider`}>{selectedMember.status || 'Active'}</span>
                                         </div>
+                                        {selectedMember.next_of_kin_name && (
+                                            <div className="mt-2 text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-lg inline-flex items-center gap-2">
+                                                <FaUser className="text-[10px]" /> Next of Kin: {selectedMember.next_of_kin_name} ({selectedMember.next_of_kin_relationship}) - {selectedMember.next_of_kin_phone}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <button

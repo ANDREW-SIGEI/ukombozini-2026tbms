@@ -443,6 +443,56 @@ app.get('/api/groups/:id/active-session', (req, res) => {
     });
 });
 
+// Update Group Details
+app.put('/api/groups/:id', (req, res) => {
+    const { id } = req.params;
+    const {
+        name, group_name, location, meeting_day, meeting_frequency,
+        chairperson, secretary, treasurer,
+        chairperson_phone, secretary_phone, treasurer_phone,
+        chairperson_id, secretary_id, treasurer_id,
+        minMonthlySaving, loanMultiplier, stlInterestRate, ltlInterestRate,
+        financial_year, status
+    } = req.body;
+
+    const finalName = group_name || name;
+
+    const query = `
+        UPDATE groups 
+        SET name = COALESCE(?, name),
+            location = COALESCE(?, location),
+            meetingDay = COALESCE(?, meetingDay),
+            meetingFrequency = COALESCE(?, meetingFrequency),
+            chairperson = COALESCE(?, chairperson),
+            secretary = COALESCE(?, secretary),
+            treasurer = COALESCE(?, treasurer),
+            chairperson_id = COALESCE(?, chairperson_id),
+            secretary_id = COALESCE(?, secretary_id),
+            treasurer_id = COALESCE(?, treasurer_id),
+            minMonthlySaving = COALESCE(?, minMonthlySaving),
+            loanMultiplier = COALESCE(?, loanMultiplier),
+            stlInterestRate = COALESCE(?, stlInterestRate),
+            ltlInterestRate = COALESCE(?, ltlInterestRate),
+            financial_year = COALESCE(?, financial_year),
+            status = COALESCE(?, status)
+        WHERE id = ?
+    `;
+
+    db.run(query, [
+        finalName, location, meeting_day, meeting_frequency,
+        chairperson, secretary, treasurer,
+        chairperson_id, secretary_id, treasurer_id,
+        minMonthlySaving, loanMultiplier, stlInterestRate, ltlInterestRate,
+        financial_year, status, id
+    ], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: "Group not found" });
+
+        logAudit(`Update Group: ${finalName || id}`, 'admin', { id, ...req.body });
+        res.json({ success: true, message: "Group updated successfully" });
+    });
+});
+
 // Delete Group (Safe Deletion)
 app.delete('/api/groups/:id', (req, res) => {
     const { id } = req.params;
@@ -478,15 +528,19 @@ app.delete('/api/groups/:id', (req, res) => {
 // Get members (optionally filter by groupId)
 app.get('/api/members', (req, res) => {
     const { groupId } = req.query;
-    let query = "SELECT * FROM members";
+    let query = `
+        SELECT m.*, g.name as group_name 
+        FROM members m
+        LEFT JOIN groups g ON m.group_id = g.id
+    `;
     let params = [];
 
     if (groupId) {
-        query += " WHERE group_id = ?";
+        query += " WHERE m.group_id = ?";
         params.push(groupId);
     }
 
-    query += " ORDER BY name";
+    query += " ORDER BY m.name";
 
     db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -529,8 +583,9 @@ app.post('/api/members', (req, res) => {
         const stmt = db.prepare(`INSERT INTO members (
             name, phone, group_id,
             opening_balance_savings, opening_balance_ltl, opening_balance_stl,
-            opening_balance_set_by, opening_balance_set_at, opening_balance_reason, opening_balance_locked
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            opening_balance_set_by, opening_balance_set_at, opening_balance_reason, opening_balance_locked,
+            next_of_kin_name, next_of_kin_phone, next_of_kin_relationship
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
         const now = new Date().toISOString();
         const locked = hasOpeningBalance ? 1 : 0; // Lock if opening balance is set
@@ -539,6 +594,9 @@ app.post('/api/members', (req, res) => {
             finalName, phone, finalGroupId,
             opening_balance_savings, opening_balance_ltl, opening_balance_stl,
             userId || 1, now, opening_balance_reason || 'New member', locked,
+            req.body.next_of_kin_name || null,
+            req.body.next_of_kin_phone || null,
+            req.body.next_of_kin_relationship || null,
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 logAudit(`Register Member: ${finalName}`, 'member', { id: this.lastID, name: finalName, groupId: finalGroupId });
@@ -551,7 +609,10 @@ app.post('/api/members', (req, res) => {
                     opening_balance_ltl,
                     opening_balance_stl,
                     opening_balance_locked: locked,
-                    registration_date: now
+                    registration_date: now,
+                    next_of_kin_name: req.body.next_of_kin_name || null,
+                    next_of_kin_phone: req.body.next_of_kin_phone || null,
+                    next_of_kin_relationship: req.body.next_of_kin_relationship || null
                 });
             }
         );
@@ -562,18 +623,21 @@ app.post('/api/members', (req, res) => {
 // Update Member Profile
 app.put('/api/members/:id', (req, res) => {
     const { id } = req.params;
-    const { name, phone, groupId, status } = req.body;
+    const { name, phone, groupId, status, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship } = req.body;
 
     const stmt = db.prepare(`
         UPDATE members 
         SET name = COALESCE(?, name), 
             phone = COALESCE(?, phone), 
             group_id = COALESCE(?, group_id), 
-            status = COALESCE(?, status)
+            status = COALESCE(?, status),
+            next_of_kin_name = COALESCE(?, next_of_kin_name),
+            next_of_kin_phone = COALESCE(?, next_of_kin_phone),
+            next_of_kin_relationship = COALESCE(?, next_of_kin_relationship)
         WHERE id = ?
     `);
 
-    stmt.run(name, phone, groupId, status, id, function (err) {
+    stmt.run(name, phone, groupId, status, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship, id, function (err) {
         if (err) return res.status(500).json({ error: err.message });
         if (this.changes === 0) return res.status(404).json({ error: 'Member not found' });
 
@@ -1182,6 +1246,127 @@ app.post('/api/loans', (req, res) => {
     });
 });
 
+// ==========================================
+// LOAN APPLICATIONS API
+// ==========================================
+
+// Get all loan applications
+app.get('/api/loan-applications', (req, res) => {
+    const { status } = req.query;
+    let query = `
+        SELECT la.*, m.name as member_name, g.name as group_name
+        FROM loan_applications la
+        JOIN members m ON la.member_id = m.id
+        JOIN groups g ON la.group_id = g.id
+    `;
+    let params = [];
+
+    if (status && status !== 'ALL') {
+        query += " WHERE la.status = ?";
+        params.push(status);
+    }
+
+    query += " ORDER BY la.created_at DESC";
+
+    db.all(query, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // Transform for frontend
+        const apps = rows.map(r => ({
+            ...r,
+            member: {
+                name: r.member_name,
+                groups: { name: r.group_name }
+            }
+        }));
+        res.json(apps);
+    });
+});
+
+// Submit a new loan application
+app.post('/api/loan-applications', (req, res) => {
+    const {
+        memberId, groupId, loanType, amount, duration, purpose,
+        monthly_installment, principal_portion, interest_portion, shares_contribution, officerId
+    } = req.body;
+
+    const appNumber = `APP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const stmt = db.prepare(`
+        INSERT INTO loan_applications (
+            application_number, member_id, group_id, loan_type, amount_requested, 
+            duration_months, purpose, monthly_installment, interest_portion, 
+            principal_portion, shares_contribution, officer_id, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+    `);
+
+    stmt.run(
+        appNumber, memberId, groupId, loanType, amount,
+        duration, purpose, monthly_installment, interest_portion,
+        principal_portion, shares_contribution, officerId,
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            logAudit(`Submit Loan App: ${appNumber}`, 'transaction', { id: this.lastID, memberId, amount });
+            res.json({ id: this.lastID, application_number: appNumber, success: true });
+        }
+    );
+    stmt.finalize();
+});
+
+// Update loan application status
+app.patch('/api/loan-applications/:id/status', (req, res) => {
+    const { id } = req.params;
+    const { status, comments, officerId } = req.body;
+
+    db.get("SELECT * FROM loan_applications WHERE id = ?", [id], (err, app) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!app) return res.status(404).json({ error: "Application not found" });
+
+        db.run(
+            "UPDATE loan_applications SET status = ?, comments = ?, officer_id = ? WHERE id = ?",
+            [status, comments, officerId, id],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+
+                // If FULLY APPROVED, create a real loan record
+                if (status === 'APPROVED') {
+                    const issuedDate = new Date().toISOString().split('T')[0];
+                    const dueDate = new Date();
+                    dueDate.setMonth(dueDate.getMonth() + (app.duration_months || 1));
+                    const dueDateStr = dueDate.toISOString().split('T')[0];
+
+                    db.serialize(() => {
+                        db.run("BEGIN TRANSACTION");
+                        const loanStmt = db.prepare(`INSERT INTO loans (
+                            member_id, group_id, loan_type, principal_amount, interest_rate, 
+                            issued_date, due_date, status, issued_by
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`);
+
+                        // Interest rate is heuristic for now, should ideally come from application or product
+                        const interestRate = 10;
+
+                        loanStmt.run(app.member_id, app.group_id, app.loan_type, app.amount_requested, interestRate, issuedDate, dueDateStr, officerId, function (err) {
+                            if (err) {
+                                db.run("ROLLBACK");
+                                return console.error("Loan Creation Error", err);
+                            }
+                            const loanId = this.lastID;
+                            db.run("UPDATE members SET active_loan_balance = IFNULL(active_loan_balance, 0) + ? WHERE id = ?", [app.amount_requested, app.member_id]);
+                            db.run("UPDATE loan_applications SET status = 'DISBURSED' WHERE id = ?", [id]);
+                            db.run("COMMIT");
+                            logAudit(`Disburse Loan: ${app.amount_requested}`, 'transaction', { memberId: app.member_id, loanId });
+                        });
+                        loanStmt.finalize();
+                    });
+                }
+
+                logAudit(`Update Loan App Status: ${id}`, 'transaction', { id, status });
+                res.json({ success: true, status });
+            }
+        );
+    });
+});
+
 
 // ==========================================
 // DIVIDEND API (LOCAL ENGINE)
@@ -1441,7 +1626,124 @@ app.get('/api/officers', (req, res) => {
     });
 });
 
-// Create/Update officer
+// ==========================================
+// REPORTS & ANALYTICS API
+// ==========================================
+
+// Loan Repayment Tracking
+app.get('/api/reports/loan-tracking', (req, res) => {
+    const { month } = req.query; // YYYY-MM
+    const startDate = `${month}-01`;
+    // Calculate end date (last day of month)
+    const [year, mon] = month.split('-').map(Number);
+    const lastDay = new Date(year, mon, 0).getDate();
+    const endDate = `${month}-${lastDay}`;
+
+    // 1. Get all active loans
+    // Note: In a real system, we'd filter by loans active DURING this period.
+    // For simplicity, we take all loans that have a balance > 0 OR were paid off this month.
+    const query = `
+        SELECT l.id, l.member_id, l.principal_amount, l.loan_type, l.due_date, l.status,
+               m.name as memberName, m.phone as memberPhone
+        FROM loans l
+        JOIN members m ON l.member_id = m.id
+        WHERE l.status != 'written_off'
+    `;
+
+    db.all(query, [], (err, loans) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const results = [];
+        let pending = loans.length;
+
+        if (pending === 0) return res.json([]);
+
+        loans.forEach(loan => {
+            // 2. Calculate Expected Payment (Simple Proxy: 20% of principal for STL, 5% LTL)
+            // Real logic requires an amortization schedule table
+            let monthlyRepayment = 0;
+            if (loan.loan_type === 'STL') monthlyRepayment = loan.principal_amount * 0.2; // 5 months
+            else if (loan.loan_type === 'LTL') monthlyRepayment = loan.principal_amount * 0.05; // 20 months
+            else monthlyRepayment = loan.principal_amount; // Emergency - full amount
+
+            // 3. Get total paid THIS MONTH for this loan
+            db.get(`
+                SELECT SUM(COALESCE(stl_repayment,0) + COALESCE(ltl_repayment,0)) as paid 
+                FROM transactions 
+                WHERE memberId = ? 
+                AND date(created_at) BETWEEN ? AND ?
+            `, [loan.member_id, startDate, endDate], (err, row) => {
+
+                const paidThisMonth = row?.paid || 0;
+
+                // 4. Calculate Status
+                let status = 'Overdue';
+                let arrears = 0;
+
+                // Thresholds
+                const tolerance = 100; // Allow small difference
+
+                if (paidThisMonth >= (monthlyRepayment - tolerance)) {
+                    status = 'Paid';
+                    arrears = 0;
+                } else if (paidThisMonth > 0) {
+                    status = 'Partial';
+                    arrears = monthlyRepayment - paidThisMonth;
+                } else {
+                    status = 'Overdue';
+                    arrears = monthlyRepayment;
+                }
+
+                // Override for fully paid loans (balance check would go here if we tracked historical balance)
+
+                results.push({
+                    id: loan.id,
+                    memberId: loan.member_id,
+                    memberName: loan.memberName,
+                    memberPhone: loan.memberPhone,
+                    loanType: loan.loan_type,
+                    monthlyRepayment,
+                    paidThisMonth,
+                    remainingBalance: 0, // Need to fetch current balance from member or loan
+                    arrears,
+                    status,
+                    dueDate: loan.due_date
+                });
+
+                pending--;
+                if (pending === 0) {
+                    // Fetch current balance for each to finalize
+                    const memberIds = results.map(r => r.memberId);
+                    db.all(`SELECT id, active_loan_balance FROM members WHERE id IN (${memberIds.join(',')})`, [], (err, balances) => {
+                        results.forEach(r => {
+                            const b = balances.find(x => x.id === r.memberId);
+                            r.remainingBalance = b ? b.active_loan_balance : 0;
+                            // If balance is 0, they are Paid regardless of monthly target
+                            if (r.remainingBalance <= 0) {
+                                r.status = 'Paid';
+                                r.arrears = 0;
+                            }
+                        });
+                        res.json(results);
+                    });
+                }
+            });
+        });
+    });
+});
+
+app.get('/api/reports/loan-repayment-pdf', async (req, res) => {
+    const { month, groupId, type } = req.query;
+    try {
+        const buffer = await reportService.generateLoanRepaymentReport(month, groupId, type);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=Loan_Repayment_${month}.pdf`);
+        res.send(buffer);
+    } catch (error) {
+        console.error("PDF Gen Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 app.post('/api/officers', (req, res) => {
     const { id, name, role, phone, email, status, password_hash, password } = req.body;
     const final_password_hash = password_hash || password || null;

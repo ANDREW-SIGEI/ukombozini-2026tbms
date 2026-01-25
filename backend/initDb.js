@@ -61,6 +61,9 @@ const init = async () => {
             opening_balance_locked INTEGER DEFAULT 0,
             current_savings REAL DEFAULT 0,
             active_loan_balance REAL DEFAULT 0,
+            next_of_kin_name TEXT,
+            next_of_kin_phone TEXT,
+            next_of_kin_relationship TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (group_id) REFERENCES groups(id)
         )`);
@@ -70,7 +73,7 @@ const init = async () => {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,
             group_id INTEGER NOT NULL,
-            loan_type TEXT NOT NULL CHECK (loan_type IN ('STL', 'LTL')),
+            loan_type TEXT NOT NULL CHECK (loan_type IN ('STL', 'LTL', 'EMERGENCY')),
             principal_amount REAL NOT NULL,
             interest_rate REAL NOT NULL,
             issued_date TEXT NOT NULL,
@@ -188,7 +191,29 @@ const init = async () => {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        // 8. OFFICERS
+        // 8. LOAN APPLICATIONS
+        await run(`CREATE TABLE IF NOT EXISTS loan_applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            application_number TEXT UNIQUE,
+            member_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            loan_type TEXT NOT NULL,
+            amount_requested REAL NOT NULL,
+            duration_months INTEGER NOT NULL,
+            purpose TEXT,
+            status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'ADMIN_REJECTED', 'APPROVED', 'REJECTED', 'DISBURSED', 'CANCELLED', 'OFFICER_SUBMITTED', 'DIRECTOR_REVIEW')),
+            monthly_installment REAL,
+            interest_portion REAL,
+            principal_portion REAL,
+            shares_contribution REAL,
+            officer_id INTEGER,
+            comments TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (member_id) REFERENCES members(id),
+            FOREIGN KEY (group_id) REFERENCES groups(id)
+        )`);
+
+        // 9. OFFICERS
         await run(`CREATE TABLE IF NOT EXISTS officers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,

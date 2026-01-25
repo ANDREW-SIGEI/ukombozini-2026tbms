@@ -342,10 +342,10 @@ const Dashboard = () => {
                         <div className="text-yellow-600 mb-2"><FaHandHoldingDollar size={24} /></div>
                         <span className="text-sm font-bold text-yellow-800">Approve Loan</span>
                     </Link>
-                    <button className="p-4 rounded-lg bg-purple-50 border border-purple-100 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-purple-100 transition-colors">
+                    <Link to="/daily-meeting-report" className="p-4 rounded-lg bg-purple-50 border border-purple-100 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-purple-100 transition-colors">
                         <div className="text-purple-600 mb-2"><FaChartLine size={24} /></div>
                         <span className="text-sm font-bold text-purple-800">Generate Report</span>
-                    </button>
+                    </Link>
                 </div>
             </div>
         </div>

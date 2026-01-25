@@ -3,10 +3,9 @@ import { toast } from 'react-toastify';
 
 export const getProfile = async (userId) => {
   try {
-    // If no userId, backend defaults to Admin. 
-    // Ideally we pass authentication tokens which the backend reads.
-    const response = await api.get(`/profile${userId ? `?id=${userId}` : ''}`);
-    return { data: response.data, error: null };
+    // Backend API call via api service
+    const data = await api.getProfile(userId);
+    return { data, error: null };
   } catch (error) {
     console.error("Fetch Profile Error:", error);
     return {

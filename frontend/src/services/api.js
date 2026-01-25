@@ -533,6 +533,15 @@ export const api = {
         }
     },
 
+    async updateGroup(id, groupData) {
+        try {
+            const response = await axiosInstance.put(`/groups/${id}`, groupData);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     // ========================================
     // ADMIN & SYSTEM MANAGEMENT
     // ========================================
@@ -642,6 +651,15 @@ export const api = {
         }
     },
 
+    async getProfile(userId) {
+        try {
+            const response = await axiosInstance.get(`/profile${userId ? `?id=${userId}` : ''}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     async saveOfficer(officer) {
         try {
             const response = await axiosInstance.post('/officers', officer);
@@ -737,12 +755,41 @@ export const api = {
         return { success: true };
     },
 
+
     async getDividendAllocations(runId) {
         return [];
     },
 
-    async approveDividendRun(runId) {
-        return { success: true };
+    // ========================================
+    // LOAN REPAYMENT TRACKING
+    // ========================================
+
+    async getLoanRepaymentTracking(month) {
+        try {
+            const response = await axiosInstance.get(`/reports/loan-tracking?month=${month}`);
+            return response.data;
+        } catch (error) {
+            console.error('getLoanRepaymentTracking error:', error);
+            // Return empty list on error to prevent UI crash
+            return [];
+        }
+    },
+
+    async downloadLoanRepaymentReport(month, group, type) {
+        try {
+            const response = await axiosInstance.get(`/reports/loan-repayment-pdf?month=${month}&groupId=${group}&type=${type}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Loan_Repayment_Report_${month}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
     async postDividendRun(runId) {
@@ -754,11 +801,54 @@ export const api = {
     // ========================================
 
     async submitLoanApplication(applicationData) {
-        return this.issueLoan(applicationData);
+        try {
+            const response = await axiosInstance.post('/loan-applications', applicationData);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
-    async getLoanApplications() {
-        return [];
+    async getLoanApplications(status = 'ALL') {
+        try {
+            const response = await axiosInstance.get('/loan-applications', {
+                params: { status }
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async updateApplicationStatus(id, status, comments, officerId, role) {
+        try {
+            const response = await axiosInstance.patch(`/loan-applications/${id}/status`, {
+                status,
+                comments,
+                officerId,
+                role
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async downloadMeetingMinutes(sessionId) {
+        try {
+            const response = await axiosInstance.get(`/reports/meeting-minutes/${sessionId}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Meeting_Minutes_${sessionId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
     // ========================================
