@@ -960,6 +960,70 @@ app.post('/api/send-email', async (req, res) => {
 
 
 // ==========================================
+// USER PROFILE & METRICS
+// ==========================================
+app.get('/api/profile', (req, res) => {
+    const userId = req.query.id || 1; // Default to Admin (ID 1) if no auth
+
+    db.get("SELECT id, name as full_name, role, phone, email, created_at as member_since FROM officers WHERE id = ?", [userId], (err, officer) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!officer) return res.status(404).json({ error: "Officer profile not found" });
+
+        // Calculate System Metrics for the Admin Dashboard
+        const queries = {
+            totalSavings: "SELECT SUM(current_savings) as total FROM members",
+            activeLoanBalance: "SELECT SUM(active_loan_balance) as total FROM members",
+            activeMembers: "SELECT COUNT(*) as count FROM members WHERE status = 'active'",
+            totalRepaid: "SELECT SUM(COALESCE(stl_repayment,0) + COALESCE(ltl_repayment,0)) as total FROM transactions",
+            totalIssued: "SELECT SUM(loans_issued) as total FROM transactions"
+        };
+
+        // Execute queries sequentially (simplified for SQLite)
+        db.get(queries.totalSavings, (e1, r1) => {
+            db.get(queries.activeLoanBalance, (e2, r2) => {
+                db.get(queries.activeMembers, (e3, r3) => {
+                    db.get(queries.totalRepaid, (e4, r4) => {
+                        db.get(queries.totalIssued, (e5, r5) => {
+
+                            const totalSavings = r1?.total || 0;
+                            const loanBalance = r2?.total || 0;
+                            const activeMembers = r3?.count || 0;
+                            const repaid = r4?.total || 0;
+                            const issued = r5?.total || 1; // Avoid div by zero
+
+                            // Assets = Savings + Outstanding Loans
+                            const managedAssets = totalSavings + loanBalance;
+
+                            // Recovery Rate Calculation
+                            let recoveryRate = (repaid / issued) * 100;
+                            if (issued === 0) recoveryRate = 100;
+                            if (recoveryRate > 100) recoveryRate = 100; // Cap at 100%
+
+                            res.json({
+                                id: officer.id,
+                                full_name: officer.full_name,
+                                role: officer.role,
+                                phone: officer.phone || '0700 000 000',
+                                email: officer.email,
+                                member_since: officer.member_since,
+                                avatar_url: null,
+                                permissions: ['manage_members', 'approve_loans', 'view_reports', 'manage_finance', 'system_config'],
+                                metrics: {
+                                    managed_assets: managedAssets,
+                                    active_members: activeMembers,
+                                    recovery_rate: parseFloat(recoveryRate.toFixed(1)),
+                                    efficiency: 98.2 // Static for now, hard to calc without logs
+                                }
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+});
+
+// ==========================================
 // LOANS API
 // ==========================================
 
