@@ -262,8 +262,8 @@ app.get('/api/auth/me', (req, res) => {
     }
 });
 
-// Delete Loan Product
-app.delete('/api/admin/loan-products/:id', (req, res) => {
+// Delete Loan Product - ADMIN ONLY
+app.delete('/api/admin/loan-products/:id', authenticateToken, isAdmin, (req, res) => {
     const { id } = req.params;
     db.run("DELETE FROM loan_products WHERE id = ?", [id], function (err) {
         if (err) return res.status(500).json({ error: err.message });
@@ -1877,8 +1877,8 @@ app.post('/api/officers/:id/groups', (req, res) => {
     });
 });
 
-// Delete Officer
-app.delete('/api/officers/:id', (req, res) => {
+// Delete Officer - ADMIN ONLY
+app.delete('/api/officers/:id', authenticateToken, isAdmin, (req, res) => {
     const { id } = req.params;
     db.run("DELETE FROM officers WHERE id = ?", [id], function (err) {
         if (err) return res.status(500).json({ error: err.message });
