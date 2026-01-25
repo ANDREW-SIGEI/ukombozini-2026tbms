@@ -1,107 +1,77 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaHandHoldingUsd, FaCalendarAlt, FaChartLine, FaBell, FaDownload, FaFilter, FaMoneyBillWave, FaClock } from 'react-icons/fa';
-import { mockMembers } from '../data/mockData';
+import api from '../services/api';
+import NotificationService from '../services/NotificationService';
 import { toast } from 'react-toastify';
-import PDFReportService from '../services/PDFReportService';
-
-// Mock loan repayment data - replace with real API
-const mockLoans = [
-    {
-        id: 'L-001',
-        memberId: 1,
-        memberName: 'Hilda Sigei',
-        loanType: 'LTL',
-        principal: 20000,
-        monthlyRepayment: 2000,
-        paidThisMonth: 2000,
-        dueDate: '2026-01-20',
-        status: 'Paid',
-        arrears: 0,
-        totalDue: 24000,
-        totalPaid: 10000,
-        remainingBalance: 14000
-    },
-    {
-        id: 'L-002',
-        memberId: 2,
-        memberName: 'John Doe',
-        loanType: 'STL',
-        principal: 10000,
-        monthlyRepayment: 3333,
-        paidThisMonth: 1500,
-        dueDate: '2026-01-15',
-        status: 'Partial',
-        arrears: 1833,
-        totalDue: 10000,
-        totalPaid: 6500,
-        remainingBalance: 3500
-    },
-    {
-        id: 'L-003',
-        memberId: 3,
-        memberName: 'Jane Smith',
-        loanType: 'LTL',
-        principal: 15000,
-        monthlyRepayment: 1500,
-        paidThisMonth: 0,
-        dueDate: '2026-01-18',
-        status: 'Overdue',
-        arrears: 1500,
-        totalDue: 18000,
-        totalPaid: 7500,
-        remainingBalance: 10500
-    },
-    {
-        id: 'L-004',
-        memberId: 4,
-        memberName: 'Bob Wilson',
-        loanType: 'Emergency',
-        principal: 5000,
-        monthlyRepayment: 2500,
-        paidThisMonth: 2500,
-        dueDate: '2026-01-25',
-        status: 'Paid',
-        arrears: 0,
-        totalDue: 5000,
-        totalPaid: 5000,
-        remainingBalance: 0
-    },
-    {
-        id: 'L-005',
-        memberId: 5,
-        memberName: 'Mary Johnson',
-        loanType: 'STL',
-        principal: 8000,
-        monthlyRepayment: 2667,
-        paidThisMonth: 0,
-        dueDate: '2026-01-10',
-        status: 'Overdue',
-        arrears: 2667,
-        totalDue: 8000,
-        totalPaid: 2667,
-        remainingBalance: 5333
-    },
-];
 
 const LoanRepaymentTracking = () => {
+    const [loans, setLoans] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState('2026-01');
     const [selectedGroup, setSelectedGroup] = useState('all');
     const [selectedLoanType, setSelectedLoanType] = useState('all');
 
+    // Fetch Loans on Mount or Month Change
+    useEffect(() => {
+        loadData();
+    }, [selectedMonth]);
+
+    const loadData = async () => {
+        setIsLoading(true);
+        try {
+            const data = await api.getLoanRepaymentTracking(selectedMonth);
+            setLoans(data);
+        } catch (error) {
+            toast.error("Failed to load loan tracking data");
+            console.error(error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Send SMS Reminder Handler
+    const handleSendReminder = async (loan) => {
+        try {
+            if (!loan.memberPhone) {
+                toast.warning("Member has no phone number");
+                return;
+            }
+
+            const message = `Dear ${loan.memberName}, friendly reminder: You have a loan payment shortfall of KES ${loan.arrears.toLocaleString()}. Please pay to avoid penalties.`;
+
+            await NotificationService.sendSMS(loan.memberPhone, message);
+            toast.success(`SMS sent to ${loan.memberName}`);
+        } catch (error) {
+            toast.error("Failed to send Reminder");
+        }
+    };
+
     // Calculate repayment statistics
     const repaymentStats = useMemo(() => {
-        const total = mockLoans.length;
-        const paidOnTime = mockLoans.filter(l => l.status === 'Paid').length;
-        const partial = mockLoans.filter(l => l.status === 'Partial').length;
-        const overdue = mockLoans.filter(l => l.status === 'Overdue').length;
+        // Filter first
+        let filteredLoans = loans;
+        if (selectedLoanType !== 'all') {
+            filteredLoans = filteredLoans.filter(l => l.loanType === selectedLoanType);
+        }
+        // Group filter would go here if we had groupID in the data (added in API)
+
+        const total = filteredLoans.length; // Use filtered list
+        if (total === 0) return {
+            total: 0, paidOnTime: 0, partial: 0, overdue: 0, complianceRate: 0,
+            totalExpected: 0, totalCollected: 0, totalArrears: 0, shortfall: 0, totalOutstanding: 0
+        };
+
+        const paidOnTime = filteredLoans.filter(l => l.status === 'Paid').length;
+        const partial = filteredLoans.filter(l => l.status === 'Partial').length;
+        const overdue = filteredLoans.filter(l => l.status === 'Overdue').length;
         const complianceRate = ((paidOnTime / total) * 100).toFixed(1);
 
-        const totalExpected = mockLoans.reduce((sum, l) => sum + l.monthlyRepayment, 0);
-        const totalCollected = mockLoans.reduce((sum, l) => sum + l.paidThisMonth, 0);
-        const totalArrears = mockLoans.reduce((sum, l) => sum + l.arrears, 0);
-        const shortfall = totalExpected - totalCollected;
+        const totalExpected = filteredLoans.reduce((sum, l) => sum + l.monthlyRepayment, 0);
+        const totalCollected = filteredLoans.reduce((sum, l) => sum + l.paidThisMonth, 0);
+        const totalArrears = filteredLoans.reduce((sum, l) => sum + l.arrears, 0);
+        const shortfall = Math.max(0, totalExpected - totalCollected);
 
-        const totalOutstanding = mockLoans.reduce((sum, l) => sum + l.remainingBalance, 0);
+        const totalOutstanding = filteredLoans.reduce((sum, l) => sum + l.remainingBalance, 0);
 
         return {
             total,
@@ -115,33 +85,21 @@ const LoanRepaymentTracking = () => {
             shortfall,
             totalOutstanding
         };
-    }, [selectedMonth]);
+    }, [loans, selectedLoanType]);
 
     // Group loans by status
-    const paidLoans = mockLoans.filter(l => l.status === 'Paid');
-    const partialLoans = mockLoans.filter(l => l.status === 'Partial');
-    const overdueLoans = mockLoans.filter(l => l.status === 'Overdue');
+    const paidLoans = loans.filter(l => l.status === 'Paid');
+    const partialLoans = loans.filter(l => l.status === 'Partial');
+    const overdueLoans = loans.filter(l => l.status === 'Overdue');
 
     // PDF Export Handler
-    const handleExportPDF = () => {
+    const handleExportPDF = async () => {
         try {
-            const pdfService = new PDFReportService();
-            const monthName = new Date(selectedMonth + '-01').toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-
-            pdfService.generateLoanRepaymentReport(
-                monthName,
-                {
-                    ...repaymentStats,
-                    totalExpected: repaymentStats.totalExpected,
-                    totalArrears: repaymentStats.totalArrears,
-                    totalOutstanding: repaymentStats.totalOutstanding
-                },
-                mockLoans
-            );
-
+            toast.info('📄 Generating Loan Repayment PDF...');
+            await api.downloadLoanRepaymentReport(selectedMonth, selectedGroup, selectedLoanType);
             toast.success('✅ PDF report generated successfully!');
         } catch (error) {
-            toast.error(`❌ Failed to generate PDF: ${error.message}`);
+            toast.error(`❌ Failed to generate PDF from server`);
         }
     };
 
@@ -408,7 +366,10 @@ const LoanRepaymentTracking = () => {
                                                 </div>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button className="px-4 py-2 bg-yellow-600 text-white text-sm font-bold rounded-lg hover:bg-yellow-700 transition-all">
+                                                <button
+                                                    onClick={() => handleSendReminder(loan)}
+                                                    className="px-4 py-2 bg-yellow-600 text-white text-sm font-bold rounded-lg hover:bg-yellow-700 transition-all"
+                                                >
                                                     Send Reminder
                                                 </button>
                                                 <button className="px-4 py-2 bg-yellow-700 text-white text-sm font-bold rounded-lg hover:bg-yellow-800 transition-all">

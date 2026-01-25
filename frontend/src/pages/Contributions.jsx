@@ -19,6 +19,7 @@ const Step = ({ number, label, active, completed }) => (
 
 const Contributions = () => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [groupSearchTerm, setGroupSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState('');
     const [selectedMember, setSelectedMember] = useState(null);
@@ -79,6 +80,13 @@ const Contributions = () => {
         }
     };
 
+    const filteredGroups = useMemo(() => {
+        return groups.filter(g =>
+            g.group_name.toLowerCase().includes(groupSearchTerm.toLowerCase()) ||
+            (g.location && g.location.toLowerCase().includes(groupSearchTerm.toLowerCase()))
+        );
+    }, [groups, groupSearchTerm]);
+
     const displayedMembers = useMemo(() => {
         if (!selectedGroupId) return [];
         return members.filter(m => {
@@ -132,15 +140,37 @@ const Contributions = () => {
 
             {/* 2. Group Dashboard Selection */}
             {!selectedGroupId ? (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+                    {/* Group Search Bar */}
+                    <div className="max-w-xl mx-auto relative group">
+                        <FaSearch className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-safaricom-green transition-colors" />
+                        <input
+                            type="text"
+                            placeholder="Search group by name or location..."
+                            className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl shadow-sm focus:outline-none focus:border-safaricom-green/50 focus:ring-4 focus:ring-green-500/5 font-bold text-gray-700 transition-all"
+                            value={groupSearchTerm}
+                            onChange={(e) => setGroupSearchTerm(e.target.value)}
+                        />
+                        {groupSearchTerm && (
+                            <button
+                                onClick={() => setGroupSearchTerm('')}
+                                className="absolute right-5 top-1/2 -translate-y-1/2 text-xs font-black text-gray-300 hover:text-red-500 transition-colors"
+                            >
+                                CLEAR
+                            </button>
+                        )}
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {groups.map(group => (
+                        {filteredGroups.map(group => (
                             <div
                                 key={group.id}
                                 onClick={() => setSelectedGroupId(group.id.toString())}
-                                className="group relative bg-white border border-gray-100 rounded-3xl p-6 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all cursor-pointer overflow-hidden"
+                                className={`group relative bg-white border rounded-3xl p-6 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all cursor-pointer overflow-hidden ${group.hasActiveMeeting ? 'border-green-100' : 'border-gray-100'
+                                    }`}
                             >
-                                <div className="absolute -right-4 -top-4 w-24 h-24 bg-safaricom-green/5 rounded-full blur-2xl group-hover:bg-safaricom-green/10 transition-colors" />
+                                <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full blur-2xl transition-colors ${group.hasActiveMeeting ? 'bg-safaricom-green/5' : 'bg-gray-100'
+                                    }`} />
 
                                 <div className="flex justify-between items-start mb-4">
                                     <div className={`p-3 rounded-2xl ${group.hasActiveMeeting ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
@@ -164,13 +194,42 @@ const Contributions = () => {
                                 <p className="text-xs text-gray-500 mb-4 flex items-center gap-1">
                                     <FaUserClock /> {group.meeting_day} • {group.meeting_frequency}
                                 </p>
+                                {group.location && (
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+                                        📍 {group.location}
+                                    </p>
+                                )}
 
-                                <button className="w-full mt-6 py-3 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-green-200 group-hover:from-green-600 group-hover:to-green-700 transition-all">
-                                    Select Group
-                                </button>
+                                {group.hasActiveMeeting ? (
+                                    <button className="w-full mt-6 py-3 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-green-200 group-hover:from-green-600 group-hover:to-green-700 transition-all">
+                                        Open Ledger
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.location.href = `/meetings?groupId=${group.id}`;
+                                        }}
+                                        className="w-full mt-6 py-3 border-2 border-gray-100 text-gray-400 rounded-2xl font-black text-sm hover:border-safaricom-green hover:text-safaricom-green transition-all bg-gray-50/50"
+                                    >
+                                        Open New Meeting
+                                    </button>
+                                )}
                             </div>
                         ))}
                     </div>
+
+                    {filteredGroups.length === 0 && (
+                        <div className="py-20 text-center space-y-4">
+                            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto">
+                                <FaSearch size={32} className="text-gray-200" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-black text-gray-400">No groups found</h3>
+                                <p className="text-sm text-gray-500">Try searching with a different name or location.</p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
@@ -300,6 +359,8 @@ const Contributions = () => {
                             try {
                                 await api.postContribution({
                                     memberId: contributionData.memberId,
+                                    groupId: contributionData.groupId,
+                                    meetingId: contributionData.meetingId,
                                     type: contributionData.type,
                                     amount: contributionData.amount,
                                     paymentMethod: contributionData.paymentMethod,

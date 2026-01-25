@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FaTimes, FaExclamationTriangle } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import { api } from '../services/api';
 
 const STLLoanModal = ({ isOpen, onClose, member, onSuccess }) => {
     const [loanData, setLoanData] = useState({
@@ -20,41 +21,33 @@ const STLLoanModal = ({ isOpen, onClose, member, onSuccess }) => {
 
         try {
             const payload = {
-                member_id: member.id,
-                loan_type: 'STL',
-                principal_amount: parseFloat(loanData.amount),
-                interest_rate: parseFloat(loanData.interest_rate),
-                duration_months: parseInt(loanData.duration_months),
-                purpose: loanData.purpose,
-                approved_by: 1, // Replace with actual user ID
-                disbursed_by: 1
+                memberId: member.id,
+                groupId: member.groupId,
+                loanType: 'STL',
+                amount: parseFloat(loanData.amount),
+                interestRate: parseFloat(loanData.interest_rate),
+                duration: parseInt(loanData.duration_months),
+                purpose: loanData.purpose
+                // officerId: via api.issueLoan internal auth
             };
 
-            const res = await fetch('http://localhost:5000/api/loans', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            const newLoan = await api.issueLoan(payload);
 
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Failed to issue loan');
+            if (newLoan) {
+                toast.success(`STL of KES ${parseFloat(loanData.amount).toLocaleString()} issued successfully!`);
+
+                if (onSuccess) {
+                    onSuccess(newLoan);
+                }
+
+                setLoanData({
+                    amount: '',
+                    purpose: '',
+                    duration_months: 1,
+                    interest_rate: 10
+                });
+                onClose();
             }
-
-            const newLoan = await res.json();
-            toast.success(`STL of KES ${parseFloat(loanData.amount).toLocaleString()} issued successfully!`);
-
-            if (onSuccess) {
-                onSuccess(newLoan);
-            }
-
-            setLoanData({
-                amount: '',
-                purpose: '',
-                duration_months: 1,
-                interest_rate: 10
-            });
-            onClose();
         } catch (error) {
             toast.error(error.message);
         }

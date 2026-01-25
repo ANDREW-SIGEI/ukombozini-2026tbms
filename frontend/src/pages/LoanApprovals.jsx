@@ -18,14 +18,11 @@ import { toast } from 'react-toastify';
 import api from '../services/api';
 import LoanAdvisoryPanel from '../components/LoanAdvisoryPanel';
 
-// Mock User for Role-Based Access (To be replaced with real Auth Context)
-const CURRENT_USER = {
-    id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', // UUID
-    name: 'Sarah Admin',
-    role: 'Admin' // Options: 'Officer', 'Admin', 'Director'
-};
+import { useAuth } from '../context/AuthContext';
+
 
 const LoanApprovals = () => {
+    const { user } = useAuth();
     const location = useLocation();
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -127,10 +124,10 @@ const LoanApprovals = () => {
 
     // Helper: Access Control
     const canApprove = (application) => {
-        if (CURRENT_USER.role === 'Admin' && ['PENDING', 'OFFICER_SUBMITTED', 'ADMIN_REVIEW'].includes(application.status)) {
+        if (user?.role === 'admin' && ['PENDING', 'OFFICER_SUBMITTED', 'ADMIN_REVIEW'].includes(application.status)) {
             return true;
         }
-        if (CURRENT_USER.role === 'Director' && ['ADMIN_APPROVED', 'DIRECTOR_REVIEW'].includes(application.status)) {
+        if (user?.role === 'director' && ['ADMIN_APPROVED', 'DIRECTOR_REVIEW'].includes(application.status)) {
             return true;
         }
         return false;
@@ -169,7 +166,7 @@ const LoanApprovals = () => {
                 principal_portion: formData.selectedProduct?.principal_portion || 0,
                 interest_portion: formData.selectedProduct?.interest_portion || 0,
                 shares_contribution: formData.selectedProduct?.shares_contribution || 0,
-                officerId: CURRENT_USER.id // Assuming self for now
+                officerId: user?.id || 'SYSTEM' // Fallback if auto-processing
             };
 
             await api.submitLoanApplication(payload);
@@ -196,12 +193,12 @@ const LoanApprovals = () => {
         try {
             let newStatus;
             if (actionType === 'APPROVE') {
-                if (CURRENT_USER.role === 'Admin') newStatus = 'ADMIN_APPROVED';
-                else if (CURRENT_USER.role === 'Director') newStatus = 'APPROVED';
+                if (user?.role === 'admin') newStatus = 'ADMIN_APPROVED';
+                else if (user?.role === 'director') newStatus = 'APPROVED';
                 else newStatus = 'OFFICER_SUBMITTED'; // Fallback
             } else {
-                if (CURRENT_USER.role === 'Admin') newStatus = 'ADMIN_REJECTED';
-                else if (CURRENT_USER.role === 'Director') newStatus = 'REJECTED';
+                if (user?.role === 'admin') newStatus = 'ADMIN_REJECTED';
+                else if (user?.role === 'director') newStatus = 'REJECTED';
                 else newStatus = 'REJECTED';
             }
 
@@ -209,8 +206,8 @@ const LoanApprovals = () => {
                 selectedApplication.id,
                 newStatus,
                 comments,
-                CURRENT_USER.id,
-                CURRENT_USER.role
+                user?.id,
+                user?.role
             );
 
             toast.success(`Application ${actionType === 'APPROVE' ? 'approved' : 'rejected'} successfully!`);

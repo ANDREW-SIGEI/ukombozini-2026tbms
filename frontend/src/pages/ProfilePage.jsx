@@ -8,6 +8,7 @@ import {
   FaBell, FaEdit, FaSignOutAlt, FaGem
 } from 'react-icons/fa';
 import '../styles/ProfileStyles.css';
+import { api } from '../services/api'; // Import API for metrics
 
 const ProfilePage = () => {
   const { user, logout } = useAuth();
@@ -20,13 +21,13 @@ const ProfilePage = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
 
-  // Performance Metrics (Mock Data for Demo - Institutional Standard)
-  const metrics = {
-    managedAssets: "KES 420,500",
-    portfolioQuality: "98.4%",
-    activeMembers: "48 Members",
-    meetingEfficiency: "100%"
-  };
+  // Metrics State
+  const [metrics, setMetrics] = useState({
+    managedAssets: "Loading...",
+    portfolioQuality: "Loading...",
+    activeMembers: "Loading...",
+    meetingEfficiency: "Loading..."
+  });
 
   const recentActivity = [
     { type: 'Post', text: 'Posted Group A weekly contributions', time: '2 hours ago' },
@@ -35,27 +36,54 @@ const ProfilePage = () => {
   ];
 
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadProfileAndMetrics = async () => {
       if (!user?.id) return;
 
       setIsLoading(true);
-      const { data, error } = await getProfile(user.id);
+      try {
+        const { data: profileData, error } = await getProfile(user.id);
 
-      if (data) {
-        setProfile(data);
-        setFormData({
-          full_name: data.full_name || '',
-          phone: data.phone || '',
-          avatar: data.avatar_url || null
-        });
-      } else if (error) {
-        toast.error('Failed to load profile');
+        if (profileData) {
+          setProfile(profileData);
+          setFormData({
+            full_name: profileData.full_name || '',
+            phone: profileData.phone || '',
+            avatar: profileData.avatar_url || null
+          });
+
+          // Fetch System Metrics (if admin/officer) or Group Metrics
+          const [membersData, loansData] = await Promise.all([
+            api.getMembers(), // We can use this to count members & calc savings
+            api.getLoans()    // To calc assets
+          ]);
+
+          if (membersData && loansData) {
+            const totalSavings = membersData.reduce((sum, m) => sum + (m.savings || 0), 0);
+            const totalLoans = loansData.reduce((sum, l) => sum + Number(l.principal_amount), 0);
+            const activeMembersCount = membersData.length;
+
+            // Portfolio Quality (Simple proxy: Non-defaulted loans / Total loans)
+            // Ideally backend gives this.
+
+            setMetrics({
+              managedAssets: `KES ${(totalSavings + totalLoans).toLocaleString()}`,
+              portfolioQuality: "98.5%", // Placeholder until arrears calc is global
+              activeMembers: `${activeMembersCount} Members`,
+              meetingEfficiency: "100%"
+            });
+          }
+
+        } else if (error) {
+          toast.error('Failed to load profile');
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     };
 
-    loadProfile();
+    loadProfileAndMetrics();
   }, [user]);
 
   const handleInputChange = (e) => {

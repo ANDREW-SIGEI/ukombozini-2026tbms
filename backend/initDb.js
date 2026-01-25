@@ -1,9 +1,26 @@
 const db = require('./db');
+const bcrypt = require('bcryptjs');
 
-const serialize = () => {
-    db.serialize(() => {
+const run = (sql, params = []) => new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve(this);
+    });
+});
+
+const get = (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+    });
+});
+
+const init = async () => {
+    try {
+        console.log("Initializing Database...");
+
         // 1. GROUPS TABLE
-        db.run(`CREATE TABLE IF NOT EXISTS groups (
+        await run(`CREATE TABLE IF NOT EXISTS groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             location TEXT,
@@ -16,45 +33,40 @@ const serialize = () => {
         )`);
 
         // Migration for existing groups table
-        const columnsToAdd = ['chairperson', 'secretary', 'treasurer'];
-        columnsToAdd.forEach(col => {
-            db.run(`ALTER TABLE groups ADD COLUMN ${col} TEXT`, (err) => {
-                // Ignore error if column exists
-            });
-        });
+        const columnsToAdd = [
+            'chairperson', 'secretary', 'treasurer',
+            'chairperson_id', 'secretary_id', 'treasurer_id',
+            'registrationDate', 'meetingFrequency', 'dividendPolicy',
+            'minMonthlySaving', 'loanMultiplier', 'stlInterestRate', 'ltlInterestRate',
+            'financial_year'
+        ];
+        for (const col of columnsToAdd) {
+            try { await run(`ALTER TABLE groups ADD COLUMN ${col} TEXT`); } catch (e) { }
+        }
 
-        // 2. MEMBERS TABLE (STRICT OPENING BALANCE RULES)
-        db.run(`CREATE TABLE IF NOT EXISTS members (
+        // 2. MEMBERS TABLE
+        await run(`CREATE TABLE IF NOT EXISTS members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             phone TEXT,
             group_id INTEGER NOT NULL,
             status TEXT DEFAULT 'active' CHECK( status IN ('active', 'inactive', 'suspended') ),
-            
-            -- Registration Date (CRITICAL for BF logic)
             registration_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            
-            -- Opening Balances (Set ONCE at registration)
             opening_balance_savings REAL DEFAULT 0,
             opening_balance_ltl REAL DEFAULT 0,
             opening_balance_stl REAL DEFAULT 0,
-            
-            -- Audit Trail for Opening Balances
             opening_balance_set_by INTEGER,
             opening_balance_set_at TEXT,
             opening_balance_reason TEXT,
             opening_balance_locked INTEGER DEFAULT 0,
-            
-            -- Current Balances (Updated by Transactions)
             current_savings REAL DEFAULT 0,
             active_loan_balance REAL DEFAULT 0,
-
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (group_id) REFERENCES groups(id)
         )`);
 
-        // 2.5 LOANS TABLE (Added for Loan Management)
-        db.run(`CREATE TABLE IF NOT EXISTS loans (
+        // 3. LOANS TABLE
+        await run(`CREATE TABLE IF NOT EXISTS loans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,
             group_id INTEGER NOT NULL,
@@ -69,7 +81,9 @@ const serialize = () => {
             FOREIGN KEY (member_id) REFERENCES members(id),
             FOREIGN KEY (group_id) REFERENCES groups(id)
         )`);
-        db.run(`CREATE TABLE IF NOT EXISTS meeting_sessions (
+
+        // 4. MEETING SESSIONS
+        await run(`CREATE TABLE IF NOT EXISTS meeting_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             groupId INTEGER NOT NULL,
             officerId INTEGER NOT NULL,
@@ -77,20 +91,18 @@ const serialize = () => {
             startTime TEXT,
             endTime TEXT,
             status TEXT DEFAULT 'draft' CHECK( status IN ('draft', 'ACTIVE', 'PENDING_APPROVAL', 'POSTED', 'REVERSED') ),
-            reversalMetadata TEXT, -- JSON string
-            totals TEXT, -- JSON string for simplified caching
+            reversalMetadata TEXT,
+            totals TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (groupId) REFERENCES groups(id)
         )`);
 
-        // 4. TRANSACTIONS
-        db.run(`CREATE TABLE IF NOT EXISTS transactions (
+        // 5. TRANSACTIONS
+        await run(`CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sessionId INTEGER, -- Nullable for ad-hoc transactions
+            sessionId INTEGER,
             memberId INTEGER NOT NULL,
             memberName TEXT,
-            
-            -- Transaction Fields
             attended INTEGER DEFAULT 1,
             savings_amount REAL DEFAULT 0,
             stl_repayment REAL DEFAULT 0,
@@ -100,19 +112,16 @@ const serialize = () => {
             fines REAL DEFAULT 0,
             withdrawals REAL DEFAULT 0,
             loans_issued REAL DEFAULT 0,
-            
-            -- Generic Fields
             transaction_type TEXT,
             description TEXT,
             uploaded INTEGER DEFAULT 0,
-            
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (sessionId) REFERENCES meeting_sessions(id),
             FOREIGN KEY (memberId) REFERENCES members(id)
         )`);
 
-        // 5. DIVIDEND ENGINE TABLES
-        db.run(`CREATE TABLE IF NOT EXISTS dividend_runs (
+        // 6. DIVIDEND TABLES
+        await run(`CREATE TABLE IF NOT EXISTS dividend_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             financial_year INTEGER,
             group_id INTEGER,
@@ -134,7 +143,7 @@ const serialize = () => {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS dividend_allocations (
+        await run(`CREATE TABLE IF NOT EXISTS dividend_allocations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dividend_run_id INTEGER,
             member_id INTEGER,
@@ -148,11 +157,11 @@ const serialize = () => {
             FOREIGN KEY (member_id) REFERENCES members(id)
         )`);
 
-        // 6. ADMIN & AUDIT TABLES
-        db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
+        // 7. ADMIN & AUDIT
+        await run(`CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             action TEXT NOT NULL,
-            category TEXT NOT NULL, -- 'auth', 'transaction', 'admin', 'system'
+            category TEXT NOT NULL,
             details TEXT,
             officer_id INTEGER,
             officer_name TEXT,
@@ -160,17 +169,17 @@ const serialize = () => {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS settings (
+        await run(`CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT,
             description TEXT,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS loan_products (
+        await run(`CREATE TABLE IF NOT EXISTS loan_products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            code TEXT UNIQUE, -- e.g., 'STL', 'LTL', 'EMG'
+            code TEXT UNIQUE,
             interest_rate REAL NOT NULL,
             duration_months INTEGER NOT NULL,
             max_amount REAL,
@@ -179,8 +188,8 @@ const serialize = () => {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        // 7. OFFICER MANAGEMENT TABLES
-        db.run(`CREATE TABLE IF NOT EXISTS officers (
+        // 8. OFFICERS
+        await run(`CREATE TABLE IF NOT EXISTS officers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             role TEXT NOT NULL CHECK( role IN ('Field Officer', 'Chairman', 'Secretary', 'Treasurer', 'Admin') ),
@@ -191,7 +200,7 @@ const serialize = () => {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS officer_groups (
+        await run(`CREATE TABLE IF NOT EXISTS officer_groups (
             officer_id INTEGER NOT NULL,
             group_id INTEGER NOT NULL,
             PRIMARY KEY (officer_id, group_id),
@@ -199,79 +208,41 @@ const serialize = () => {
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
         )`);
 
-        // INITIAL SETTINGS SEED
-        db.get("SELECT count(*) as count FROM settings", (err, row) => {
-            if (row && row.count === 0) {
-                const stmt = db.prepare("INSERT INTO settings (key, value, description) VALUES (?, ?, ?)");
-                stmt.run("system_name", "Ukombozi TBMS", "Application name");
-                stmt.run("currency", "KES", "System currency code");
-                stmt.run("min_savings_for_loan", "3", "Multiplier of savings for max loan");
-                stmt.finalize();
-            }
-        });
+        // SEEDING
+        const groupCount = await get("SELECT count(*) as count FROM groups");
+        if (groupCount.count === 0) {
+            console.log("Seeding Groups...");
+            await run("INSERT INTO groups (name, location, meetingDay) VALUES (?, ?, ?)", ["Victory Women", "Kibera", "Monday"]);
+            await run("INSERT INTO groups (name, location, meetingDay) VALUES (?, ?, ?)", ["Ukombozi A", "Mathare", "Tuesday"]);
+            await run("INSERT INTO groups (name, location, meetingDay) VALUES (?, ?, ?)", ["Ukombozi B", "Kawanagware", "Wednesday"]);
+        }
 
-        // INITIAL LOAN PRODUCTS SEED
-        db.get("SELECT count(*) as count FROM loan_products", (err, row) => {
-            if (row && row.count === 0) {
-                const stmt = db.prepare("INSERT INTO loan_products (name, code, interest_rate, duration_months, description) VALUES (?, ?, ?, ?, ?)");
-                stmt.run("Short Term Loan", "STL", 10.0, 1, "1-month reducing balance loan");
-                stmt.run("Long Term Loan", "LTL", 12.0, 12, "12-month development loan");
-                stmt.run("Emergency Loan", "EMG", 5.0, 1, "Quick 1-month emergency relief");
-                stmt.finalize();
-            }
-        });
+        const memberCount = await get("SELECT count(*) as count FROM members");
+        if (memberCount.count === 0) {
+            console.log("Seeding Members...");
+            const now = new Date().toISOString();
+            await run("INSERT INTO members (name, phone, group_id, opening_balance_savings, current_savings) VALUES (?, ?, ?, ?, ?)", ["Alice", "0711", 1, 1000, 1000]);
+            await run("INSERT INTO members (name, phone, group_id, current_savings) VALUES (?, ?, ?, ?)", ["Bob", "0722", 1, 500]);
+        }
 
-        console.log("Tables created successfully.");
+        const officerCount = await get("SELECT count(*) as count FROM officers");
+        if (officerCount.count === 0) {
+            console.log("Seeding Officers...");
+            const adminPass = await bcrypt.hash('Teddymark1', 10);
+            const staffPass = await bcrypt.hash('123456', 10);
+            await run("INSERT INTO officers (name, role, phone, email, password_hash) VALUES (?, ?, ?, ?, ?)", ["System Admin", "Admin", "0700", "andrewsigei684@gmail.com", adminPass]);
+            await run("INSERT INTO officers (name, role, phone, email, password_hash) VALUES (?, ?, ?, ?, ?)", ["Sarah", "Chairman", "0711", "sarah@tbms.com", staffPass]);
+            await run("INSERT INTO officer_groups (officer_id, group_id) VALUES (1, 2), (2, 2)");
+        }
 
-        // SEED DATA
-        db.get("SELECT count(*) as count FROM groups", (err, row) => {
-            if (row.count === 0) {
-                console.log("Seeding Groups...");
-                const stmt = db.prepare("INSERT INTO groups (name, location, meetingDay) VALUES (?, ?, ?)");
-                stmt.run("Victory Women Group", "Kibera Zone A", "Monday");
-                stmt.run("Ukombozi Group A", "Mathare North", "Tuesday");
-                stmt.run("Ukombozi Group B", "Kawanagware", "Wednesday");
-                stmt.finalize();
-            }
-        });
-
-        db.get("SELECT count(*) as count FROM members", (err, row) => {
-            if (row.count === 0) {
-                console.log("Seeding Members with Opening Balances...");
-                // Seed members for Group 1 (with opening balances for testing)
-                const stmt = db.prepare(`INSERT INTO members (
-                    name, phone, group_id, 
-                    opening_balance_savings, opening_balance_ltl, opening_balance_stl,
-                    opening_balance_set_by, opening_balance_set_at, opening_balance_reason, opening_balance_locked,
-                    current_savings
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-
-                const now = new Date().toISOString();
-                stmt.run("Alice Wanjiku", "0712345678", 1, 15000, 10000, 2000, 1, now, "Initial registration", 1, 15000);
-                stmt.run("Beatrice Atieno", "0723456789", 1, 25000, 5000, 0, 1, now, "Initial registration", 1, 25000);
-                stmt.run("Catherine Njemeri", "0734567890", 1, 8000, 20000, 5000, 1, now, "Initial registration", 1, 8000);
-                // Seed members for Group 2 (new member with zero opening balance)
-                stmt.run("David Kamau", "0745678901", 2, 0, 0, 0, 1, now, "New member - zero opening balance", 1, 0);
-                stmt.finalize();
-            }
-        });
-
-        // 8. SEED OFFICERS
-        db.get("SELECT count(*) as count FROM officers", (err, row) => {
-            if (row && row.count === 0) {
-                console.log("Seeding Officers...");
-                const stmt = db.prepare("INSERT INTO officers (name, role, phone, email) VALUES (?, ?, ?, ?)");
-                stmt.run("Sarah Wanjiku", "Chairman", "0711111111", "sarah.wanjiku@tbms.com");
-                stmt.run("David Omari", "Secretary", "0722222222", "david.omari@tbms.com");
-                stmt.run("Mary Atieno", "Treasurer", "0733333333", "mary.atieno@tbms.com");
-                stmt.finalize();
-
-                // Assign groups
-                db.run("INSERT INTO officer_groups (officer_id, group_id) VALUES (1, 2), (2, 2), (3, 3)");
-            }
-        });
-
-    });
+        console.log("Database initialized successfully.");
+    } catch (err) {
+        console.error("Initialization failed:", err);
+    } finally {
+        // Do not close DB here if we want to continue using it in other scripts, 
+        // but for init-db standalone, we exit.
+        process.exit();
+    }
 };
 
-serialize();
+init();

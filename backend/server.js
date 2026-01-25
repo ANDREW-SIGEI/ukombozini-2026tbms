@@ -3,7 +3,12 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const db = require('./db');
+const reportService = require('./services/reportService');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'ukombozi-secret-key-2026';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -27,6 +32,73 @@ const logAudit = (action, category, details, officerId = 1, officerName = 'Admin
     });
     stmt.finalize();
 };
+
+// ==========================================
+// SERVER HEALTH DASHBOARD (Visual)
+// ==========================================
+app.get('/', (req, res) => {
+    const stats = { groups: 0, members: 0, officers: 0 };
+
+    db.get("SELECT COUNT(*) as count FROM groups", (err, row) => {
+        if (!err) stats.groups = row.count;
+        db.get("SELECT COUNT(*) as count FROM members", (err, row) => {
+            if (!err) stats.members = row.count;
+            db.get("SELECT COUNT(*) as count FROM officers", (err, row) => {
+                if (!err) stats.officers = row.count;
+
+                res.send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Ukombozi Backend | Status</title>
+                        <style>
+                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+                            .card { background: white; padding: 2.5rem; border-radius: 20px; shadow: 0 10px 25px rgba(0,0,0,0.1); width: 400px; text-align: center; border: 1px solid #e1e4e8; }
+                            .status-badge { background: #28a745; color: white; padding: 5px 15px; border-radius: 50px; font-weight: bold; font-size: 0.8rem; display: inline-block; margin-bottom: 1rem; }
+                            h1 { color: #1a1d21; margin: 0 0 0.5rem 0; font-size: 1.5rem; letter-spacing: -0.5px; }
+                            p { color: #6a737d; margin-bottom: 2rem; font-size: 0.9rem; }
+                            .stats-container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; text-align: left; }
+                            .stat-box { background: #f8f9fa; padding: 1rem; border-radius: 12px; border: 1px solid #eee; }
+                            .stat-val { display: block; font-size: 1.25rem; font-weight: 800; color: #1a1d21; }
+                            .stat-label { font-size: 0.7rem; color: #6a737d; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
+                            .footer { margin-top: 2rem; font-size: 0.75rem; color: #959da5; }
+                            .pulse { display: inline-block; width: 10px; height: 10px; background: #28a745; border-radius: 50%; margin-right: 5px; animation: pulse 2s infinite; }
+                            @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="card">
+                            <div class="status-badge"><span class="pulse"></span>SYSTEM ONLINE</div>
+                            <h1>Ukombozi Backend</h1>
+                            <p>Local SQLite API Terminal</p>
+                            
+                            <div class="stats-container">
+                                <div class="stat-box">
+                                    <span class="stat-label">Groups</span>
+                                    <span class="stat-val">${stats.groups}</span>
+                                </div>
+                                <div class="stat-box">
+                                    <span class="stat-label">Members</span>
+                                    <span class="stat-val">${stats.members}</span>
+                                </div>
+                                <div class="stat-box">
+                                    <span class="stat-label">Staff</span>
+                                    <span class="stat-val">${stats.officers}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="footer">
+                                API Version 1.0.0 &bull; Port ${PORT}<br>
+                                Initialized: ${new Date().toLocaleDateString()}
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                `);
+            });
+        });
+    });
+});
 
 // ==========================================
 // ADMIN API
@@ -95,11 +167,74 @@ app.post('/api/admin/loan-products', (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?)
         `);
         stmt.run(name, code, interest_rate, duration_months, max_amount, description, function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            logAudit(`Create Loan Product: ${code}`, 'admin', { name });
             res.json({ success: true, id: this.lastID });
         });
         stmt.finalize();
+    }
+});
+
+// ==========================================
+// AUTHENTICATION API
+// ==========================================
+
+// Login
+app.post('/api/auth/login', (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    db.get("SELECT * FROM officers WHERE email = ? AND status = 'active'", [email], async (err, officer) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!officer) {
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        // Check password
+        const validPassword = await bcrypt.compare(password, officer.password_hash);
+        if (!validPassword) {
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        // Create token
+        const token = jwt.sign(
+            { id: officer.id, email: officer.email, role: officer.role },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            token,
+            user: {
+                id: officer.id,
+                email: officer.email,
+                name: officer.name,
+                role: officer.role.toLowerCase()
+            }
+        });
+    });
+});
+
+// Get Current User (Me)
+app.get('/api/auth/me', (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'Access denied' });
+
+    try {
+        const verified = jwt.verify(token, JWT_SECRET);
+        db.get("SELECT id, name, email, role FROM officers WHERE id = ?", [verified.id], (err, officer) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!officer) return res.status(404).json({ error: 'User not found' });
+            res.json({
+                ...officer,
+                role: officer.role.toLowerCase()
+            });
+        });
+    } catch (err) {
+        res.status(400).json({ error: 'Invalid token' });
     }
 });
 
@@ -158,7 +293,18 @@ app.get('/api/admin/export/:table', (req, res) => {
     });
 });
 app.get('/api/groups', (req, res) => {
-    db.all("SELECT * FROM groups ORDER BY name", [], (err, rows) => {
+    const query = `
+        SELECT g.*, 
+               m1.name as chairperson_name, 
+               m2.name as secretary_name, 
+               m3.name as treasurer_name
+        FROM groups g
+        LEFT JOIN members m1 ON g.chairperson_id = m1.id
+        LEFT JOIN members m2 ON g.secretary_id = m2.id
+        LEFT JOIN members m3 ON g.treasurer_id = m3.id
+        ORDER BY g.name
+    `;
+    db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -166,23 +312,124 @@ app.get('/api/groups', (req, res) => {
 
 // Create new group
 app.post('/api/groups', (req, res) => {
-    const { name, location, meetingDay, chairperson, secretary, treasurer } = req.body;
+    const {
+        name, group_name, location, meetingDay, meeting_day, chairperson, secretary, treasurer,
+        chairperson_phone, secretary_phone, treasurer_phone,
+        registrationDate, registration_date, meetingFrequency, meeting_frequency,
+        dividendPolicy, minMonthlySaving, loanMultiplier, stlInterestRate, ltlInterestRate,
+        financial_year
+    } = req.body;
 
-    // Check for duplicate name
-    db.get("SELECT id FROM groups WHERE name COLLATE NOCASE = ?", [name], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (row) {
-            return res.status(400).json({ error: `Group '${name}' already exists.` });
-        }
+    const finalName = name || group_name;
+    const finalMeetingDay = meetingDay || meeting_day;
+    const finalMeetingFreq = meetingFrequency || meeting_frequency;
+    const finalRegDate = registrationDate || registration_date || new Date().toISOString().split('T')[0];
+    const finalFinancialYear = financial_year || new Date().getFullYear();
 
-        const stmt = db.prepare("INSERT INTO groups (name, location, meetingDay, chairperson, secretary, treasurer) VALUES (?, ?, ?, ?, ?, ?)");
-        stmt.run(name, location, meetingDay, chairperson, secretary, treasurer, function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: this.lastID, name, location, meetingDay, status: 'active' });
+    if (!finalName) return res.status(400).json({ error: "Group name is required." });
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        // 1. Check for duplicate name
+        db.get("SELECT id FROM groups WHERE name COLLATE NOCASE = ?", [finalName], (err, row) => {
+            if (err) {
+                db.run("ROLLBACK");
+                return res.status(500).json({ error: err.message });
+            }
+            if (row) {
+                db.run("ROLLBACK");
+                return res.status(400).json({ error: `Group '${finalName}' already exists.` });
+            }
+
+            // 2. Insert Group
+            const groupStmt = db.prepare(`
+                INSERT INTO groups (
+                    name, location, meetingDay, chairperson, secretary, treasurer,
+                    registrationDate, meetingFrequency, dividendPolicy,
+                    minMonthlySaving, loanMultiplier, stlInterestRate, ltlInterestRate,
+                    financial_year, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            `);
+
+            groupStmt.run(
+                finalName, location, finalMeetingDay, chairperson, secretary, treasurer,
+                finalRegDate, finalMeetingFreq, dividendPolicy || 'Standard Policy',
+                minMonthlySaving || 100, loanMultiplier || 3, stlInterestRate || 10, ltlInterestRate || 10,
+                finalFinancialYear,
+                function (err) {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+                    const groupId = this.lastID;
+
+                    // 3. Register officials as members
+                    const officialsMap = [
+                        { name: chairperson, phone: chairperson_phone, role: 'Chairman' },
+                        { name: secretary, phone: secretary_phone, role: 'Secretary' },
+                        { name: treasurer, phone: treasurer_phone, role: 'Treasurer' }
+                    ];
+
+                    const createdStaffIds = {};
+                    let pending = 0;
+                    let errorOccurred = false;
+
+                    officialsMap.forEach(off => {
+                        if (off.name) pending++;
+                    });
+
+                    if (pending === 0) {
+                        db.run("COMMIT");
+                        logAudit(`Create Group: ${finalName}`, 'admin', { id: groupId, name: finalName });
+                        return res.json({ id: groupId, name: finalName, status: 'active', officialsCreated: 0 });
+                    }
+
+                    officialsMap.forEach((off, idx) => {
+                        if (!off.name) return;
+
+                        db.run(
+                            `INSERT INTO members (name, phone, group_id, status, registration_date) VALUES (?, ?, ?, 'active', ?)`,
+                            [off.name, off.phone || null, groupId, finalRegDate],
+                            function (err) {
+                                if (errorOccurred) return;
+                                if (err) {
+                                    errorOccurred = true;
+                                    db.run("ROLLBACK");
+                                    return res.status(500).json({ error: `Failed to register ${off.role}: ${err.message}` });
+                                }
+
+                                createdStaffIds[off.role] = this.lastID;
+                                pending--;
+
+                                if (pending === 0) {
+                                    // 4. Update group with member IDs
+                                    db.run(
+                                        `UPDATE groups SET chairperson_id = ?, secretary_id = ?, treasurer_id = ? WHERE id = ?`,
+                                        [createdStaffIds['Chairman'] || null, createdStaffIds['Secretary'] || null, createdStaffIds['Treasurer'] || null, groupId],
+                                        (err) => {
+                                            if (err) {
+                                                db.run("ROLLBACK");
+                                                return res.status(500).json({ error: err.message });
+                                            }
+
+                                            db.run("COMMIT");
+                                            logAudit(`Create Group: ${finalName}`, 'admin', { id: groupId, name: finalName });
+                                            logAudit(`Register Officials for ${finalName}`, 'member', { groupId, officials: createdStaffIds });
+                                            res.json({ id: groupId, name: finalName, status: 'active', officialsCreated: Object.keys(createdStaffIds).length });
+                                        }
+                                    );
+                                }
+                            }
+                        );
+                    });
+                }
+            );
+            groupStmt.finalize();
         });
-        stmt.finalize();
     });
 });
+
 
 // Get active session for a group
 app.get('/api/groups/:id/active-session', (req, res) => {
@@ -247,13 +494,16 @@ app.get('/api/members', (req, res) => {
 // Create new member (WITH OPENING BALANCE RULES)
 app.post('/api/members', (req, res) => {
     const {
-        name, phone, groupId,
+        name, full_name, phone, groupId, group_id,
         opening_balance_savings = 0,
         opening_balance_ltl = 0,
         opening_balance_stl = 0,
         opening_balance_reason,
         userId // Who is creating this member (for audit)
     } = req.body;
+
+    const finalName = name || full_name;
+    const finalGroupId = groupId || group_id;
 
     // Validation: Opening balance reason required if any opening balance > 0
     const hasOpeningBalance = opening_balance_savings > 0 || opening_balance_ltl > 0 || opening_balance_stl > 0;
@@ -262,7 +512,7 @@ app.post('/api/members', (req, res) => {
     }
 
     // Validation: Check for duplicate Name OR Phone
-    db.get("SELECT id, name, phone, group_id FROM members WHERE name COLLATE NOCASE = ? OR phone = ?", [name, phone], (err, existing) => {
+    db.get("SELECT id, name, phone, group_id FROM members WHERE name COLLATE NOCASE = ? OR phone = ?", [finalName, phone], (err, existing) => {
         if (err) return res.status(500).json({ error: err.message });
         if (existing) {
             let msg = `Member '${existing.name}' already registered`;
@@ -283,15 +533,16 @@ app.post('/api/members', (req, res) => {
         const locked = hasOpeningBalance ? 1 : 0; // Lock if opening balance is set
 
         stmt.run(
-            name, phone, groupId,
+            finalName, phone, finalGroupId,
             opening_balance_savings, opening_balance_ltl, opening_balance_stl,
             userId || 1, now, opening_balance_reason || 'New member', locked,
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
+                logAudit(`Register Member: ${finalName}`, 'member', { id: this.lastID, name: finalName, groupId: finalGroupId });
                 res.json({
                     id: this.lastID,
-                    name, phone,
-                    group_id: groupId,
+                    name: finalName, phone,
+                    group_id: finalGroupId,
                     status: 'active',
                     opening_balance_savings,
                     opening_balance_ltl,
@@ -356,6 +607,7 @@ app.post('/api/sessions', (req, res) => {
 
     stmt.run(groupId, officerId, date, startTime, endTime, function (err) {
         if (err) return res.status(500).json({ error: err.message });
+        logAudit(`Start Meeting Session`, 'transaction', { id: this.lastID, groupId, officerId });
         res.json({
             id: this.lastID,
             groupId,
@@ -428,6 +680,20 @@ app.post('/api/sessions/:id/post', (req, res) => {
                     console.error("Tx Insert Error", err);
                     return res.status(500).json({ error: "Failed to save transactions" });
                 }
+
+                // 3. Update Member Savings and Loan Balances from transactions
+                let updateCount = 0;
+                transactions.forEach(t => {
+                    if (t.savings_amount > 0 || t.withdrawals > 0) {
+                        const netSavings = (t.savings_amount || 0) - (t.withdrawals || 0);
+                        db.run("UPDATE members SET current_savings = current_savings + ? WHERE id = ?", [netSavings, t.memberId], (err) => {
+                            updateCount++;
+                        });
+                    } else {
+                        updateCount++;
+                    }
+                });
+
                 res.json({ success: true, status: 'POSTED', transactionCount: transactions.length });
             });
         } else {
@@ -534,6 +800,37 @@ app.get('/api/transactions', (req, res) => {
     });
 });
 
+// ==========================================
+// EMAIL SERVICE API
+// ==========================================
+const emailService = require('./services/emailService');
+
+app.post('/api/send-email', async (req, res) => {
+    const { to, subject, body, html } = req.body;
+
+    if (!to || !subject || (!body && !html)) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    try {
+        const result = await emailService.sendEmail({
+            to,
+            subject,
+            text: body,
+            html: html || body // Use body as HTML if HTML not provided
+        });
+
+        if (result.success) {
+            logAudit('Email Sent', 'system', { to, subject });
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 // ==========================================
 // LOANS API
@@ -577,7 +874,7 @@ app.post('/api/sessions/repayment', (req, res) => {
         const description = `Loan Repayment - ${loanType} | Loan ID: ${loanId}`;
         const stmt = db.prepare(`
             INSERT INTO transactions (
-                sessionId, memberId, stl_repayment, ltl_repayment, loan_interest, penalty, description, transaction_type, uploaded, attended
+                sessionId, memberId, stl_repayment, ltl_repayment, loan_interest, fines, description, transaction_type, uploaded, attended
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'LoanRepayment', 1, 1)
         `);
 
@@ -600,6 +897,7 @@ app.post('/api/sessions/repayment', (req, res) => {
                 }
 
                 db.run("COMMIT");
+                logAudit(`Loan Repayment: ${amount}`, 'transaction', { memberId, loanId, amount, loanType });
                 res.json({ success: true, message: "Repayment recorded" });
             });
         });
@@ -685,6 +983,7 @@ app.post('/api/loans', (req, res) => {
                 }
 
                 db.run("COMMIT");
+                logAudit(`Issue Loan: ${amount}`, 'transaction', { memberId, loanId, amount, loanType });
                 res.json({ id: loanId, status: 'active', message: 'Loan issued successfully' });
             });
         });
@@ -1028,7 +1327,98 @@ app.delete('/api/officers/:id', (req, res) => {
 });
 
 
+// ==========================================
+// REPORTS API (PDF)
+// ==========================================
+
+// Meeting Minutes PDF
+app.get('/api/reports/meeting/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const pdfBuffer = await reportService.generateMeetingMinutes(sessionId);
+
+        res.setHeader('Content-Type', 'application/json'); // Dummy for now if errors
+        res.setHeader('Content-Disposition', `attachment; filename=meeting_minutes_${sessionId}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('PDF Generation Error:', error);
+        res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+});
+
+// Member Statement PDF
+app.get('/api/reports/member/:memberId', async (req, res) => {
+    try {
+        const { memberId } = req.params;
+        const { startDate, endDate } = req.query;
+        const pdfBuffer = await reportService.generateMemberStatement(memberId, startDate, endDate);
+
+        res.setHeader('Content-Disposition', `attachment; filename=member_statement_${memberId}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('PDF Generation Error:', error);
+        res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+});
+
+// Dividend Report PDF
+app.get('/api/reports/dividends/:runId', async (req, res) => {
+    try {
+        const { runId } = req.params;
+        const pdfBuffer = await reportService.generateDividendReport(runId);
+
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename=dividend_report_${runId}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Dividend PDF Error:', error);
+        res.status(500).json({ error: 'Failed to generate dividend PDF' });
+    }
+});
+
+app.get('/api/reports/compliance', async (req, res) => {
+    try {
+        const { month, groupId } = req.query;
+        const pdfBuffer = await reportService.generateContributionComplianceReport(month, groupId);
+
+        res.setHeader('Content-Disposition', `attachment; filename=compliance_report_${month}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Compliance PDF Error:', error);
+        res.status(500).json({ error: 'Failed to generate compliance PDF' });
+    }
+});
+
+app.get('/api/reports/loan-repayments', async (req, res) => {
+    try {
+        const { month, groupId, type } = req.query;
+        const pdfBuffer = await reportService.generateLoanRepaymentReport(month, groupId, type);
+
+        res.setHeader('Content-Disposition', `attachment; filename=loan_repayment_report_${month}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Loan Repayment PDF Error:', error);
+        res.status(500).json({ error: 'Failed to generate loan repayment PDF' });
+    }
+});
+
 // Start Server
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\x1b[32m[SERVER]\x1b[0m Node.js Backend running on http://localhost:${PORT}`);
+
+    // Print Network IPs
+    const { networkInterfaces } = require('os');
+    const nets = networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            if (net.family === 'IPv4' && !net.internal) {
+                console.log(`\x1b[36m[NETWORK]\x1b[0m Accessible at http://${net.address}:${PORT}`);
+            }
+        }
+    }
 });

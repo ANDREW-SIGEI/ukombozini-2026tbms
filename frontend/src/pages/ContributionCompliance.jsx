@@ -1,58 +1,67 @@
-import React, { useState, useMemo } from 'react';
-import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaUsers, FaCalendarAlt, FaChartLine, FaBell, FaDownload, FaFilter } from 'react-icons/fa';
-import { mockMembers } from '../data/mockData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaUsers, FaChartLine, FaBell, FaDownload } from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import PDFReportService from '../services/PDFReportService';
-
-// Mock contribution data - replace with real API
-const mockContributions = [
-    { memberId: 1, month: '2026-01', amount: 2000, type: 'Monthly Saving', status: 'Paid' },
-    { memberId: 2, month: '2026-01', amount: 1000, type: 'Monthly Saving', status: 'Partial' },
-    { memberId: 3, month: '2026-01', amount: 2000, type: 'Monthly Saving', status: 'Paid' },
-    { memberId: 4, month: '2026-01', amount: 0, type: null, status: 'Skipped' },
-    { memberId: 5, month: '2026-01', amount: 2000, type: 'Monthly Saving', status: 'Paid' },
-];
+import api from '../services/api';
 
 const ContributionCompliance = () => {
     const [selectedMonth, setSelectedMonth] = useState('2026-01');
     const [selectedGroup, setSelectedGroup] = useState('all');
+    const [loading, setLoading] = useState(true);
+    const [memberCompliance, setMemberCompliance] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const [activeTab, setActiveTab] = useState('paid'); // 'paid', 'partial', 'skipped'
 
-    // Calculate compliance statistics
+    // 1. Fetch initial data (Groups)
+    useEffect(() => {
+        const fetchGroups = async () => {
+            try {
+                const data = await api.getGroups();
+                setGroups(data || []);
+            } catch (error) {
+                console.error('Fetch groups error:', error);
+            }
+        };
+        fetchGroups();
+    }, []);
+
+    // 2. Fetch compliance data when filters change
+    useEffect(() => {
+        const fetchCompliance = async () => {
+            setLoading(true);
+            try {
+                const data = await api.getContributionCompliance(selectedMonth, selectedGroup);
+                setMemberCompliance(data || []);
+            } catch (error) {
+                toast.error("Failed to load compliance data");
+                console.error(error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchCompliance();
+    }, [selectedMonth, selectedGroup]);
+
+    // 3. Derived Statistics
     const complianceStats = useMemo(() => {
-        const total = mockMembers.length;
-        const paid = mockContributions.filter(c => c.status === 'Paid').length;
-        const partial = mockContributions.filter(c => c.status === 'Partial').length;
-        const skipped = mockContributions.filter(c => c.status === 'Skipped').length;
-        const complianceRate = ((paid / total) * 100).toFixed(1);
-        const totalCollected = mockContributions.reduce((sum, c) => sum + c.amount, 0);
-        const expectedAmount = total * 2000;
-        const shortfall = expectedAmount - totalCollected;
+        const totalCount = memberCompliance.length || 1;
+        const paidCount = memberCompliance.filter(m => m.contributionStatus === 'Paid').length;
+        const partialCount = memberCompliance.filter(m => m.contributionStatus === 'Partial').length;
+        const skippedCount = memberCompliance.filter(m => m.contributionStatus === 'Skipped').length;
+
+        const totalCollected = memberCompliance.reduce((sum, m) => sum + m.contributionAmount, 0);
+        const expectedAmount = memberCompliance.reduce((sum, m) => sum + m.expectedAmount, 0);
 
         return {
-            total,
-            paid,
-            partial,
-            skipped,
-            complianceRate,
+            total: memberCompliance.length,
+            paid: paidCount,
+            partial: partialCount,
+            skipped: skippedCount,
+            complianceRate: ((paidCount / totalCount) * 100).toFixed(1),
             totalCollected,
             expectedAmount,
-            shortfall
+            shortfall: Math.max(0, expectedAmount - totalCollected)
         };
-    }, [selectedMonth]);
-
-    // Member compliance details
-    const memberCompliance = useMemo(() => {
-        return mockMembers.map(member => {
-            const contribution = mockContributions.find(c => c.memberId === member.id);
-            return {
-                ...member,
-                contributionStatus: contribution?.status || 'Skipped',
-                contributionAmount: contribution?.amount || 0,
-                expectedAmount: 2000,
-                shortfall: 2000 - (contribution?.amount || 0)
-            };
-        });
-    }, [selectedMonth]);
+    }, [memberCompliance]);
 
     // Group by status
     const paidMembers = memberCompliance.filter(m => m.contributionStatus === 'Paid');
@@ -60,20 +69,13 @@ const ContributionCompliance = () => {
     const skippedMembers = memberCompliance.filter(m => m.contributionStatus === 'Skipped');
 
     // PDF Export Handler
-    const handleExportPDF = () => {
+    const handleExportPDF = async () => {
         try {
-            const pdfService = new PDFReportService();
-            const monthName = new Date(selectedMonth + '-01').toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-
-            pdfService.generateContributionComplianceReport(
-                monthName,
-                complianceStats,
-                memberCompliance
-            );
-
+            toast.info('📄 Generating Compliance PDF...');
+            await api.downloadContributionComplianceReport(selectedMonth, selectedGroup);
             toast.success('✅ PDF report generated successfully!');
         } catch (error) {
-            toast.error(`❌ Failed to generate PDF: ${error.message}`);
+            toast.error(`❌ Failed to generate PDF from server`);
         }
     };
 
@@ -116,8 +118,9 @@ const ContributionCompliance = () => {
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-safaricom-green/20 outline-none"
                     >
                         <option value="all">All Groups</option>
-                        <option value="1">Ukombozi Group A</option>
-                        <option value="2">Ukombozi Group B</option>
+                        {groups.map(group => (
+                            <option key={group.id} value={group.id}>{group.group_name}</option>
+                        ))}
                     </select>
                 </div>
             </div>
@@ -129,7 +132,7 @@ const ContributionCompliance = () => {
                     label="Fully Paid"
                     value={complianceStats.paid}
                     total={complianceStats.total}
-                    percentage={((complianceStats.paid / complianceStats.total) * 100).toFixed(0)}
+                    percentage={complianceStats.total > 0 ? ((complianceStats.paid / complianceStats.total) * 100).toFixed(0) : 0}
                     color="green"
                 />
                 <StatCard
@@ -137,7 +140,7 @@ const ContributionCompliance = () => {
                     label="Partial Payment"
                     value={complianceStats.partial}
                     total={complianceStats.total}
-                    percentage={((complianceStats.partial / complianceStats.total) * 100).toFixed(0)}
+                    percentage={complianceStats.total > 0 ? ((complianceStats.partial / complianceStats.total) * 100).toFixed(0) : 0}
                     color="yellow"
                 />
                 <StatCard
@@ -145,7 +148,7 @@ const ContributionCompliance = () => {
                     label="Skipped"
                     value={complianceStats.skipped}
                     total={complianceStats.total}
-                    percentage={((complianceStats.skipped / complianceStats.total) * 100).toFixed(0)}
+                    percentage={complianceStats.total > 0 ? ((complianceStats.skipped / complianceStats.total) * 100).toFixed(0) : 0}
                     color="red"
                 />
                 <StatCard
@@ -160,7 +163,7 @@ const ContributionCompliance = () => {
             {/* Financial Summary */}
             <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl border-2 border-blue-200">
                 <h3 className="text-sm font-black text-blue-900 uppercase mb-4 flex items-center gap-2">
-                    <FaUsers /> Financial Summary - January 2026
+                    <FaUsers /> Financial Summary - {new Date(selectedMonth + '-01').toLocaleString('en-GB', { month: 'long', year: 'numeric' })}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-white p-4 rounded-xl">
@@ -208,99 +211,124 @@ const ContributionCompliance = () => {
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="border-b border-gray-200">
                     <div className="flex">
-                        <TabButton label={`✅ Paid (${paidMembers.length})`} active={true} color="green" />
-                        <TabButton label={`⚠️ Partial (${partialMembers.length})`} active={false} color="yellow" />
-                        <TabButton label={`❌ Skipped (${skippedMembers.length})`} active={false} color="red" />
+                        <TabButton
+                            label={`✅ Paid (${paidMembers.length})`}
+                            active={activeTab === 'paid'}
+                            onClick={() => setActiveTab('paid')}
+                            color="green"
+                        />
+                        <TabButton
+                            label={`⚠️ Partial (${partialMembers.length})`}
+                            active={activeTab === 'partial'}
+                            onClick={() => setActiveTab('partial')}
+                            color="yellow"
+                        />
+                        <TabButton
+                            label={`❌ Skipped (${skippedMembers.length})`}
+                            active={activeTab === 'skipped'}
+                            onClick={() => setActiveTab('skipped')}
+                            color="red"
+                        />
                     </div>
                 </div>
 
                 <div className="p-6">
-                    {/* Paid Members Table */}
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gradient-to-r from-green-50 to-green-100 border-b-2 border-green-200">
-                                <tr>
-                                    <th className="px-4 py-3 text-xs font-black text-green-900 uppercase">Member</th>
-                                    <th className="px-4 py-3 text-xs font-black text-green-900 uppercase">Group</th>
-                                    <th className="px-4 py-3 text-xs font-black text-green-900 uppercase text-right">Amount Paid</th>
-                                    <th className="px-4 py-3 text-xs font-black text-green-900 uppercase text-center">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {paidMembers.map(member => (
-                                    <tr key={member.id} className="hover:bg-green-50/30 transition-colors">
-                                        <td className="px-4 py-3">
-                                            <div className="font-bold text-gray-900">{member.name}</div>
-                                            <div className="text-xs text-gray-500">{member.phone}</div>
-                                        </td>
-                                        <td className="px-4 py-3 text-gray-700">{member.groupName}</td>
-                                        <td className="px-4 py-3 text-right">
-                                            <span className="font-black text-green-600">
-                                                KES {member.contributionAmount.toLocaleString()}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-center">
-                                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-black uppercase rounded-full">
-                                                <FaCheckCircle /> Paid
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Partial Members Warning */}
-                    {partialMembers.length > 0 && (
-                        <div className="mt-6 pt-6 border-t border-gray-200">
-                            <h4 className="font-black text-yellow-900 mb-4 flex items-center gap-2">
-                                <FaExclamationTriangle /> Partial Payments - Follow Up Required
-                            </h4>
-                            <div className="grid gap-3">
-                                {partialMembers.map(member => (
-                                    <div key={member.id} className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-xl">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <div className="font-bold text-gray-900">{member.name}</div>
-                                                <div className="text-sm text-gray-600">
-                                                    Paid: KES {member.contributionAmount.toLocaleString()} |
-                                                    Shortfall: KES {member.shortfall.toLocaleString()}
-                                                </div>
-                                            </div>
-                                            <button className="px-4 py-2 bg-yellow-600 text-white text-sm font-bold rounded-lg hover:bg-yellow-700 transition-all">
-                                                Send Reminder
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                    {loading ? (
+                        <div className="py-12 text-center">
+                            <div className="animate-spin w-8 h-8 border-4 border-safaricom-green border-t-transparent rounded-full mx-auto mb-4"></div>
+                            <p className="text-sm text-gray-400 font-bold uppercase tracking-widest">Fetching Compliance Data...</p>
                         </div>
-                    )}
+                    ) : (
+                        <>
+                            {activeTab === 'paid' && (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gradient-to-r from-green-50 to-green-100 border-b-2 border-green-200">
+                                            <tr>
+                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase">Member</th>
+                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase">Group</th>
+                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase text-right">Amount Paid</th>
+                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {paidMembers.length > 0 ? paidMembers.map(member => (
+                                                <tr key={member.id} className="hover:bg-green-50/30 transition-colors">
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-bold text-gray-900">{member.name}</div>
+                                                        <div className="text-xs text-gray-500">{member.phone}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-700">{member.groupName}</td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        <span className="font-black text-green-600">
+                                                            KES {member.contributionAmount.toLocaleString()}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-black uppercase rounded-full">
+                                                            <FaCheckCircle /> Paid
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan="4" className="text-center py-10 text-gray-400 italic">No fully paid members found.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
 
-                    {/* Skipped Members Alert */}
-                    {skippedMembers.length > 0 && (
-                        <div className="mt-6 pt-6 border-t border-gray-200">
-                            <h4 className="font-black text-red-900 mb-4 flex items-center gap-2">
-                                <FaTimesCircle /> No Payment - Immediate Action Required
-                            </h4>
-                            <div className="grid gap-3">
-                                {skippedMembers.map(member => (
-                                    <div key={member.id} className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <div className="font-bold text-gray-900">{member.name}</div>
-                                                <div className="text-sm text-gray-600">
-                                                    Expected: KES 2,000 | Paid: KES 0
+                            {activeTab === 'partial' && (
+                                <div className="grid gap-3">
+                                    {partialMembers.length > 0 ? partialMembers.map(member => (
+                                        <div key={member.id} className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-xl">
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <div className="font-bold text-gray-900">{member.name}</div>
+                                                    <div className="text-sm text-gray-600">
+                                                        Paid: KES {member.contributionAmount.toLocaleString()} |
+                                                        Shortfall: KES {member.shortfall.toLocaleString()}
+                                                    </div>
                                                 </div>
+                                                <button className="px-4 py-2 bg-yellow-600 text-white text-sm font-bold rounded-lg hover:bg-yellow-700 transition-all">
+                                                    Send Reminder
+                                                </button>
                                             </div>
-                                            <button className="px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 transition-all">
-                                                Contact Member
-                                            </button>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                                    )) : (
+                                        <div className="text-center py-10">
+                                            <p className="text-gray-400 italic">No partial payments for this period.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {activeTab === 'skipped' && (
+                                <div className="grid gap-3">
+                                    {skippedMembers.length > 0 ? skippedMembers.map(member => (
+                                        <div key={member.id} className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
+                                            <div className="flex justify-between items-center">
+                                                <div>
+                                                    <div className="font-bold text-gray-900">{member.name}</div>
+                                                    <div className="text-sm text-gray-600">
+                                                        Expected: KES {member.expectedAmount.toLocaleString()} | Paid: KES 0
+                                                    </div>
+                                                </div>
+                                                <button className="px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 transition-all">
+                                                    Contact Member
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )) : (
+                                        <div className="text-center py-10">
+                                            <p className="text-gray-400 italic">No skipped payments for this period! 🎉</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -333,13 +361,13 @@ const StatCard = ({ icon, label, value, total, percentage, subtitle, color }) =>
                 <div className="p-3 bg-white/20 rounded-xl">
                     {icon}
                 </div>
-                {percentage && (
+                {percentage !== undefined && (
                     <div className="text-2xl font-black">{percentage}%</div>
                 )}
             </div>
             <div className="text-xs opacity-90 uppercase font-bold">{label}</div>
             <div className="text-3xl font-black mt-1">
-                {typeof value === 'number' ? value : value}
+                {typeof value === 'number' ? value.toLocaleString() : value}
             </div>
             {subtitle && (
                 <div className="text-xs opacity-80 mt-1">{subtitle}</div>
@@ -348,13 +376,15 @@ const StatCard = ({ icon, label, value, total, percentage, subtitle, color }) =>
     );
 };
 
-const TabButton = ({ label, active, color }) => {
+const TabButton = ({ label, active, color, onClick }) => {
     const activeClasses = active
         ? `border-b-4 border-${color}-500 text-${color}-700 bg-${color}-50`
         : 'border-b-4 border-transparent text-gray-500 hover:bg-gray-50';
 
     return (
-        <button className={`px-6 py-3 font-bold text-sm transition-all ${activeClasses}`}>
+        <button
+            onClick={onClick}
+            className={`px-6 py-3 font-bold text-sm transition-all ${activeClasses}`}>
             {label}
         </button>
     );

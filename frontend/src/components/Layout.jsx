@@ -1,10 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import { FiMenu, FiBell, FiUser, FiX } from 'react-icons/fi';
+import { FaBars, FaBell, FaUser, FaTimes } from 'react-icons/fa';
+import NotificationService from '../services/NotificationService';
+import { useAuth } from '../context/AuthContext';
 
 const Layout = ({ children }) => {
+    const { user } = useAuth();
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        // Fetch initially
+        fetchUnreadCount();
+
+        // Poll every 30s (simple real-time for MVP)
+        const interval = setInterval(fetchUnreadCount, 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const fetchUnreadCount = async () => {
+        const logs = await NotificationService.getLogs(20);
+        // Simple mock "unread" - in real app, logs would have 'read' status
+        setUnreadCount(logs.filter(l => l.status === 'SENT').length > 5 ? 5 : logs.length);
+    };
 
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -26,7 +47,7 @@ const Layout = ({ children }) => {
                 <div className="flex justify-between items-center p-4 border-b border-safaricom-dark text-white">
                     <span className="font-bold text-xl uppercase tracking-wider">TBMS Menu</span>
                     <button onClick={() => setIsMobileMenuOpen(false)} className="text-white hover:text-gray-200">
-                        <FiX size={24} />
+                        <FaTimes size={24} />
                     </button>
                 </div>
                 <Sidebar isMobile={true} closeMobileMenu={() => setIsMobileMenuOpen(false)} />
@@ -42,32 +63,41 @@ const Layout = ({ children }) => {
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                             className="hidden md:block text-gray-500 hover:text-safaricom-green mr-4 transition-colors"
                         >
-                            <FiMenu size={24} />
+                            <FaBars size={24} />
                         </button>
                         {/* Mobile Toggle */}
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
                             className="md:hidden text-gray-500 hover:text-safaricom-green mr-4 transition-colors"
                         >
-                            <FiMenu size={24} />
+                            <FaBars size={24} />
                         </button>
                         <h1 className="text-lg font-bold text-gray-800 drop-shadow-sm">Ukombozi TBMS</h1>
                     </div>
 
                     <div className="flex items-center space-x-4">
                         <div className="relative group">
-                            <button className="text-gray-400 hover:text-safaricom-green p-2 rounded-full hover:bg-gray-100 transition-all">
-                                <FiBell size={20} />
-                                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                            <button
+                                onClick={() => navigate('/notifications')}
+                                className="text-gray-400 hover:text-safaricom-green p-2 rounded-full hover:bg-gray-100 transition-all"
+                            >
+                                <FaBell size={20} />
+                                {unreadCount > 0 && (
+                                    <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+                                )}
                             </button>
                         </div>
                         <div className="flex items-center space-x-3 border-l pl-4 border-gray-100">
                             <div className="text-right hidden sm:block">
-                                <p className="text-xs font-bold text-gray-800">Field Officer</p>
-                                <p className="text-[10px] text-gray-500">ID: #4052</p>
+                                <p className="text-xs font-bold text-gray-800 capitalize">
+                                    {user?.role || 'Member'}
+                                </p>
+                                <p className="text-[10px] text-gray-500">
+                                    {user?.full_name || user?.email?.split('@')[0] || 'User'}
+                                </p>
                             </div>
                             <div className="w-10 h-10 rounded-xl bg-safaricom-green flex items-center justify-center text-white shadow-md shadow-green-900/20">
-                                <FiUser size={20} />
+                                <FaUser size={20} />
                             </div>
                         </div>
                     </div>

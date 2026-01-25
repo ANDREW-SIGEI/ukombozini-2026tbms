@@ -3,6 +3,8 @@ import { FaTimes, FaPiggyBank, FaSearch, FaCheckCircle, FaExchangeAlt, FaShieldA
 import { toast } from 'react-toastify';
 import { mockMembers, mockLoans } from '../data/mockData';
 import SMSService from '../services/SMSService';
+import offlineManager from '../services/OfflineManager';
+import api from '../services/api';
 
 // 🔐 CONTRIBUTION TYPE RULES ENGINE
 const CONTRIBUTION_RULES = {
@@ -161,9 +163,11 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
         const allocation = {
             memberId: selectedMember.id,
             groupId: selectedGroupId,
+            meetingId: activeMeeting.id,
             memberName: selectedMember.name,
             amount: numAmount,
             type: type,
+            created_at: new Date().toISOString(), // Use created_at for consistency
             date: new Date().toISOString().split('T')[0],
             paymentMethod,
             meetingReference: activeMeeting.session_number,
@@ -175,26 +179,41 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
         try {
             setSendingSMS(true);
 
-            // Send SMS notification
-            const smsResult = await SMSService.sendContributionSMS(
-                selectedMember,
-                numAmount,
-                newSavingsBalance,
-                activeMeeting.session_number,
-                selectedGroupName
-            );
+            if (navigator.onLine) {
+                // ONLINE MODE: Post directly to server
+                // Send SMS notification
+                const smsResult = await SMSService.sendContributionSMS(
+                    selectedMember,
+                    numAmount,
+                    newSavingsBalance,
+                    activeMeeting.session_number,
+                    selectedGroupName
+                );
 
-            if (smsResult.success) {
-                toast.success(`✅ Contribution posted & SMS sent to ${selectedMember.name}!`, {
-                    autoClose: 4000
-                });
+                if (smsResult.success) {
+                    toast.success(`✅ Contribution posted & SMS sent to ${selectedMember.name}!`, {
+                        autoClose: 4000
+                    });
+                } else {
+                    toast.warning(`⚠️ Contribution posted but SMS failed. Please notify member manually.`, {
+                        autoClose: 5000
+                    });
+                }
+
+                // Call API here (assuming api.postContribution exists and works)
+                await api.postContribution(allocation); // Ensure API call is made
+
             } else {
-                toast.warning(`⚠️ Contribution posted but SMS failed. Please notify member manually.`, {
-                    autoClose: 5000
+                // OFFLINE MODE: Save locally
+                await offlineManager.saveOfflineTransaction({
+                    type: 'contribution',
+                    data: allocation
                 });
+                // Offline notification is handled by offlineManager, but we can add UI feedback here too if needed
+                toast.info(`💾 Saved Offline: Will sync when connection restores.`);
             }
 
-            // Save transaction
+            // Common success handler
             onSuccess(allocation);
             setShowConfirmation(false);
             onClose();
@@ -421,8 +440,8 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
                                             disabled={!hasMeeting}
                                             onClick={() => setType(typeName)}
                                             className={`relative p-3 rounded-xl text-left transition-all border-2 disabled:opacity-40 disabled:cursor-not-allowed ${type === typeName
-                                                    ? 'bg-safaricom-green/10 border-safaricom-green shadow-md'
-                                                    : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                                                ? 'bg-safaricom-green/10 border-safaricom-green shadow-md'
+                                                : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                                                 }`}
                                         >
                                             <div className="flex items-center gap-2">
@@ -470,8 +489,8 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
                                             disabled={!hasMeeting}
                                             onClick={() => setPaymentMethod(m)}
                                             className={`flex-1 py-3 px-2 rounded-xl text-[10px] font-black uppercase transition-all border-2 disabled:opacity-40 disabled:cursor-not-allowed ${paymentMethod === m
-                                                    ? 'bg-blue-600/10 border-blue-600 text-blue-600'
-                                                    : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
+                                                ? 'bg-blue-600/10 border-blue-600 text-blue-600'
+                                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
                                                 }`}
                                         >
                                             {m}

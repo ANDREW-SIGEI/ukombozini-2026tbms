@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTransactions } from '../context/TransactionContext';
-import { mockGroups, mockMembers } from '../data/mockData';
-import { validateCashReport, checkSystemAccessBlock } from '../utils/cashReportEnforcement';
+import { api } from '../services/api'; // Import API
+import { validateCashReport, checkSystemAccessBlock } from '../utils/cashReportEnforcement'; // Keep utils
 import { validateTransaction, requiresSupervisorApproval, getBalanceAlert, validateDisbursement } from '../utils/validationRules';
 import { toast } from 'react-toastify';
 import {
@@ -138,33 +138,42 @@ const DailyMeetingReport = () => {
 
     // Load members when group is selected
     useEffect(() => {
-        if (selectedGroup) {
-            const groupMembers = mockMembers.filter(m => m.groupId === selectedGroup.id);
-            const groupOpeningBalance = selectedGroup.openingBalance || 0;
+        const fetchMembers = async () => {
+            if (selectedGroup) {
+                try {
+                    const groupMembers = await api.getMembersByGroup(selectedGroup.id);
+                    const groupOpeningBalance = selectedGroup.openingBalance || 0;
 
-            // Initialize member transactions (one row per member)
-            const initialTransactions = groupMembers.map(member => ({
-                id: `temp-${member.id}`,
-                memberId: member.id,
-                memberName: member.name,
-                // MOCK BF VALUES (Read-Only)
-                ltl_bf: Math.floor(Math.random() * 50000) + 10000,
-                stl_bf: Math.floor(Math.random() * 20000) + 5000,
-                savings_bf: Math.floor(Math.random() * 100000) + 20000,
-                savings_amount: 0,
-                stl_repayment: 0,
-                ltl_repayment: 0,
-                loan_interest: 0,
-                loan_principal: 0,
-                welfare: 0,
-                project: 0,
-                fines: 0,
-            }));
+                    // Initialize member transactions (one row per member)
+                    const initialTransactions = groupMembers.map(member => ({
+                        id: `temp-${member.id}`,
+                        memberId: member.id,
+                        memberName: member.name,
+                        // MOCK BF VALUES (Read-Only) - In future, fetch from api.getMemberBalances
+                        ltl_bf: member.ltl_bf || 0,
+                        stl_bf: member.stl_bf || 0,
+                        savings_bf: member.savings_bf || 0,
+                        savings_amount: 0,
+                        stl_repayment: 0,
+                        ltl_repayment: 0,
+                        loan_interest: 0,
+                        loan_principal: 0,
+                        welfare: 0,
+                        project: 0,
+                        fines: 0,
+                    }));
 
-            setMemberTransactions(initialTransactions);
-            setOpeningBalance(groupOpeningBalance);
-            setClosingBalance(groupOpeningBalance);
-        }
+                    setMemberTransactions(initialTransactions);
+                    setOpeningBalance(groupOpeningBalance);
+                    setClosingBalance(groupOpeningBalance);
+                } catch (error) {
+                    console.error("Error fetching members:", error);
+                    toast.error("Failed to load group members");
+                }
+            }
+        };
+
+        fetchMembers();
     }, [selectedGroup]);
 
     // Calculate totals in real-time (SYSTEM-ONLY, prevents tampering)
@@ -300,7 +309,8 @@ const DailyMeetingReport = () => {
 
         // Validate each transaction
         memberTransactions.forEach(t => {
-            const member = mockMembers.find(m => m.id === t.memberId);
+            // Construct member object from transaction data (BF has the savings info needed for validation)
+            const member = { totalContributions: t.savings_bf };
             const sessionData = {
                 openingBalance,
                 closingBalance,

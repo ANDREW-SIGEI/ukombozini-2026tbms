@@ -9,56 +9,20 @@ import {
     FaTimesCircle,
     FaClock,
     FaFileAlt,
-    FaPlus
+    FaFilePdf,
+    FaPlus,
+    FaSearch
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { useTransactions } from '../context/TransactionContext';
 import MeetingLedger from '../components/MeetingLedger';
+import NotificationService from '../services/NotificationService';
 
-// Mock data - replace with API
-const mockMeetings = [
-    {
-        id: 1,
-        session_number: 'MTG-202501-GRP-001',
-        group_id: 1,
-        group_name: 'Ukombozi Group A',
-        meeting_date: '2025-01-19',
-        start_time: '2025-01-19T14:00:00',
-        end_time: null,
-        status: 'ACTIVE',
-        total_collected: 45000,
-        total_loans_disbursed: 50000,
-        members_present: 12,
-        members_absent: 3,
-        attendance_percentage: 80,
-        opened_by_name: 'John Kamau',
-        opened_at: '2025-01-19T14:00:00',
-        hours_open: 2.5
-    },
-    {
-        id: 2,
-        session_number: 'MTG-202501-GRP-002',
-        group_id: 1,
-        group_name: 'Ukombozi Group A',
-        meeting_date: '2025-01-12',
-        start_time: '2025-01-12T14:00:00',
-        end_time: '2025-01-12T16:30:00',
-        status: 'LOCKED',
-        total_collected: 38000,
-        total_loans_disbursed: 25000,
-        members_present: 14,
-        members_absent: 1,
-        attendance_percentage: 93.33,
-        opened_by_name: 'John Kamau',
-        closed_by_name: 'John Kamau',
-        opened_at: '2025-01-12T14:00:00',
-        closed_at: '2025-01-12T16:30:00',
-        meeting_duration_hours: 2.5
-    }
-];
+import { api } from '../services/api';
 
 const MeetingSessions = () => {
-    const [meetings, setMeetings] = useState(mockMeetings);
+    const [meetings, setMeetings] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('ALL');
     const [showOpenModal, setShowOpenModal] = useState(false);
     const [showCloseModal, setShowCloseModal] = useState(false);
@@ -73,13 +37,33 @@ const MeetingSessions = () => {
         venue: ''
     });
 
+    // Search state for new meeting modal
+    const [groupSearchQuery, setGroupSearchQuery] = useState('');
+
     const { groups } = useTransactions();
 
-    // Mock current user
+    // Mock current user (Replace with Auth context in future)
     const currentUser = {
         id: 1,
         name: 'John Kamau',
         role: 'Officer'
+    };
+
+    // Fetch meetings on mount
+    useEffect(() => {
+        loadMeetings();
+    }, []);
+
+    const loadMeetings = async () => {
+        setIsLoading(true);
+        try {
+            const data = await api.getMeetingSessions();
+            setMeetings(data);
+        } catch (error) {
+            toast.error("Failed to load meetings");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     // Filter meetings
@@ -136,6 +120,13 @@ const MeetingSessions = () => {
                 meeting_date: new Date().toISOString().split('T')[0],
                 venue: ''
             });
+
+            // Send SMS Notification
+            await NotificationService.sendSMS(
+                'ALL_MEMBERS',
+                `Meeting Started: ${newMeetingSession.group_name} at ${newMeetingSession.venue || 'Usual Venue'}. Attendance marked.`,
+                { meetingId: newMeetingSession.id }
+            );
 
             toast.success(`Meeting ${newMeetingSession.session_number} opened successfully!`);
         } catch (error) {
@@ -333,10 +324,17 @@ const MeetingSessions = () => {
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center gap-2">
                                                 <button
+                                                    onClick={() => api.downloadMeetingMinutes(meeting.id)}
+                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                    title="Download Minutes (PDF)"
+                                                >
+                                                    <FaFilePdf size={18} />
+                                                </button>
+                                                <button
                                                     className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     title="View Details"
                                                 >
-                                                    <FaFileAlt />
+                                                    <FaFileAlt size={18} />
                                                 </button>
                                                 {meeting.status === 'ACTIVE' && (
                                                     <>
@@ -422,16 +420,63 @@ const MeetingSessions = () => {
                                     <label className="block text-sm font-bold text-gray-700 mb-2">
                                         Group <span className="text-red-600">*</span>
                                     </label>
-                                    <select
-                                        value={newMeeting.group_id}
-                                        onChange={(e) => setNewMeeting({ ...newMeeting, group_id: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green"
-                                    >
-                                        <option value="">Select group...</option>
-                                        {groups.map(group => (
-                                            <option key={group.id} value={group.id}>{group.name}</option>
-                                        ))}
-                                    </select>
+                                    {/* SEARCHABLE GROUP SELECT */}
+                                    <div className="relative">
+                                        <div className="relative">
+                                            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search & Select Group..."
+                                                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green font-bold text-gray-700"
+                                                value={groupSearchQuery}
+                                                onChange={(e) => {
+                                                    setGroupSearchQuery(e.target.value);
+                                                    setNewMeeting(prev => ({ ...prev, group_id: '' })); // Reset selection on search
+                                                }}
+                                            />
+                                        </div>
+
+                                        {/* Filtered List */}
+                                        <div className="mt-2 max-h-48 overflow-y-auto border border-gray-100 rounded-lg shadow-inner bg-gray-50/50">
+                                            {groups
+                                                .filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase()))
+                                                .map(group => {
+                                                    const groupName = group.group_name || group.name || 'Unknown Group';
+                                                    const isActive = getActiveMeeting(group.id);
+                                                    return (
+                                                        <button
+                                                            key={group.id}
+                                                            onClick={() => {
+                                                                if (!isActive) {
+                                                                    setNewMeeting({ ...newMeeting, group_id: group.id.toString() });
+                                                                    setGroupSearchQuery(groupName); // Set input to name
+                                                                }
+                                                            }}
+                                                            disabled={!!isActive}
+                                                            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-white transition-colors border-b border-gray-100 last:border-0 ${String(newMeeting.group_id) === String(group.id) ? 'bg-green-50 text-safaricom-green ring-1 ring-safaricom-green' : 'text-gray-700'
+                                                                } ${isActive ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''}`}
+                                                        >
+                                                            <span className="font-bold flex items-center gap-2">
+                                                                {groupName}
+                                                                {String(newMeeting.group_id) === String(group.id) && <FaCheckCircle />}
+                                                            </span>
+                                                            {isActive ? (
+                                                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
+                                                                    ACTIVE
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[10px] text-gray-400">Select</span>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            {groups.filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase())).length === 0 && (
+                                                <div className="px-3 py-4 text-center text-xs text-gray-400">
+                                                    No groups found
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div>

@@ -6,17 +6,10 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
-import PDFReportService from '../services/PDFReportService';
-
-// Initialize PDF service
-const pdfService = new PDFReportService();
-
-// Mock user (Replace with actual auth)
-const CURRENT_USER = {
-    role: 'director' // Options: 'officer', 'admin', 'director'
-};
+import { useAuth } from '../context/AuthContext';
 
 const DividendManagement = () => {
+    const { user } = useAuth();
     const [runs, setRuns] = useState([]);
     const [selectedRun, setSelectedRun] = useState(null);
     const [allocations, setAllocations] = useState([]);
@@ -178,20 +171,12 @@ const DividendManagement = () => {
 
     const handleGeneratePDF = async (run) => {
         try {
-            toast.info('📄 Generating PDF report...');
-
-            // Fetch allocations if not already loaded
-            let pdfAllocations = allocations;
-            if (!selectedRun || selectedRun.id !== run.id) {
-                pdfAllocations = await api.getDividendAllocations(run.id);
-            }
-
-            // Generate PDF
-            const filename = pdfService.generateDividendReport(run, pdfAllocations);
-            toast.success(`✅ PDF generated: ${filename}`);
+            toast.info('📄 Generating Dividend PDF...');
+            await api.downloadDividendReport(run.id);
+            toast.success(`✅ PDF generated for run: ${run.run_number}`);
         } catch (error) {
             console.error(error);
-            toast.error('PDF generation failed');
+            toast.error('PDF generation failed on server');
         }
     };
 
@@ -967,7 +952,7 @@ const DividendManagement = () => {
                                             </div>
 
                                             <div className="pt-4 flex gap-3">
-                                                {selectedRun.status === 'CALCULATED' && CURRENT_USER.role === 'director' && (
+                                                {selectedRun.status === 'CALCULATED' && user?.role === 'director' && (
                                                     <button
                                                         onClick={() => handleApprove(selectedRun.id)}
                                                         className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 flex items-center justify-center gap-2 shadow-lg shadow-green-200"
@@ -975,7 +960,7 @@ const DividendManagement = () => {
                                                         <FaCheckCircle /> Approve Dividends
                                                     </button>
                                                 )}
-                                                {selectedRun.status === 'APPROVED' && CURRENT_USER.role === 'director' && (
+                                                {selectedRun.status === 'APPROVED' && user?.role === 'director' && (
                                                     <button
                                                         onClick={() => handlePost(selectedRun.id)}
                                                         className="w-full py-3 bg-safaricom-green text-white rounded-lg font-bold hover:bg-green-700 flex items-center justify-center gap-2 shadow-lg shadow-green-200"

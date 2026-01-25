@@ -4,12 +4,10 @@ import {
     FaUserPlus, FaSearch, FaHistory, FaUser, FaInfoCircle,
     FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
     FaChartLine, FaExclamationTriangle, FaCheckCircle,
-    FaEdit, FaHandHoldingUsd, FaCoins, FaUnlock, FaArrowUp
+    FaEdit, FaHandHoldingUsd, FaCoins, FaUnlock, FaArrowUp, FaLock
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { useTransactions } from '../context/TransactionContext';
 
 const Members = () => {
@@ -19,158 +17,6 @@ const Members = () => {
     const [editFormData, setEditFormData] = useState({ id: '', name: '', phone: '', groupId: '', status: 'active' });
     // ... existing ...
 
-    const generateLedgerPDF = (member) => {
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.width;
-
-        // Brand Colors
-        const safaricomGreen = '#00703C';
-        const darkGrey = '#333333';
-        const lightGrey = '#F3F4F6';
-
-        // 1. Watermark
-        doc.saveGraphicsState();
-        doc.setGState(new doc.GState({ opacity: 0.1 }));
-        doc.setFontSize(60);
-        doc.setTextColor(150, 150, 150);
-        doc.text("UKOMBOZI TBMS", pageWidth / 2, doc.internal.pageSize.height / 2, {
-            align: 'center',
-            angle: 45
-        });
-        doc.restoreGraphicsState();
-
-        // 2. Header
-        doc.setFillColor(safaricomGreen);
-        doc.rect(0, 0, pageWidth, 40, 'F');
-
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
-        doc.setFont('helvetica', 'bold');
-        doc.text("UKOMBOZI TABLE BANKING", 20, 18);
-
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.text("P.O. Box 12345, Nairobi, Kenya", 20, 26);
-        doc.text("Mobile: +254 700 000 000 | Email: info@ukombozi.co.ke", 20, 32);
-
-        doc.setFontSize(16);
-        doc.text("MEMBER FINANCIAL STATEMENT", pageWidth - 20, 25, { align: 'right' });
-
-        // 3. Member Details Section
-        const startY = 50;
-        doc.setTextColor(darkGrey);
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text("Member Profile", 20, startY);
-
-        doc.setDrawColor(200, 200, 200);
-        doc.line(20, startY + 2, pageWidth - 20, startY + 2);
-
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'normal');
-
-        // Left Column
-        doc.text(`Name:`, 20, startY + 12);
-        doc.setFont('helvetica', 'bold');
-        doc.text(member.name, 50, startY + 12);
-
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Phone:`, 20, startY + 20);
-        doc.setFont('helvetica', 'bold');
-        doc.text(member.phone, 50, startY + 20);
-
-        // Right Column
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Group:`, 120, startY + 12);
-        doc.setFont('helvetica', 'bold');
-        doc.text(member.groupName || 'Default Group', 150, startY + 12);
-
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Status:`, 120, startY + 20);
-        doc.setTextColor(member.status === 'active' ? safaricomGreen : '#DC2626');
-        doc.setFont('helvetica', 'bold');
-        doc.text((member.status || 'Active').toUpperCase(), 150, startY + 20);
-
-        // 4. Financial Summary Cards (Draw Rectangles)
-        const cardY = startY + 35;
-        const cardWidth = (pageWidth - 50) / 3;
-        const cardHeight = 25;
-
-        // Savings Card
-        doc.setFillColor(240, 253, 244); // Green tint
-        doc.setDrawColor(safaricomGreen);
-        doc.roundedRect(20, cardY, cardWidth, cardHeight, 3, 3, 'FD');
-        doc.setTextColor(safaricomGreen);
-        doc.setFontSize(9);
-        doc.text("Total Savings", 30, cardY + 8);
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`KES ${(member.savings || 0).toLocaleString()}`, 30, cardY + 18);
-
-        // Loans Card
-        doc.setFillColor(255, 247, 237); // Orange tint
-        doc.setDrawColor(234, 88, 12);
-        doc.roundedRect(20 + cardWidth + 5, cardY, cardWidth, cardHeight, 3, 3, 'FD');
-        doc.setTextColor(234, 88, 12);
-        doc.setFontSize(9);
-        doc.text("Active Loans", 30 + cardWidth + 5, cardY + 8);
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`KES ${(member.activeLoans || 0).toLocaleString()}`, 30 + cardWidth + 5, cardY + 18);
-
-        // Net Position Card
-        const netPos = (member.savings || 0) - (member.activeLoans || 0);
-        doc.setFillColor(netPos >= 0 ? 240 : 254, netPos >= 0 ? 253 : 242, netPos >= 0 ? 244 : 242);
-        doc.setDrawColor(netPos >= 0 ? safaricomGreen : '#DC2626');
-        doc.roundedRect(20 + (cardWidth * 2) + 10, cardY, cardWidth, cardHeight, 3, 3, 'FD');
-        doc.setTextColor(netPos >= 0 ? safaricomGreen : '#DC2626');
-        doc.setFontSize(9);
-        doc.text("Net Position", 30 + (cardWidth * 2) + 10, cardY + 8);
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`KES ${netPos.toLocaleString()}`, 30 + (cardWidth * 2) + 10, cardY + 18);
-
-        // 5. Transaction Table
-        doc.setTextColor(darkGrey);
-        doc.setFontSize(12);
-        doc.text("Transaction History", 20, cardY + cardHeight + 15);
-
-        const tableColumn = ["Date", "Description", "Ref", "Credit", "Debit", "Balance"];
-        // Mock Data - Replace with actual ledger data if available
-        const tableRows = [
-            ["22 Jan 2026", "Savings Deposit", "RCPT-001", "500", "-", (member.savings).toLocaleString()],
-            ["15 Jan 2026", "Weekly Contribution", "RCPT-002", "200", "-", (member.savings - 500).toLocaleString()],
-            ["01 Jan 2026", "Opening Balance", "-", (member.savings - 700).toLocaleString(), "-", (member.savings - 700).toLocaleString()]
-        ];
-
-        autoTable(doc, {
-            startY: cardY + cardHeight + 20,
-            head: [tableColumn],
-            body: tableRows,
-            theme: 'grid',
-            headStyles: { fillColor: safaricomGreen, textColor: 255, fontStyle: 'bold' },
-            bodyStyles: { textColor: 50 },
-            alternateRowStyles: { fillColor: [249, 250, 251] },
-            columnStyles: {
-                3: { webkitBoxAlign: 'right', halign: 'right', textColor: [22, 163, 74], fontStyle: 'bold' }, // Credit Green
-                4: { halign: 'right', textColor: [220, 38, 38] }, // Debit Red
-                5: { halign: 'right', fontStyle: 'bold' }
-            }
-        });
-
-        // 6. Footer
-        const pageCount = doc.internal.getNumberOfPages();
-        for (let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            doc.setFontSize(8);
-            doc.setTextColor(150);
-            doc.text(`Page ${i} of ${pageCount}`, pageWidth - 20, doc.internal.pageSize.height - 10, { align: 'right' });
-            doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, doc.internal.pageSize.height - 10);
-            doc.text("System Generated Report - Validity Verified by Ukombozi TBMS", pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
-        }
-
-        doc.save(`${member.name.replace(' ', '_')}_Ledger_Statement.pdf`);
-    };
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedGroup, setSelectedGroup] = useState('');
@@ -194,7 +40,13 @@ const Members = () => {
         name: '',
         phone: '',
         groupId: '',
-        opening_balance_savings: 0
+        opening_balance_savings: 0,
+        opening_balance_reason: '', // Audit reason
+        opening_balance_ltl: 0,    // Existing Long Term Loan
+        opening_balance_stl: 0,    // Existing Short Term Loan
+        nextOfKinName: '',
+        nextOfKinPhone: '',
+        nextOfKinRelationship: ''
     });
     const [phoneError, setPhoneError] = useState('');
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -315,13 +167,22 @@ const Members = () => {
                 full_name: newMember.name,
                 phone: newMember.phone,
                 group_id: parseInt(newMember.groupId),
-                opening_balance_savings: parseFloat(newMember.opening_balance_savings || 0)
+                opening_balance_savings: parseFloat(newMember.opening_balance_savings || 0),
+                opening_balance_reason: newMember.opening_balance_reason,
+                opening_balance_ltl: parseFloat(newMember.opening_balance_ltl || 0),
+                opening_balance_stl: parseFloat(newMember.opening_balance_stl || 0),
+                next_of_kin_name: newMember.nextOfKinName,
+                next_of_kin_phone: newMember.nextOfKinPhone,
+                next_of_kin_relationship: newMember.nextOfKinRelationship
             };
 
             await api.createMember(payload);
             toast.success(`✅ ${newMember.name} added successfully!`);
             setShowAddModal(false);
-            setNewMember({ name: '', phone: '', groupId: '', opening_balance_savings: 0 });
+            setNewMember({
+                name: '', phone: '', groupId: '', opening_balance_savings: 0,
+                nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: ''
+            });
             fetchData(); // Refresh list
         } catch (error) {
             console.error(error);
@@ -788,17 +649,64 @@ const Members = () => {
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Opening Savings Balance</label>
-                                <input
-                                    type="number"
-                                    value={newMember.opening_balance_savings}
-                                    onChange={(e) => setNewMember({ ...newMember, opening_balance_savings: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                    placeholder="0"
-                                    min="0"
-                                />
-                                <p className="text-xs text-gray-400 mt-1">Leave as 0 for new members</p>
+                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 space-y-4">
+                                <div className="flex items-center gap-2 text-yellow-800">
+                                    <FaLock className="text-sm" />
+                                    <h4 className="text-xs font-black uppercase tracking-wide">Opening Balance Protocol</h4>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Savings Balance (BF)</label>
+                                        <input
+                                            type="number"
+                                            value={newMember.opening_balance_savings}
+                                            onChange={(e) => setNewMember({ ...newMember, opening_balance_savings: e.target.value })}
+                                            className="w-full px-4 py-3 bg-white border-2 border-yellow-100 rounded-xl focus:outline-none focus:border-yellow-400 font-bold text-gray-800"
+                                            placeholder="0"
+                                            min="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Audit Reason *</label>
+                                        <input
+                                            type="text"
+                                            value={newMember.opening_balance_reason}
+                                            onChange={(e) => setNewMember({ ...newMember, opening_balance_reason: e.target.value })}
+                                            className="w-full px-4 py-3 bg-white border-2 border-yellow-100 rounded-xl focus:outline-none focus:border-yellow-400 font-bold text-sm"
+                                            placeholder="e.g. Migrated from Paper Records"
+                                            required={parseFloat(newMember.opening_balance_savings) > 0 || parseFloat(newMember.opening_balance_ltl) > 0}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Existing Loans Migration */}
+                                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-yellow-100">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Existing LTL (Long Term)</label>
+                                        <input
+                                            type="number"
+                                            value={newMember.opening_balance_ltl}
+                                            onChange={(e) => setNewMember({ ...newMember, opening_balance_ltl: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white border border-yellow-100 rounded-lg text-sm font-bold text-red-600"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Existing STL (Short Term)</label>
+                                        <input
+                                            type="number"
+                                            value={newMember.opening_balance_stl}
+                                            onChange={(e) => setNewMember({ ...newMember, opening_balance_stl: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white border border-yellow-100 rounded-lg text-sm font-bold text-red-600"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                </div>
+
+                                <p className="text-[10px] text-yellow-700 font-bold italic">
+                                    ⚠️ Warning: These values set the initial ledger state and cannot be changed later without Admin approval.
+                                </p>
                             </div>
                             <div className="flex gap-3 pt-4">
                                 <button
@@ -1265,7 +1173,7 @@ const Members = () => {
                                                     <FaMoneyBillWave />
                                                 </button>
                                                 <button
-                                                    onClick={() => generateLedgerPDF(selectedMember)}
+                                                    onClick={() => api.downloadMemberStatement(selectedMember.id)}
                                                     className="w-full py-3 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-sm flex items-center justify-between transition-colors"
                                                 >
                                                     <span>Download Statement (PDF)</span>

@@ -5,7 +5,7 @@ import {
     FaMoneyBillWave, FaCoins, FaHistory, FaHandHoldingUsd, FaUnlock
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import api from '../services/api';
+import { api } from '../services/api';
 
 const MeetingLedger = ({ sessionId, onClose }) => {
     const [summary, setSummary] = useState(null);
@@ -19,8 +19,8 @@ const MeetingLedger = ({ sessionId, onClose }) => {
     const fetchSummary = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`http://localhost:5000/api/sessions/${sessionId}/summary`);
-            const data = await res.json();
+            // Updated to use Supabase API
+            const data = await api.getMeetingSummary(sessionId);
             setSummary(data);
         } catch (error) {
             console.error(error);
@@ -54,6 +54,9 @@ const MeetingLedger = ({ sessionId, onClose }) => {
     };
 
     if (loading) return <div className="p-8 text-center font-bold text-gray-500 animate-pulse">Calculating Ledger Balances...</div>;
+
+    // Guard against null summary if fetch failed
+    if (!summary) return <div className="p-8 text-center font-bold text-red-500">Failed to load ledger.</div>;
 
     const { breakdown, total_inflow, total_outflow, net_cash } = summary;
 

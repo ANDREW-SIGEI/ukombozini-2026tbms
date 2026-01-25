@@ -110,7 +110,7 @@ class OfflineManager {
         const offlineTransaction = {
             ...transaction,
             timestamp: new Date().toISOString(),
-            synced: false,
+            synced: 0, // 0 = false
             attempts: 0,
             createdOffline: true
         };
@@ -135,7 +135,7 @@ class OfflineManager {
         const index = store.index('synced');
 
         return new Promise((resolve, reject) => {
-            const request = index.getAll(false); // Get all unsynced
+            const request = index.getAll(0); // Get all unsynced (0)
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
         });
@@ -211,7 +211,7 @@ class OfflineManager {
             const request = store.get(localId);
             request.onsuccess = () => {
                 const data = request.result;
-                data.synced = true;
+                data.synced = 1; // 1 = true
                 data.syncedAt = new Date().toISOString();
                 data.serverId = serverId;
 
@@ -334,7 +334,7 @@ class OfflineManager {
         const index = store.index('synced');
 
         return new Promise((resolve, reject) => {
-            const request = index.openCursor(true); // true = synced
+            const request = index.openCursor(1); // 1 = synced
             request.onsuccess = (event) => {
                 const cursor = event.target.result;
                 if (cursor) {

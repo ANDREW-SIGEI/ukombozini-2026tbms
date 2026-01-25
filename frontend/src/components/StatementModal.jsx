@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FaTimes, FaFileDownload, FaCalendarAlt } from 'react-icons/fa';
-import { generateMemberStatementPDF } from '../utils/pdfGenerator';
 import { toast } from 'react-toastify';
+import api from '../services/api';
 
 const StatementModal = ({ isOpen, onClose, member, transactions }) => {
     const [periodType, setPeriodType] = useState('all');
@@ -10,38 +10,28 @@ const StatementModal = ({ isOpen, onClose, member, transactions }) => {
 
     if (!isOpen) return null;
 
-    const handleGenerate = () => {
+    const handleGenerate = async () => {
         try {
-            let filteredTransactions = [...transactions];
-            let period = 'All Time';
-            const today = new Date();
+            let startDate = null;
+            let endDate = null;
 
             switch (periodType) {
                 case '3months':
                     const threeMonthsAgo = new Date();
                     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-                    filteredTransactions = transactions.filter(txn =>
-                        new Date(txn.date) >= threeMonthsAgo
-                    );
-                    period = 'Last 3 Months';
+                    startDate = threeMonthsAgo.toISOString().split('T')[0];
                     break;
 
                 case '6months':
                     const sixMonthsAgo = new Date();
                     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-                    filteredTransactions = transactions.filter(txn =>
-                        new Date(txn.date) >= sixMonthsAgo
-                    );
-                    period = 'Last 6 Months';
+                    startDate = sixMonthsAgo.toISOString().split('T')[0];
                     break;
 
                 case '12months':
                     const twelveMonthsAgo = new Date();
                     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-                    filteredTransactions = transactions.filter(txn =>
-                        new Date(txn.date) >= twelveMonthsAgo
-                    );
-                    period = 'Last 12 Months';
+                    startDate = twelveMonthsAgo.toISOString().split('T')[0];
                     break;
 
                 case 'custom':
@@ -49,46 +39,22 @@ const StatementModal = ({ isOpen, onClose, member, transactions }) => {
                         toast.error('Please select both start and end dates');
                         return;
                     }
-                    filteredTransactions = transactions.filter(txn => {
-                        const txnDate = new Date(txn.date);
-                        return txnDate >= new Date(customStartDate) &&
-                            txnDate <= new Date(customEndDate);
-                    });
-                    period = `${new Date(customStartDate).toLocaleDateString()} - ${new Date(customEndDate).toLocaleDateString()}`;
+                    startDate = customStartDate;
+                    endDate = customEndDate;
                     break;
 
                 case 'all':
                 default:
-                    period = 'All Time';
                     break;
             }
 
-            if (filteredTransactions.length === 0) {
-                toast.warning('No transactions found for the selected period');
-                return;
-            }
-
-            // Sort transactions by date (oldest first for proper balance calculation)
-            const sorted = filteredTransactions.sort((a, b) =>
-                new Date(a.date) - new Date(b.date)
-            );
-
-            // Recalculate running balances for filtered transactions
-            let runningBalance = 0;
-            const transactionsWithBalance = sorted.map(txn => {
-                runningBalance += (txn.credit - txn.debit);
-                return {
-                    ...txn,
-                    balance: runningBalance
-                };
-            });
-
-            const filename = generateMemberStatementPDF(member, transactionsWithBalance, period);
-            toast.success(`Statement generated: ${filename}`);
+            toast.info('📄 Generating Statement PDF...');
+            await api.downloadMemberStatement(member.id, startDate, endDate);
+            toast.success(`Statement generated successfully`);
             onClose();
         } catch (error) {
             console.error('Statement generation error:', error);
-            toast.error('Failed to generate statement');
+            toast.error('Failed to generate statement from server');
         }
     };
 

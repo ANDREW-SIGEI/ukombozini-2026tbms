@@ -11,6 +11,8 @@ import {
     FaChartLine
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import NotificationService from '../services/NotificationService';
+import { useAuth } from '../context/AuthContext';
 
 // Mock data - replace with API
 const mockReconciliations = [
@@ -79,12 +81,7 @@ const CashReconciliation = () => {
         ]
     });
 
-    // Mock current user
-    const currentUser = {
-        id: 1,
-        name: 'John Kamau',
-        role: 'Officer'
-    };
+    const { user } = useAuth();
 
     // Calculate variance
     const calculateVariance = () => {
@@ -125,7 +122,7 @@ const CashReconciliation = () => {
                 id: reconciliations.length + 1,
                 reconciliation_number: `REC-${newRec.reconciliation_date.replace(/-/g, '')}-${String(reconciliations.length + 1).padStart(3, '0')}`,
                 reconciliation_date: newRec.reconciliation_date,
-                officer_name: currentUser.name,
+                officer_name: user?.name || 'Unknown Officer',
                 expected_cash: expectedCash.total,
                 declared_physical_cash: physical,
                 declared_mobile_money: mobile,
@@ -146,9 +143,25 @@ const CashReconciliation = () => {
                 declared_physical_cash: '',
                 declared_mobile_money: '',
                 banked_amount: '',
-                officer_notes: '',
                 variance_explanation: ''
             });
+
+            // 📧 NOTIFICATION TRIGGERS
+            // 1. Send Daily Report to Directors
+            await NotificationService.sendEmail(
+                'directors@ukombozi.co.ke', // Mock recipient
+                `Daily Reconciliation Report - ${newReconciliation.reconciliation_date}`,
+                `Reconciliation #${newReconciliation.reconciliation_number} submitted by ${newReconciliation.officer_name}. Status: ${newReconciliation.status}. Total Declared: KES ${newReconciliation.total_declared}.`
+            );
+
+            // 2. Alert Admin if Variance Exists
+            if (variance !== 0) {
+                await NotificationService.sendEmail(
+                    'admin@ukombozi.co.ke', // Mock admin
+                    `⚠️ VARIANCE FLAGGED - ${newReconciliation.reconciliation_number}`,
+                    `URGENT: A variance of KES ${variance} (${varianceType}) has been detected.\n\nOfficer: ${newReconciliation.officer_name}\nExplanation: ${newReconciliation.variance_explanation}`
+                );
+            }
 
             if (variance === 0) {
                 toast.success('✅ Reconciliation submitted - Balanced!');
@@ -418,8 +431,8 @@ const CashReconciliation = () => {
 
                                 {/* Variance Display */}
                                 <div className={`p-4 rounded-lg border-l-4 ${variance === 0 ? 'bg-green-50 border-green-500' :
-                                        variance > 0 ? 'bg-blue-50 border-blue-500' :
-                                            'bg-red-50 border-red-500'
+                                    variance > 0 ? 'bg-blue-50 border-blue-500' :
+                                        'bg-red-50 border-red-500'
                                     }`}>
                                     <div className="flex items-center justify-between">
                                         <p className="text-sm font-bold">
@@ -428,8 +441,8 @@ const CashReconciliation = () => {
                                                     '❌ SHORTAGE'}
                                         </p>
                                         <p className={`text-2xl font-black ${variance === 0 ? 'text-green-600' :
-                                                variance > 0 ? 'text-blue-600' :
-                                                    'text-red-600'
+                                            variance > 0 ? 'text-blue-600' :
+                                                'text-red-600'
                                             }`}>
                                             {variance === 0 ? 'KES 0' :
                                                 variance > 0 ? `+KES ${variance.toLocaleString()}` :

@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { mockMembers } from '../data/mockData';
+import api from '../services/api'; // Import API
 import {
     FaArrowLeft,
     FaFileDownload,
@@ -12,83 +12,9 @@ import {
     FaMoneyBillWave
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import { generateMemberStatementPDF } from '../utils/pdfGenerator';
 
 // Mock transaction data - will be replaced with real data from API
-const mockTransactions = [
-    {
-        id: 1,
-        date: '2025-01-19',
-        type: 'Savings',
-        reference: 'Meeting #15',
-        debit: 0,
-        credit: 2000,
-        notes: 'January savings contribution'
-    },
-    {
-        id: 2,
-        date: '2025-01-19',
-        type: 'Loan Repayment',
-        reference: 'Loan #LN-045',
-        debit: 2500,
-        credit: 0,
-        notes: 'Installment 12/25'
-    },
-    {
-        id: 3,
-        date: '2025-01-05',
-        type: 'Savings',
-        reference: 'Meeting #14',
-        debit: 0,
-        credit: 2000,
-        notes: 'Weekly savings'
-    },
-    {
-        id: 4,
-        date: '2024-12-15',
-        type: 'Loan Repayment',
-        reference: 'Loan #LN-045',
-        debit: 2500,
-        credit: 0,
-        notes: 'Installment 11/25'
-    },
-    {
-        id: 5,
-        date: '2024-12-01',
-        type: 'Fine',
-        reference: 'Meeting #13',
-        debit: 500,
-        credit: 0,
-        notes: 'Late attendance fine'
-    },
-    {
-        id: 6,
-        date: '2024-08-10',
-        type: 'Loan Disbursement',
-        reference: 'Loan #LN-045',
-        debit: 0,
-        credit: 50000,
-        notes: 'Approved long-term loan'
-    },
-    {
-        id: 7,
-        date: '2024-07-01',
-        type: 'Shares',
-        reference: 'Registration',
-        debit: 0,
-        credit: 5000,
-        notes: 'Initial member shares'
-    },
-    {
-        id: 8,
-        date: '2024-07-01',
-        type: 'Savings',
-        reference: 'Registration',
-        debit: 0,
-        credit: 10000,
-        notes: 'Opening balance'
-    }
-];
+// Real data is now fetched from API
 
 const MemberLedger = () => {
     const { id } = useParams();
@@ -99,31 +25,97 @@ const MemberLedger = () => {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
-    // Find member
-    const member = mockMembers.find(m => m.id === parseInt(id));
+    // Data states
+    const [member, setMember] = useState(null);
+    const [transactions, setTransactions] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Fetch Data
+    useEffect(() => {
+        const loadData = async () => {
+            setIsLoading(true);
+            try {
+                // 1. Fetch Member Details
+                const memberData = await api.getMember(id);
+                if (!memberData) {
+                    toast.error("Member not found");
+                    navigate('/members');
+                    return;
+                }
+                setMember(memberData);
+
+                // 2. Fetch Transactions
+                const txData = await api.getTransactions(id);
+                setTransactions(txData);
+
+            } catch (error) {
+                console.error("Ledger load error:", error);
+                toast.error("Failed to load ledger data");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        if (id) loadData();
+    }, [id, navigate]);
 
     // Calculate running balances
     const transactionsWithBalance = useMemo(() => {
-        const sorted = [...mockTransactions].sort((a, b) =>
-            new Date(a.date) - new Date(b.date)
+        // Sort by date ascending to calculate running balance
+        const sorted = [...transactions].sort((a, b) =>
+            new Date(a.created_at) - new Date(b.created_at)
         );
 
         let runningBalance = 0;
         return sorted.map(txn => {
-            if (txn.type === 'Loan Disbursement' || txn.type === 'Loan Repayment') {
-                // For loans: disbursement increases loan balance, repayment decreases it
-                runningBalance += (txn.credit - txn.debit);
+            // Determine Credit/Debit based on type and amount sign
+            // In DB: Positive is Credit (Deposit), Negative is Debit (Withdrawal) usually
+            // But 'transactions' table might store signed amounts.
+            // Let's assume:
+            // Savings Deposit: +Amount
+            // Withdrawal: -Amount
+            // Loan Disb: -Amount (Money out)
+            // Loan Repay: +Amount (Money in)
+
+            // Visualization logic:
+            const amount = Number(txn.amount);
+            let debit = 0;
+            let credit = 0;
+
+            if (amount > 0) {
+                credit = amount;
             } else {
-                // For savings/shares: credits increase, debits decrease
-                runningBalance += (txn.credit - txn.debit);
+                debit = Math.abs(amount);
             }
+
+            // Running Balance logic depends on what we are tracking.
+            // If tracking User's Savings Balance:
+            // Deposit (+): Increases Balance
+            // Withdrawal (-): Decreases Balance
+            // Loan Disb (-): NO EFFECT on Savings (usually, unless tracking Net Position)
+            // Loan Repay (+): NO EFFECT on Savings (goes to loan acc)
+
+            // However, this ledger seems to be a General Ledger.
+            // Let's stick to the visual:
+            // If type is 'savings' or 'shares' -> Affects Savings Balance.
+
+            // Simpler approach for now: cumulative sum of signed amount?
+            // api.getTransactions returns 'amount'.
+
+            runningBalance += amount;
 
             return {
                 ...txn,
-                balance: runningBalance
+                date: txn.created_at,
+                type: txn.type.charAt(0).toUpperCase() + txn.type.slice(1).replace('_', ' '), // Format type
+                reference: txn.reference || `TRX - ${txn.id} `,
+                debit,
+                credit,
+                balance: runningBalance,
+                notes: txn.notes
             };
         });
-    }, []);
+    }, [transactions]);
 
     // Filter transactions
     const filteredTransactions = useMemo(() => {
@@ -142,43 +134,25 @@ const MemberLedger = () => {
             filtered = filtered.filter(txn => new Date(txn.date) <= new Date(endDate));
         }
 
-        return filtered.reverse(); // Most recent first
+        return filtered.reverse(); // Most recent first for display
     }, [transactionsWithBalance, filterType, startDate, endDate]);
 
-    // Early return after all hooks
-    if (!member) {
-        return (
-            <div className="text-center py-20">
-                <p className="text-gray-500">Member not found</p>
-                <Link to="/members" className="text-safaricom-green hover:underline mt-4 inline-block">
-                    ← Back to Members
-                </Link>
-            </div>
-        );
+    // Loading State
+    if (isLoading) {
+        return <div className="p-10 text-center text-gray-500">Loading Ledger...</div>;
     }
 
-    const handleExportPDF = () => {
+    // Early return if no member
+    if (!member) return null;
+
+    const handleExportPDF = async () => {
         try {
-            // Determine period based on filters
-            let period = 'All Time';
-            if (startDate && endDate) {
-                period = `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`;
-            } else if (startDate) {
-                period = `From ${new Date(startDate).toLocaleDateString()}`;
-            } else if (endDate) {
-                period = `Up to ${new Date(endDate).toLocaleDateString()}`;
-            }
-
-            // Add filter type to period if specific type is selected
-            if (filterType !== 'All') {
-                period += ` (${filterType} only)`;
-            }
-
-            const filename = generateMemberStatementPDF(member, filteredTransactions, period);
-            toast.success(`Statement downloaded: ${filename}`);
+            toast.info('📄 Generating Statement PDF...');
+            await api.downloadMemberStatement(id, startDate, endDate);
+            toast.success(`Statement downloaded successfully`);
         } catch (error) {
             console.error('PDF generation error:', error);
-            toast.error('Failed to generate PDF statement');
+            toast.error('Failed to generate PDF statement from server');
         }
     };
 
@@ -380,7 +354,7 @@ const MemberLedger = () => {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${getTypeColor(txn.type)}`}>
+                                            <span className={`px - 3 py - 1 rounded - full text - [10px] font - bold uppercase border ${getTypeColor(txn.type)} `}>
                                                 {txn.type}
                                             </span>
                                         </td>

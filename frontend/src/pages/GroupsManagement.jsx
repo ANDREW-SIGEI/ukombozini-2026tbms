@@ -15,7 +15,17 @@ const GroupsManagement = () => {
         group_name: '',
         meeting_day: 'Monday',
         meeting_frequency: 'WEEKLY',
-        location: ''
+        location: '',
+        chairperson: '',
+        chairperson_phone: '',
+        secretary: '',
+        secretary_phone: '',
+        treasurer: '',
+        treasurer_phone: '',
+        minMonthlySaving: 500,
+        loanMultiplier: 3,
+        dividendPolicy: 0.75,
+        financial_year: new Date().getFullYear()
     });
 
     useEffect(() => {
@@ -47,13 +57,7 @@ const GroupsManagement = () => {
 
         try {
             await api.createGroup({
-                group_name: newGroup.group_name,
-                meeting_day: newGroup.meeting_day,
-                meeting_frequency: newGroup.meeting_frequency,
-                location: newGroup.location || null,
-                chairperson: newGroup.chairperson,
-                secretary: newGroup.secretary,
-                treasurer: newGroup.treasurer,
+                ...newGroup,
                 registration_date: new Date().toISOString().split('T')[0]
             });
 
@@ -65,13 +69,20 @@ const GroupsManagement = () => {
                 meeting_frequency: 'WEEKLY',
                 location: '',
                 chairperson: '',
+                chairperson_phone: '',
                 secretary: '',
-                treasurer: ''
+                secretary_phone: '',
+                treasurer: '',
+                treasurer_phone: '',
+                minMonthlySaving: 500,
+                loanMultiplier: 3,
+                dividendPolicy: 0.75,
+                financial_year: new Date().getFullYear()
             });
             fetchGroups();
         } catch (error) {
             console.error(error);
-            toast.error("Failed to create group");
+            toast.error(error.message || "Failed to create group");
         }
     };
 
@@ -169,8 +180,23 @@ const GroupsManagement = () => {
                                     <span className="text-gray-700">{group.meeting_frequency}</span>
                                 </div>
 
+                                <div className="pt-2 mt-2 border-t border-gray-50 space-y-1">
+                                    <div className="text-xs flex justify-between">
+                                        <span className="text-gray-400 uppercase font-black">Chair:</span>
+                                        <span className="text-gray-700 font-bold">{group.chairperson_name || group.chairperson || 'N/A'}</span>
+                                    </div>
+                                    <div className="text-xs flex justify-between">
+                                        <span className="text-gray-400 uppercase font-black">Sec:</span>
+                                        <span className="text-gray-700 font-bold">{group.secretary_name || group.secretary || 'N/A'}</span>
+                                    </div>
+                                    <div className="text-xs flex justify-between">
+                                        <span className="text-gray-400 uppercase font-black">Treas:</span>
+                                        <span className="text-gray-700 font-bold">{group.treasurer_name || group.treasurer || 'N/A'}</span>
+                                    </div>
+                                </div>
+
                                 {group.location && (
-                                    <div className="flex items-center gap-2 text-sm">
+                                    <div className="flex items-center gap-2 text-sm border-t border-gray-50 pt-2">
                                         <FaMapMarkerAlt className="text-gray-400" />
                                         <span className="font-bold text-gray-600">Location:</span>
                                         <span className="text-gray-700">{group.location}</span>
@@ -276,35 +302,123 @@ const GroupsManagement = () => {
                                 <h4 className="text-sm font-black text-gray-800 mb-3 flex items-center gap-2">
                                     <FaUsers className="text-safaricom-green" /> Group Officials (Governance)
                                 </h4>
-                                <div className="grid grid-cols-1 gap-3">
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Chairperson Name *</label>
+                                            <input
+                                                type="text"
+                                                value={newGroup.chairperson || ''}
+                                                onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
+                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                                placeholder="Full Name"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Chair Phone *</label>
+                                            <input
+                                                type="tel"
+                                                value={newGroup.chairperson_phone || ''}
+                                                onChange={(e) => setNewGroup({ ...newGroup, chairperson_phone: e.target.value })}
+                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                                placeholder="07..."
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Secretary Name *</label>
+                                            <input
+                                                type="text"
+                                                value={newGroup.secretary || ''}
+                                                onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
+                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                                placeholder="Full Name"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Sec Phone *</label>
+                                            <input
+                                                type="tel"
+                                                value={newGroup.secretary_phone || ''}
+                                                onChange={(e) => setNewGroup({ ...newGroup, secretary_phone: e.target.value })}
+                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                                placeholder="07..."
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Treasurer Name *</label>
+                                            <input
+                                                type="text"
+                                                value={newGroup.treasurer || ''}
+                                                onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
+                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                                placeholder="Full Name"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Treas Phone *</label>
+                                            <input
+                                                type="tel"
+                                                value={newGroup.treasurer_phone || ''}
+                                                onChange={(e) => setNewGroup({ ...newGroup, treasurer_phone: e.target.value })}
+                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                                placeholder="07..."
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Institutional Policies */}
+                            <div className="pt-4 border-t border-gray-100">
+                                <h4 className="text-sm font-black text-gray-800 mb-3 flex items-center gap-2">
+                                    <FaCheckCircle className="text-safaricom-green" /> Financial Policies
+                                </h4>
+                                <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Chairperson Name</label>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Min Monthly Saving</label>
                                         <input
-                                            type="text"
-                                            value={newGroup.chairperson || ''}
-                                            onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm"
-                                            placeholder="Enter full name"
+                                            type="number"
+                                            value={newGroup.minMonthlySaving}
+                                            onChange={(e) => setNewGroup({ ...newGroup, minMonthlySaving: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Secretary Name</label>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Loan Multiplier</label>
                                         <input
-                                            type="text"
-                                            value={newGroup.secretary || ''}
-                                            onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm"
-                                            placeholder="Enter full name"
+                                            type="number"
+                                            value={newGroup.loanMultiplier}
+                                            onChange={(e) => setNewGroup({ ...newGroup, loanMultiplier: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Treasurer Name</label>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Div Policy (75% = 0.75)</label>
                                         <input
-                                            type="text"
-                                            value={newGroup.treasurer || ''}
-                                            onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm"
-                                            placeholder="Enter full name"
+                                            type="number"
+                                            step="0.01"
+                                            value={newGroup.dividendPolicy}
+                                            onChange={(e) => setNewGroup({ ...newGroup, dividendPolicy: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Financial Year</label>
+                                        <input
+                                            type="number"
+                                            value={newGroup.financial_year}
+                                            onChange={(e) => setNewGroup({ ...newGroup, financial_year: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
                                         />
                                     </div>
                                 </div>

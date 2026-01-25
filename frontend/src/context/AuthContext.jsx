@@ -1,29 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-
-// Mock current user - In production, get from API/auth service
-const mockCurrentUser = {
-    id: 1,
-    name: 'Hilda Sigei',
-    email: 'hilda@ukombozi.com',
-    role: 'Director',
-    roleId: 1,
-    permissions: [
-        'create_user',
-        'edit_user',
-        'delete_user',
-        'approve_loan',
-        'reverse_transaction',
-        'edit_system_rules',
-        'submit_cash_report',
-        'approve_cash_report',
-        'unlock_cash_report',
-        'view_audit_logs',
-        'export_data',
-        'backup_restore',
-        'post_contribution',
-        'issue_loan',
-    ],
-};
+import { api } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -35,50 +11,81 @@ export const useAuth = () => {
     return context;
 };
 
-export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(mockCurrentUser);
-    const [loading, setLoading] = useState(false);
+const PERMISSIONS = {
+    admin: ['all'],
+    director: ['all'],
+    supervisor: ['view', 'approve'],
+    field_officer: ['view', 'create']
+};
 
-    // In production, fetch user from API
+export const AuthProvider = ({ children }) => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+
     useEffect(() => {
-        // Simulate API call
-        // fetchUser().then(setUser).finally(() => setLoading(false));
+        const checkAuth = async () => {
+            const token = localStorage.getItem('ukombozi_token');
+            if (token) {
+                const userData = await api.getMe();
+                if (userData) {
+                    setUser({
+                        ...userData,
+                        permissions: PERMISSIONS[userData.role] || []
+                    });
+                } else {
+                    localStorage.removeItem('ukombozi_token');
+                }
+            }
+            setLoading(false);
+        };
+        checkAuth();
     }, []);
 
     const hasPermission = (permissionKey) => {
         if (!user) return false;
+        if (user.permissions?.includes('all')) return true;
         return user.permissions?.includes(permissionKey) || false;
     };
 
     const hasRole = (roleName) => {
-        if (!user) return false;
-        return user.role === roleName;
+        if (!user || !user.role) return false;
+        return user.role === roleName.toLowerCase();
     };
 
-    const canEdit = () => {
-        return hasRole('Director') || hasRole('Admin');
+    const canEdit = () => hasRole('director') || hasRole('admin');
+    const isDirector = () => hasRole('director');
+    const isAdmin = () => hasRole('admin');
+    const isSupervisor = () => hasRole('supervisor') || hasRole('director');
+    const isFieldOfficer = () => hasRole('field_officer');
+
+    const login = async (email, password) => {
+        const data = await api.login(email, password);
+        if (data?.user) {
+            setUser({
+                ...data.user,
+                permissions: PERMISSIONS[data.user.role] || []
+            });
+            return data;
+        }
+        throw new Error('Login failed');
     };
 
-    const isDirector = () => {
-        return hasRole('Director');
+    const logout = async () => {
+        api.logout();
+        setUser(null);
     };
 
-    const isAdmin = () => {
-        return hasRole('Admin');
-    };
-
-    const isSupervisor = () => {
-        return hasRole('Supervisor');
-    };
-
-    const isFieldOfficer = () => {
-        return hasRole('FieldOfficer') || hasRole('Field Officer');
+    const resetPassword = async (email) => {
+        return await api.resetOfficerPassword(email);
     };
 
     const value = {
         user,
         setUser,
         loading,
+        login,
+        logout,
+        resetPassword,
         hasPermission,
         hasRole,
         canEdit,
@@ -90,4 +97,3 @@ export const AuthProvider = ({ children }) => {
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-

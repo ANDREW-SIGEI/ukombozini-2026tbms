@@ -16,7 +16,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
     FaMoneyBillWave, FaUsers, FaChartLine, FaPiggyBank,
     FaExclamationTriangle, FaGift, FaExchangeAlt, FaArrowUp, FaArrowDown,
-    FaHistory, FaCalendarAlt
+    FaHistory, FaCalendarAlt, FaHandHoldingUsd
 } from 'react-icons/fa';
 
 // Register ChartJS
@@ -351,12 +351,5 @@ const Dashboard = () => {
         </div>
     );
 };
-
-// Add missing icon
-const FaHandHoldingUsd = (props) => (
-    <svg stroke="currentColor" fill="currentColor" strokeWidth="0" viewBox="0 0 576 512" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg" {...props}>
-        <path d="M560 288h-80V96H112v192H32c-17.67 0-32 14.33-32 32v128c0 17.67 14.33 32 32 32h512c17.67 0 32-14.33 32-32V320c0-17.67-14.33-32-32-32zM144 128h288v160H144V128zm352 288H80V352h416v64z"></path>
-    </svg>
-);
 
 export default Dashboard;
