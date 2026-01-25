@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaArrowDown, FaArrowUp, FaBalanceScale, FaCheckCircle,
-    FaExclamationCircle, FaPrint, FaLock, FaUsers,
-    FaMoneyBillWave, FaCoins, FaHistory, FaHandHoldingUsd, FaUnlock
-} from 'react-icons/fa';
+    FaArrowDown, FaArrowUp, FaScaleBalanced, FaCircleCheck,
+    FaCircleExclamation, FaPrint, FaLock, FaUsers,
+    FaMoneyBillWave, FaCoins, FaClockRotateLeft, FaHandHoldingDollar, FaLockOpen
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { api } from '../services/api';
 
@@ -72,7 +72,7 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                     <div className="bg-white/20 backdrop-blur-md p-4 rounded-2xl text-right">
                         <p className="text-[10px] font-black uppercase opacity-60">Status</p>
                         <p className="text-xl font-black flex items-center gap-2">
-                            <FaUnlock className="text-sm" /> ACTIVE
+                            <FaLockOpen className="text-sm" /> ACTIVE
                         </p>
                     </div>
                 </div>
@@ -85,7 +85,7 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                 <div className={`mb-8 p-6 rounded-3xl border-2 flex flex-col md:flex-row items-center justify-between gap-6 ${net_cash === 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                     <div className="flex items-center gap-4">
                         <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl ${net_cash === 0 ? 'bg-safaricom-green text-white' : 'bg-red-500 text-white'}`}>
-                            {net_cash === 0 ? <FaCheckCircle /> : <FaExclamationCircle />}
+                            {net_cash === 0 ? <FaCircleCheck /> : <FaCircleExclamation />}
                         </div>
                         <div>
                             <h3 className={`text-xl font-black ${net_cash === 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
@@ -114,9 +114,9 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                             {[
                                 { label: 'Member Savings', value: breakdown.total_savings, icon: <FaCoins />, color: 'text-green-600' },
                                 { label: 'STL Repayments', value: breakdown.total_stl_repayment, icon: <FaMoneyBillWave />, color: 'text-blue-600' },
-                                { label: 'LTL Repayments', value: breakdown.total_ltl_repayment, icon: <FaHistory />, color: 'text-purple-600' },
-                                { label: 'Interest & Fees', value: breakdown.total_interest, icon: <FaBalanceScale />, color: 'text-orange-600' },
-                                { label: 'Fines & Penalties', value: breakdown.total_fines, icon: <FaExclamationCircle />, color: 'text-red-500' },
+                                { label: 'LTL Repayments', value: breakdown.total_ltl_repayment, icon: <FaClockRotateLeft />, color: 'text-purple-600' },
+                                { label: 'Interest & Fees', value: breakdown.total_interest, icon: <FaScaleBalanced />, color: 'text-orange-600' },
+                                { label: 'Fines & Penalties', value: breakdown.total_fines, icon: <FaCircleExclamation />, color: 'text-red-500' },
                             ].map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-sm">
                                     <div className="flex items-center gap-3">
@@ -143,7 +143,7 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                         <div className="bg-gray-50 rounded-2xl p-6 space-y-4 border border-gray-100">
                             {[
                                 { label: 'Withdrawals Paid', value: breakdown.total_withdrawals, icon: <FaMoneyBillWave />, color: 'text-red-500' },
-                                { label: 'Loans Issued (STL)', value: breakdown.total_loans_issued, icon: <FaHandHoldingUsd />, color: 'text-orange-500' },
+                                { label: 'Loans Issued (STL)', value: breakdown.total_loans_issued, icon: <FaHandHoldingDollar />, color: 'text-orange-500' },
                             ].map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-sm">
                                     <div className="flex items-center gap-3">

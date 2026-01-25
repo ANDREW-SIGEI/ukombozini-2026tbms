@@ -3,10 +3,10 @@ import { useAuth } from '../context/AuthContext';
 import { getProfile, updateProfile } from '../services/profileService';
 import { toast } from 'react-toastify';
 import {
-  FaUser, FaShieldAlt, FaHistory, FaCheck, FaTimes, FaCamera,
-  FaWallet, FaUsers, FaChartLine, FaCheckCircle, FaLock,
-  FaBell, FaEdit, FaSignOutAlt, FaGem
-} from 'react-icons/fa';
+  FaUser, FaShieldHalved, FaClockRotateLeft, FaCheck, FaXmark, FaCamera,
+  FaWallet, FaUsers, FaChartLine, FaCircleCheck, FaLock,
+  FaBell, FaPenToSquare, FaArrowRightFromBracket, FaGem
+} from 'react-icons/fa6';
 import '../styles/ProfileStyles.css';
 import { api } from '../services/api'; // Import API for metrics
 
@@ -129,7 +129,7 @@ const ProfilePage = () => {
     return (
       <div className="flex flex-col justify-center items-center h-screen bg-gray-50 px-4">
         <div className="glass-card p-8 rounded-3xl text-center max-w-md">
-          <FaTimes className="text-red-500 text-5xl mx-auto mb-4" />
+          <FaXmark className="text-red-500 text-5xl mx-auto mb-4" />
           <h2 className="text-2xl font-black text-gray-800 mb-2">Security Access Denied</h2>
           <p className="text-gray-500 font-bold mb-6">We could not establish a connection to your profile data. Please ensure you are authorized.</p>
           <button
@@ -171,7 +171,7 @@ const ProfilePage = () => {
                 <FaGem className="text-yellow-400 animate-bounce" />
               </div>
               <p className="text-blue-50 font-medium tracking-wide flex items-center gap-2 justify-center md:justify-start">
-                <FaShieldAlt className="text-sm" />
+                <FaShieldHalved className="text-sm" />
                 {user.email}
               </p>
               <div className="flex flex-wrap gap-2 pt-2 justify-center md:justify-start">
@@ -179,7 +179,7 @@ const ProfilePage = () => {
                   <FaUser /> {profile.role || 'Member'}
                 </span>
                 <span className="bg-white/10 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest">
-                  ID: #{user.id.substring(0, 4)}
+                  ID: #{String(user.id).padStart(4, '0')}
                 </span>
               </div>
             </div>
@@ -189,13 +189,13 @@ const ProfilePage = () => {
               onClick={() => setIsEditing(!isEditing)}
               className="flex items-center justify-center gap-2 bg-white text-safaricom-dark px-6 py-3 rounded-2xl font-black text-sm hover:bg-gray-100 transition-all shadow-lg active:scale-95"
             >
-              {isEditing ? <FaTimes /> : <FaEdit />} {isEditing ? 'Cancel Edit' : 'Edit Profile'}
+              {isEditing ? <FaXmark /> : <FaPenToSquare />} {isEditing ? 'Cancel Edit' : 'Edit Profile'}
             </button>
             <button
               onClick={logout}
               className="flex items-center justify-center gap-2 bg-red-500/20 backdrop-blur-md text-white border border-red-500/30 px-6 py-3 rounded-2xl font-black text-sm hover:bg-red-500/40 transition-all"
             >
-              <FaSignOutAlt /> Secure Logout
+              <FaArrowRightFromBracket /> Secure Logout
             </button>
           </div>
         </div>
@@ -212,7 +212,7 @@ const ProfilePage = () => {
               { label: 'Managed Assets', value: metrics.managedAssets, icon: <FaWallet />, color: 'text-green-600', bg: 'bg-green-50' },
               { label: 'Recovery Rate', value: metrics.portfolioQuality, icon: <FaChartLine />, color: 'text-blue-600', bg: 'bg-blue-50' },
               { label: 'Coverage', value: metrics.activeMembers, icon: <FaUsers />, color: 'text-purple-600', bg: 'bg-purple-50' },
-              { label: 'Efficiency', value: metrics.meetingEfficiency, icon: <FaCheckCircle />, color: 'text-orange-600', bg: 'bg-orange-50' },
+              { label: 'Efficiency', value: metrics.meetingEfficiency, icon: <FaCircleCheck />, color: 'text-orange-600', bg: 'bg-orange-50' },
             ].map((m, idx) => (
               <div key={idx} className="metric-card glass-card p-4 rounded-3xl space-y-2">
                 <div className={`${m.bg} ${m.color} w-10 h-10 rounded-2xl flex items-center justify-center text-xl`}>
@@ -280,7 +280,10 @@ const ProfilePage = () => {
                 <div>
                   <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Registration</h3>
                   <p className="text-lg font-black text-gray-800">
-                    {new Date(profile.member_since).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                    {profile.member_since
+                      ? new Date(profile.member_since).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                      : 'N/A'
+                    }
                   </p>
                 </div>
               </div>
@@ -337,7 +340,7 @@ const ProfilePage = () => {
           {/* RECENT ACTIVITY TIMELINE */}
           <div className="glass-card rounded-3xl p-8">
             <h3 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2">
-              <FaHistory className="text-purple-500" /> Activity Stream
+              <FaClockRotateLeft className="text-purple-500" /> Activity Stream
             </h3>
             <div className="space-y-1">
               {recentActivity.map((act, i) => (
@@ -354,7 +357,7 @@ const ProfilePage = () => {
 
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

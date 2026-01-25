@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
     FaMoneyBillWave, FaChartLine, FaCalculator, FaSave,
-    FaHistory, FaInfoCircle, FaSearch, FaFileExcel, FaDownload,
+    FaClockRotateLeft, FaCircleInfo, FaMagnifyingGlass, FaFileExcel, FaDownload,
     FaSpinner, FaTrophy, FaChartPie, FaPlus, FaTrash, FaKeyboard, FaFilePdf
-} from 'react-icons/fa';
+} from 'react-icons/fa6';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
@@ -437,7 +437,7 @@ const Dividends = () => {
                                     ))}
                                 </select>
                                 <div className="absolute right-4 top-4 text-gray-400 pointer-events-none">
-                                    <FaSearch />
+                                    <FaMagnifyingGlass />
                                 </div>
                             </div>
                         </div>
@@ -567,7 +567,7 @@ const Dividends = () => {
                                         )}
                                     </div>
                                     <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
-                                        <FaInfoCircle /> Bi-Monthly Balances
+                                        <FaCircleInfo /> Bi-Monthly Balances
                                     </div>
                                 </div>
                                 <div className="flex-1 overflow-auto">

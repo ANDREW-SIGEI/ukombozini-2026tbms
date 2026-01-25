@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaUserShield, FaEnvelope, FaPhone, FaEdit, FaPlus, FaCheckCircle,
-    FaTimes, FaObjectGroup, FaTrashAlt, FaSearch, FaFilter
-} from 'react-icons/fa';
+    FaUserShield, FaEnvelope, FaPhone, FaPenToSquare, FaPlus, FaCircleCheck,
+    FaXmark, FaObjectGroup, FaTrash, FaMagnifyingGlass, FaFilter
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
@@ -36,7 +36,7 @@ const AllocationModal = ({ isOpen, onClose, officer, groups, onSave }) => {
                         <p className="text-xs opacity-80 font-bold uppercase tracking-wider">Officer: {officer.name}</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
-                        <FaTimes size={20} />
+                        <FaXmark size={20} />
                     </button>
                 </div>
 
@@ -59,7 +59,7 @@ const AllocationModal = ({ isOpen, onClose, officer, groups, onSave }) => {
                                     <div className="text-sm font-black text-gray-800">{group.name}</div>
                                 </div>
                                 {selectedGroups.includes(group.id) && (
-                                    <FaCheckCircle className="text-safaricom-green" />
+                                    <FaCircleCheck className="text-safaricom-green" />
                                 )}
                             </div>
                         ))}
@@ -134,7 +134,7 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
                             {editingOfficer ? 'Edit Officer' : 'Assign New Officer'}
                         </h3>
                         <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                            <FaTimes size={20} className="text-gray-400" />
+                            <FaXmark size={20} className="text-gray-400" />
                         </button>
                     </div>
 
@@ -368,7 +368,7 @@ const Officers = () => {
 
                     <div className="flex items-center gap-3 w-full md:w-auto">
                         <div className="relative flex-1 md:w-64">
-                            <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <FaMagnifyingGlass className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input
                                 type="text"
                                 placeholder="Search by name or role..."
@@ -429,13 +429,13 @@ const Officers = () => {
                                         onClick={() => { setSelectedOfficer(officer); setIsFormOpen(true); }}
                                         className="p-2 hover:bg-gray-50 text-gray-400 hover:text-blue-500 rounded-xl transition-all"
                                     >
-                                        <FaEdit size={14} />
+                                        <FaPenToSquare size={14} />
                                     </button>
                                     <button
                                         onClick={() => handleDeleteOfficer(officer.id)}
                                         className="p-2 hover:bg-gray-50 text-gray-400 hover:text-red-500 rounded-xl transition-all"
                                     >
-                                        <FaTrashAlt size={14} />
+                                        <FaTrash size={14} />
                                     </button>
                                 </div>
                             </div>

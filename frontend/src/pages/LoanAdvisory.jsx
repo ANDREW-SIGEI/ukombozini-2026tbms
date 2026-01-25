@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    FaCalculator, FaMoneyBillWave, FaPercentage, FaHistory,
-    FaExclamationTriangle, FaTable, FaInfoCircle, FaCalendarAlt, FaCheckCircle, FaFilePdf
-} from 'react-icons/fa';
+    FaCalculator, FaMoneyBillWave, FaPercent, FaSpinner,
+    FaTriangleExclamation, FaTable, FaCircleInfo, FaCalendarDays, FaCircleCheck, FaFilePdf
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
@@ -251,7 +251,7 @@ const LoanAdvisory = () => {
                 {/* LEFT: INPUTS */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
                     <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                        <FaPercentage className="text-blue-500" />
+                        <FaPercent className="text-blue-500" />
                         {activeTab === 'STL' ? 'STL Configuration' : 'LTL Lookup'}
                     </h3>
 
@@ -289,7 +289,7 @@ const LoanAdvisory = () => {
                             {/* Dynamic Guarantor Policy Advice */}
                             <div className={`p-4 rounded-xl border transition-all ${coverage?.isCovered ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
                                 <h4 className={`font-bold text-sm mb-2 flex items-center gap-2 ${coverage?.isCovered ? 'text-green-800' : 'text-orange-800'}`}>
-                                    {coverage?.isCovered ? <FaCheckCircle /> : <FaExclamationTriangle />}
+                                    {coverage?.isCovered ? <FaCircleCheck /> : <FaTriangleExclamation />}
                                     Guarantor Policy Advice
                                 </h4>
                                 <p className={`text-xs leading-relaxed ${coverage?.isCovered ? 'text-green-700' : 'text-orange-700'}`}>
@@ -323,7 +323,7 @@ const LoanAdvisory = () => {
                             {/* Dynamic Guarantor Policy Advice */}
                             <div className={`p-4 rounded-xl border transition-all ${coverage?.isCovered ? 'bg-green-50 border-green-100' : 'bg-purple-50 border-purple-100'}`}>
                                 <h4 className={`font-bold text-sm mb-2 flex items-center gap-2 ${coverage?.isCovered ? 'text-green-800' : 'text-purple-800'}`}>
-                                    <FaExclamationTriangle /> Guarantor Policy
+                                    <FaTriangleExclamation /> Guarantor Policy
                                 </h4>
                                 <p className={`text-xs leading-relaxed ${coverage?.isCovered ? 'text-green-700' : 'text-purple-700'}`}>
                                     {coverage ? (
@@ -382,7 +382,7 @@ const LoanAdvisory = () => {
                                     : 'bg-safaricom-green hover:bg-green-600 text-white shadow-lg hover:shadow-green-500/30'
                                     }`}
                             >
-                                {isSubmitting ? <FaHistory className="animate-spin" /> : <FaCheckCircle />}
+                                {isSubmitting ? <FaSpinner className="animate-spin" /> : <FaCircleCheck />}
                                 {isSubmitting ? 'Processing...' : 'Apply for this Loan'}
                             </button>
                         </div>
@@ -454,7 +454,7 @@ const LoanAdvisory = () => {
                                     </div>
                                 ) : (
                                     <div className="text-center py-10 text-gray-400">
-                                        <FaInfoCircle className="mx-auto text-4xl mb-3 opacity-20" />
+                                        <FaCircleInfo className="mx-auto text-4xl mb-3 opacity-20" />
                                         <p>Select a Loan Amount from the left panel to view the LTL structure.</p>
                                     </div>
                                 )}

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaUsers, FaPlus, FaSearch, FaEdit, FaTrash,
-    FaSpinner, FaCalendarAlt, FaMapMarkerAlt, FaCheckCircle
-} from 'react-icons/fa';
+    FaUsers, FaPlus, FaMagnifyingGlass, FaPenToSquare, FaTrash,
+    FaSpinner, FaCalendarDays, FaLocationDot, FaCircleCheck
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
@@ -126,7 +126,7 @@ const GroupsManagement = () => {
             {/* Search */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <div className="relative">
-                    <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <FaMagnifyingGlass className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
                         type="text"
                         placeholder="Search groups by name..."
@@ -140,80 +140,120 @@ const GroupsManagement = () => {
             {/* Groups Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {loading ? (
-                    <div className="col-span-full py-12 text-center text-gray-500 font-bold">
-                        <FaSpinner className="animate-spin inline mr-2" /> Loading Groups...
+                    <div className="col-span-full py-20 flex flex-col items-center text-gray-400">
+                        <FaSpinner className="animate-spin text-4xl mb-4 text-safaricom-green" />
+                        <p className="font-bold tracking-widest uppercase text-xs">Loading Directory...</p>
                     </div>
                 ) : filteredGroups.length === 0 ? (
-                    <div className="col-span-full py-12 text-center text-gray-400 font-bold">
-                        No groups found. Click "Register New Group" to create one.
+                    <div className="col-span-full py-20 flex flex-col items-center justify-center text-center">
+                        <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+                            <FaUsers className="text-4xl text-gray-300" />
+                        </div>
+                        <h3 className="text-xl font-black text-gray-800 mb-2">No Groups Found</h3>
+                        <p className="text-gray-500 max-w-md mx-auto mb-8">Get started by registering a new table banking group to managing savings and loans.</p>
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            className="bg-safaricom-green text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg"
+                        >
+                            Register First Group
+                        </button>
                     </div>
                 ) : (
-                    filteredGroups.map((group) => (
-                        <div
-                            key={group.id}
-                            className="bg-white p-6 rounded-2xl shadow-sm border-2 border-gray-100 hover:border-safaricom-green/30 transition-all hover:shadow-md"
-                        >
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <h3 className="text-lg font-black text-gray-800">{group.group_name}</h3>
-                                    <p className="text-xs text-gray-400 font-bold uppercase">
-                                        Since {new Date(group.created_at || group.registration_date).toLocaleDateString()}
-                                    </p>
+                    filteredGroups.map((group) => {
+                        const hasOfficials = group.chairperson || group.secretary || group.treasurer;
+                        const initials = group.group_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+                        return (
+                            <div
+                                key={group.id}
+                                className="group relative bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-safaricom-green/30 transition-all duration-300 overflow-hidden"
+                            >
+                                <div className="absolute top-0 right-0 p-4 opacity-50 group-hover:opacity-100 transition-opacity">
+                                    <button className="text-gray-300 hover:text-red-500 transition-colors">
+                                        <FaTrash />
+                                    </button>
                                 </div>
-                                <span className="p-2 bg-green-50 text-green-600 rounded-lg">
-                                    <FaCheckCircle />
-                                </span>
+                                <div className="p-6">
+                                    <div className="flex items-start gap-4 mb-6">
+                                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-safaricom-green to-green-800 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-green-200 shrink-0">
+                                            {initials}
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-black text-gray-800 leading-tight mb-1 line-clamp-2">{group.group_name}</h3>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                Since {new Date(group.created_at || group.registration_date).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-2 mb-6">
+                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${getMeetingDayBadge(group.meeting_day)}`}>
+                                            {group.meeting_day}s
+                                        </span>
+                                        <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide bg-gray-100 text-gray-600 border border-gray-200">
+                                            {group.meeting_frequency}
+                                        </span>
+                                        {group.location && (
+                                            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide bg-blue-50 text-blue-600 border border-blue-100 flex items-center gap-1">
+                                                <FaLocationDot size={8} /> {group.location}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="bg-gray-50/80 rounded-2xl p-4 border border-gray-100 space-y-3">
+                                        {hasOfficials ? (
+                                            <>
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]"><FaUsers className="inline mr-1" /> Governance</span>
+                                                    <span className="text-green-600 font-black text-[10px] uppercase bg-green-100 px-2 py-0.5 rounded-full">Active</span>
+                                                </div>
+                                                <div className="space-y-2 pt-1">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px] font-bold">C</div>
+                                                        <span className="text-sm font-bold text-gray-700 truncate">{group.chairperson_name || group.chairperson || '—'}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">S</div>
+                                                        <span className="text-sm font-bold text-gray-700 truncate">{group.secretary_name || group.secretary || '—'}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-bold">T</div>
+                                                        <span className="text-sm font-bold text-gray-700 truncate">{group.treasurer_name || group.treasurer || '—'}</span>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-center py-2">
+                                                <div className="w-10 h-10 mx-auto bg-gray-200 rounded-full flex items-center justify-center text-gray-400 mb-2">
+                                                    <FaUsers />
+                                                </div>
+                                                <p className="text-xs font-bold text-gray-500 mb-2">No officials assigned yet.</p>
+                                                <button className="text-[10px] font-black text-safaricom-green uppercase tracking-widest hover:underline">
+                                                    + Assign Leaders
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+                                    <div className="flex -space-x-2">
+                                        {[1, 2, 3].map(i => (
+                                            <div key={i} className="w-8 h-8 rounded-full bg-white border-2 border-white shadow-sm flex items-center justify-center text-[10px] font-bold text-gray-400">
+                                                <FaUsers />
+                                            </div>
+                                        ))}
+                                        <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center text-[9px] font-black text-gray-500">
+                                            +45
+                                        </div>
+                                    </div>
+                                    <button className="flex items-center gap-2 text-sm font-bold text-gray-600 hover:text-safaricom-green transition-colors">
+                                        <FaPenToSquare /> Manage
+                                    </button>
+                                </div>
                             </div>
-
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <FaCalendarAlt className="text-gray-400" />
-                                    <span className="font-bold text-gray-600">Meeting Day:</span>
-                                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${getMeetingDayBadge(group.meeting_day)}`}>
-                                        {group.meeting_day}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center gap-2 text-sm">
-                                    <FaCalendarAlt className="text-gray-400" />
-                                    <span className="font-bold text-gray-600">Frequency:</span>
-                                    <span className="text-gray-700">{group.meeting_frequency}</span>
-                                </div>
-
-                                <div className="pt-2 mt-2 border-t border-gray-50 space-y-1">
-                                    <div className="text-xs flex justify-between">
-                                        <span className="text-gray-400 uppercase font-black">Chair:</span>
-                                        <span className="text-gray-700 font-bold">{group.chairperson_name || group.chairperson || 'N/A'}</span>
-                                    </div>
-                                    <div className="text-xs flex justify-between">
-                                        <span className="text-gray-400 uppercase font-black">Sec:</span>
-                                        <span className="text-gray-700 font-bold">{group.secretary_name || group.secretary || 'N/A'}</span>
-                                    </div>
-                                    <div className="text-xs flex justify-between">
-                                        <span className="text-gray-400 uppercase font-black">Treas:</span>
-                                        <span className="text-gray-700 font-bold">{group.treasurer_name || group.treasurer || 'N/A'}</span>
-                                    </div>
-                                </div>
-
-                                {group.location && (
-                                    <div className="flex items-center gap-2 text-sm border-t border-gray-50 pt-2">
-                                        <FaMapMarkerAlt className="text-gray-400" />
-                                        <span className="font-bold text-gray-600">Location:</span>
-                                        <span className="text-gray-700">{group.location}</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="mt-4 pt-4 border-t border-gray-100 flex gap-2">
-                                <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-bold text-sm">
-                                    <FaEdit /> Edit
-                                </button>
-                                <button className="flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-bold text-sm">
-                                    <FaTrash />
-                                </button>
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
@@ -381,7 +421,7 @@ const GroupsManagement = () => {
                             {/* Institutional Policies */}
                             <div className="pt-4 border-t border-gray-100">
                                 <h4 className="text-sm font-black text-gray-800 mb-3 flex items-center gap-2">
-                                    <FaCheckCircle className="text-safaricom-green" /> Financial Policies
+                                    <FaCircleCheck className="text-safaricom-green" /> Financial Policies
                                 </h4>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>

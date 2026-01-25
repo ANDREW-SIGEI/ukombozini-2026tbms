@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaCalculator, FaTimes, FaMoneyBillWave, FaCalendarAlt,
-    FaPercentage, FaHandHoldingUsd, FaInfoCircle
-} from 'react-icons/fa';
+    FaCalculator, FaXmark, FaMoneyBillWave, FaCalendarDays,
+    FaPercent, FaHandHoldingDollar, FaCircleInfo
+} from 'react-icons/fa6';
 import api from '../services/api';
 
 /**
@@ -67,7 +67,7 @@ const LoanAdvisoryPanel = ({ isOpen, onClose, onSelectLoan }) => {
                             onClick={onClose}
                             className="bg-white/10 hover:bg-white/20 p-3 rounded-2xl transition-all"
                         >
-                            <FaTimes size={20} />
+                            <FaXmark size={20} />
                         </button>
                     </div>
                 </div>
@@ -86,8 +86,8 @@ const LoanAdvisoryPanel = ({ isOpen, onClose, onSelectLoan }) => {
                                     key={product.id}
                                     onClick={() => handleSelectProduct(product)}
                                     className={`border-2 rounded-2xl p-5 cursor-pointer transition-all ${selectedProduct?.id === product.id
-                                            ? 'border-safaricom-green bg-green-50 shadow-lg scale-105'
-                                            : 'border-gray-200 hover:border-green-300 hover:shadow-md'
+                                        ? 'border-safaricom-green bg-green-50 shadow-lg scale-105'
+                                        : 'border-gray-200 hover:border-green-300 hover:shadow-md'
                                         }`}
                                 >
                                     {/* Loan Amount Header */}
@@ -107,17 +107,17 @@ const LoanAdvisoryPanel = ({ isOpen, onClose, onSelectLoan }) => {
                                             highlight={true}
                                         />
                                         <InfoRow
-                                            icon={<FaCalendarAlt className="text-purple-500" />}
+                                            icon={<FaCalendarDays className="text-purple-500" />}
                                             label="Repayment Period"
                                             value={`${product.repayment_period_months} Months`}
                                         />
                                         <InfoRow
-                                            icon={<FaPercentage className="text-orange-500" />}
+                                            icon={<FaPercent className="text-orange-500" />}
                                             label="Total Interest"
                                             value={`KES ${product.interest_portion.toLocaleString()}`}
                                         />
                                         <InfoRow
-                                            icon={<FaHandHoldingUsd className="text-green-500" />}
+                                            icon={<FaHandHoldingDollar className="text-green-500" />}
                                             label="Shares Contribution"
                                             value={`KES ${product.shares_contribution.toLocaleString()}`}
                                         />
@@ -147,7 +147,7 @@ const LoanAdvisoryPanel = ({ isOpen, onClose, onSelectLoan }) => {
                 <div className="border-t-2 border-gray-100 p-6 bg-gray-50">
                     <div className="flex items-center justify-between gap-4">
                         <div className="flex items-start gap-2 text-xs text-gray-600">
-                            <FaInfoCircle className="text-blue-500 mt-0.5" />
+                            <FaCircleInfo className="text-blue-500 mt-0.5" />
                             <p>
                                 <span className="font-bold">Policy-Controlled:</span> These are official UKOMBOZI loan products.
                                 Officers cannot modify terms. Select a product to auto-fill the application.

@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-    FaCheckCircle,
-    FaTimesCircle,
+    FaCircleCheck,
+    FaCircleXmark,
     FaHourglassHalf,
     FaEye,
     FaMoneyBillWave,
     FaUserTie,
-    FaShieldAlt,
-    FaHistory,
-    FaExclamationTriangle,
+    FaShieldHalved,
+    FaClockRotateLeft,
+    FaTriangleExclamation,
     FaPlus,
-    FaSync,
+    FaRotate,
     FaCalculator
-} from 'react-icons/fa';
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import LoanAdvisoryPanel from '../components/LoanAdvisoryPanel';
@@ -117,8 +117,8 @@ const LoanApprovals = () => {
     };
 
     const getStatusIcon = (status) => {
-        if (['APPROVED', 'DISBURSED', 'ADMIN_APPROVED'].includes(status)) return <FaCheckCircle />;
-        if (['REJECTED', 'ADMIN_REJECTED', 'CANCELLED'].includes(status)) return <FaTimesCircle />;
+        if (['APPROVED', 'DISBURSED', 'ADMIN_APPROVED'].includes(status)) return <FaCircleCheck />;
+        if (['REJECTED', 'ADMIN_REJECTED', 'CANCELLED'].includes(status)) return <FaCircleXmark />;
         return <FaHourglassHalf />;
     };
 
@@ -237,7 +237,7 @@ const LoanApprovals = () => {
                         className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
                         title="Refresh Data"
                     >
-                        <FaSync className={loading ? "animate-spin" : ""} />
+                        <FaRotate className={loading ? "animate-spin" : ""} />
                     </button>
                     <button
                         onClick={() => setShowCreateModal(true)}
@@ -336,7 +336,7 @@ const LoanApprovals = () => {
                                                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
                                                         title="Approve"
                                                     >
-                                                        <FaCheckCircle />
+                                                        <FaCircleCheck />
                                                     </button>
                                                 )}
                                             </div>
@@ -355,7 +355,7 @@ const LoanApprovals = () => {
                     <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-gray-800">New Loan Application</h3>
-                            <button onClick={() => setShowCreateModal(false)}><FaTimesCircle className="text-gray-400 hover:text-red-500 text-xl" /></button>
+                            <button onClick={() => setShowCreateModal(false)}><FaCircleXmark className="text-gray-400 hover:text-red-500 text-xl" /></button>
                         </div>
                         <form onSubmit={handleCreateSubmit} className="space-y-4">
                             <div>
@@ -528,7 +528,7 @@ const LoanApprovals = () => {
                                 <h3 className="text-2xl font-bold text-gray-800">Application Details</h3>
                                 <p className="text-sm font-mono text-gray-500">{selectedApplication.application_number}</p>
                             </div>
-                            <button onClick={() => setShowDetailModal(false)}><FaTimesCircle className="text-gray-400 hover:text-red-500 text-2xl" /></button>
+                            <button onClick={() => setShowDetailModal(false)}><FaCircleXmark className="text-gray-400 hover:text-red-500 text-2xl" /></button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-6 mb-6">
@@ -581,13 +581,13 @@ const LoanApprovals = () => {
                                     onClick={() => { setActionType('APPROVE'); setShowApprovalModal(true); setShowDetailModal(false); }}
                                     className="flex-1 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold flex justify-center items-center gap-2"
                                 >
-                                    <FaCheckCircle /> Approve Request
+                                    <FaCircleCheck /> Approve Request
                                 </button>
                                 <button
                                     onClick={() => { setActionType('REJECT'); setShowApprovalModal(true); setShowDetailModal(false); }}
                                     className="flex-1 py-3 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 font-bold flex justify-center items-center gap-2"
                                 >
-                                    <FaTimesCircle /> Reject Request
+                                    <FaCircleXmark /> Reject Request
                                 </button>
                             </div>
                         )}

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
-    FaUserPlus, FaSearch, FaHistory, FaUser, FaInfoCircle,
+    FaUserPlus, FaMagnifyingGlass, FaClockRotateLeft, FaUser, FaCircleInfo,
     FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
-    FaChartLine, FaExclamationTriangle, FaCheckCircle,
-    FaEdit, FaHandHoldingUsd, FaCoins, FaUnlock, FaArrowUp, FaLock
-} from 'react-icons/fa';
+    FaChartLine, FaTriangleExclamation, FaCircleCheck,
+    FaPenToSquare, FaHandHoldingDollar, FaCoins, FaLockOpen, FaArrowUp, FaLock
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
@@ -222,15 +222,15 @@ const Members = () => {
     const getStatusBadge = (netPosition) => {
         if (netPosition > 5000) {
             return <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold flex items-center gap-1">
-                <FaCheckCircle /> Healthy
+                <FaCircleCheck /> Healthy
             </span>;
         } else if (netPosition >= 0) {
             return <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-bold flex items-center gap-1">
-                <FaInfoCircle /> Stable
+                <FaCircleInfo /> Stable
             </span>;
         } else {
             return <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold flex items-center gap-1">
-                <FaExclamationTriangle /> At Risk
+                <FaTriangleExclamation /> At Risk
             </span>;
         }
     };
@@ -432,7 +432,7 @@ const Members = () => {
             {/* Filters */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center">
                 <div className="flex-1 w-full relative">
-                    <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <FaMagnifyingGlass className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
                         type="text"
                         placeholder="Search by name or phone..."
@@ -475,104 +475,146 @@ const Members = () => {
                 </select>
             </div>
 
-            {/* Members Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* Premium Members List */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-50 border-b border-gray-200">
-                            <tr>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Member</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Group</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Savings</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Active Loans</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Net Position</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-center">Actions</th>
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-gray-50/50 border-b border-gray-200 text-xs uppercase tracking-wider text-gray-500 font-extrabold font-sans">
+                                <th className="px-6 py-4">Member Profile</th>
+                                <th className="px-6 py-4">Group Affiliation</th>
+                                <th className="px-6 py-4 text-right">Savings (KES)</th>
+                                <th className="px-6 py-4 text-right">Loan Balance</th>
+                                <th className="px-6 py-4 text-right">Net Position</th>
+                                <th className="px-6 py-4 text-center">Status</th>
+                                <th className="px-6 py-4 text-center">Quick Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-500 font-bold">
-                                        <FaSpinner className="animate-spin inline mr-2" /> Loading Members...
+                                    <td colSpan="7" className="px-6 py-12 text-center">
+                                        <div className="flex flex-col items-center justify-center gap-3">
+                                            <FaSpinner className="animate-spin text-3xl text-safaricom-green" />
+                                            <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Loading Directory...</span>
+                                        </div>
                                     </td>
                                 </tr>
                             ) : filteredMembers.length === 0 ? (
                                 <tr>
-                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-400 font-bold">
-                                        No members found. Click "Register New Member" to add one.
+                                    <td colSpan="7" className="px-6 py-12 text-center">
+                                        <div className="flex flex-col items-center justify-center gap-4">
+                                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-300 text-2xl">
+                                                <FaUser />
+                                            </div>
+                                            <div className="text-center">
+                                                <h3 className="text-lg font-black text-gray-700">No Members Found</h3>
+                                                <p className="text-sm text-gray-400 font-bold max-w-xs mx-auto mt-1">
+                                                    Try adjusting your search filters or register a new member to get started.
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowAddModal(true)}
+                                                className="mt-2 px-6 py-2 bg-safaricom-green text-white rounded-xl font-bold hover:bg-green-700 transition-colors"
+                                            >
+                                                Register Member
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ) : (
-                                filteredMembers.map((member) => (
-                                    <tr key={member.id} className="hover:bg-blue-50/50 transition-colors group">
-                                        <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-800">{member.name}</div>
-                                            <div className="text-xs text-gray-500">{member.phone}</div>
-                                        </td>
-                                        <td className="px-6 py-4 text-sm font-bold text-gray-600">
-                                            {member.groupName || 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-mono font-bold text-green-600">
-                                            KES {member.savings.toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-mono font-bold text-orange-600">
-                                            KES {member.activeLoans.toLocaleString()}
-                                        </td>
-                                        <td className={`px-6 py-4 text-right font-mono font-black text-lg ${member.netPosition >= 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
-                                            KES {member.netPosition.toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {getStatusBadge(member.netPosition)}
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <div className="flex items-center justify-center gap-2">
-                                                <button
-                                                    onClick={() => openDepositModal(member)}
-                                                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                                                    title="Add Savings/Deposit"
-                                                >
-                                                    <FaCoins />
-                                                </button>
-                                                <button
-                                                    onClick={() => { setSelectedMember(member); setShowWithdrawModal(true); setWithdrawAmount(''); }}
-                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="Withdraw Savings"
-                                                >
-                                                    <FaArrowUp />
-                                                </button>
-                                                <button
-                                                    onClick={() => openRepaymentModal(member)}
-                                                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                                                    title="Repay Loan"
-                                                >
-                                                    <FaMoneyBillWave />
-                                                </button>
-                                                <Link
-                                                    to={`/loan-approvals/new?memberId=${member.id}`}
-                                                    className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
-                                                    title="Apply for Loan"
-                                                >
-                                                    <FaHandHoldingUsd />
-                                                </Link>
-                                                <button
-                                                    onClick={() => { setSelectedMember(member); setShowLedgerModal(true); }}
-                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                    title="View Ledger"
-                                                >
-                                                    <FaHistory />
-                                                </button>
-                                                <button
-                                                    onClick={() => openEditModal(member)}
-                                                    className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition-colors"
-                                                    title="Edit Profile"
-                                                >
-                                                    <FaEdit />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                filteredMembers.map((member) => {
+                                    const initials = member.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                                    const netPos = (member.savings || 0) - (member.activeLoans || 0);
+
+                                    return (
+                                        <tr key={member.id} className="group hover:bg-gray-50/80 transition-all duration-200">
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-xs font-black text-gray-600 border-2 border-white shadow-sm group-hover:scale-110 transition-transform">
+                                                        {initials}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-black text-gray-800 text-sm group-hover:text-safaricom-green transition-colors">
+                                                            {member.name}
+                                                        </div>
+                                                        <div className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
+                                                            {member.phone}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {member.groupName ? (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100">
+                                                        {member.groupName}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs font-bold text-gray-400 italic">Unassigned</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="font-mono font-bold text-gray-700">
+                                                    {(member.savings || 0).toLocaleString()}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className={`font-mono font-bold ${(member.activeLoans || 0) > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                                                    {(member.activeLoans || 0).toLocaleString()}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className={`font-mono font-black ${netPos >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                                    {netPos >= 0 ? '+' : ''}{netPos.toLocaleString()}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                {getStatusBadge(netPos)}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                                                    <button
+                                                        onClick={() => openDepositModal(member)}
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                                        title="Quick Deposit"
+                                                    >
+                                                        <FaCoins />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            if ((member.activeLoans || 0) > 0) {
+                                                                openRepaymentModal(member);
+                                                            }
+                                                        }}
+                                                        disabled={(member.activeLoans || 0) <= 0}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${(member.activeLoans || 0) > 0
+                                                                ? 'text-purple-600 hover:bg-purple-50 cursor-pointer'
+                                                                : 'text-gray-300 cursor-not-allowed opacity-50'
+                                                            }`}
+                                                        title={(member.activeLoans || 0) > 0 ? "Quick Loaning / Repayment" : "No Active Loans to Repay"}
+                                                    >
+                                                        <FaHandHoldingDollar />
+                                                    </button>
+                                                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                                                    <button
+                                                        onClick={() => { setSelectedMember(member); setShowLedgerModal(true); }}
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-colors"
+                                                        title="View History"
+                                                    >
+                                                        <FaClockRotateLeft />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => openEditModal(member)}
+                                                        className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 transition-colors"
+                                                        title="Edit Details"
+                                                    >
+                                                        <FaPenToSquare />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
@@ -617,7 +659,7 @@ const Members = () => {
                             />
                             {phoneError && (
                                 <p className="text-red-500 text-xs mt-1 font-bold flex items-center gap-1">
-                                    <FaExclamationTriangle /> {phoneError}
+                                    <FaTriangleExclamation /> {phoneError}
                                 </p>
                             )}
                             <div>
@@ -735,7 +777,7 @@ const Members = () => {
                         <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                                    <FaEdit className="text-blue-600" /> Edit Member Profile
+                                    <FaPenToSquare className="text-blue-600" /> Edit Member Profile
                                 </h3>
                                 <button
                                     onClick={() => setShowEditModal(false)}
@@ -926,7 +968,7 @@ const Members = () => {
                                         <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                                             <div className="flex justify-between items-center mb-4">
                                                 <h4 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
-                                                    <FaInfoCircle className="text-blue-500" /> Loan Snapshot
+                                                    <FaCircleInfo className="text-blue-500" /> Loan Snapshot
                                                 </h4>
                                                 <span className="text-xs font-mono bg-white px-2 py-1 rounded border border-gray-200">
                                                     Rate: {selectedLoan.interest_rate}%
@@ -986,7 +1028,7 @@ const Members = () => {
                                         {repaymentAmount > 0 && (
                                             <div className="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
                                                 <p className="text-[10px] font-bold text-blue-600 uppercase mb-3 flex items-center gap-1">
-                                                    <FaCheckCircle /> System Auto-Allocation
+                                                    <FaCircleCheck /> System Auto-Allocation
                                                 </p>
                                                 <div className="space-y-2">
                                                     {/* Penalty */}
@@ -1022,7 +1064,7 @@ const Members = () => {
                                         : 'bg-purple-600 hover:bg-purple-700 text-white shadow-lg hover:shadow-purple-500/30 hover:scale-[1.02]'
                                         }`}
                                 >
-                                    <FaCheckCircle /> Confirm Repayment
+                                    <FaCircleCheck /> Confirm Repayment
                                 </button>
                                 {selectedLoan && repaymentAmount > 0 && (
                                     <p className="text-center text-[10px] text-gray-400 mt-3">
@@ -1077,13 +1119,13 @@ const Members = () => {
                                     </div>
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:border-orange-200 transition-colors group">
                                         <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                            <FaHandHoldingUsd className="text-orange-200 group-hover:text-orange-500 transition-colors" /> Outstanding Loan
+                                            <FaHandHoldingDollar className="text-orange-200 group-hover:text-orange-500 transition-colors" /> Outstanding Loan
                                         </div>
                                         <div className="text-2xl font-black text-gray-800">KES {(selectedMember.activeLoans || 0).toLocaleString()}</div>
                                     </div>
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:border-red-200 transition-colors group">
                                         <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                            <FaExclamationTriangle className="text-red-200 group-hover:text-red-500 transition-colors" /> Arrears / Fines
+                                            <FaTriangleExclamation className="text-red-200 group-hover:text-red-500 transition-colors" /> Arrears / Fines
                                         </div>
                                         <div className="text-2xl font-black text-gray-800">KES {(selectedMember.arrears || 0).toLocaleString()}</div>
                                     </div>
@@ -1185,7 +1227,7 @@ const Members = () => {
                                         {/* Loan Portfolio Summary */}
                                         <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 text-white relative overflow-hidden">
                                             <h3 className="font-bold text-gray-200 mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
-                                                <FaHandHoldingUsd /> Loan Portfolio
+                                                <FaHandHoldingDollar /> Loan Portfolio
                                             </h3>
 
                                             {memberLoans.length > 0 ? (
@@ -1256,7 +1298,7 @@ const Members = () => {
                                 </div>
                                 {activeSession && (
                                     <p className="mt-2 text-[10px] font-bold text-blue-600 flex items-center gap-1">
-                                        <FaCheckCircle /> Linked to Active Session #{activeSession.id}
+                                        <FaCircleCheck /> Linked to Active Session #{activeSession.id}
                                     </p>
                                 )}
                             </div>

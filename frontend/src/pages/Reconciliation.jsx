@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { FaBalanceScale, FaCheckCircle, FaExclamationTriangle, FaChartLine, FaUsers, FaArrowRight } from 'react-icons/fa';
+import { FaScaleBalanced, FaCircleCheck, FaTriangleExclamation, FaChartLine, FaUsers, FaArrowRight } from 'react-icons/fa6';
 import { useTransactions } from '../context/TransactionContext';
 import { mockGroups } from '../data/mockData';
 import { Link } from 'react-router-dom';
@@ -63,7 +63,7 @@ const Reconciliation = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
                 <div>
                     <h2 className="text-3xl font-black text-gray-900 flex items-center gap-3">
-                        <FaBalanceScale className="text-safaricom-green" />
+                        <FaScaleBalanced className="text-safaricom-green" />
                         Director Reconciliation Board
                     </h2>
                     <p className="text-gray-500 font-medium mt-1">System-Wide Financial Health • January 2026</p>
@@ -99,7 +99,7 @@ const Reconciliation = () => {
 
                 <div className={`p-6 rounded-2xl shadow-sm border flex items-center gap-4 ${systemOverview.criticalFlags > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'}`}>
                     <div className={`p-4 rounded-xl ${systemOverview.criticalFlags > 0 ? 'bg-red-200 text-red-700' : 'bg-gray-100 text-gray-400'}`}>
-                        <FaExclamationTriangle size={24} />
+                        <FaTriangleExclamation size={24} />
                     </div>
                     <div>
                         <p className={`text-xs font-bold uppercase tracking-widest ${systemOverview.criticalFlags > 0 ? 'text-red-600' : 'text-gray-400'}`}>Critical Flags</p>
@@ -138,7 +138,7 @@ const Reconciliation = () => {
                                     <td className="px-6 py-4">
                                         <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${group.status === 'POSTED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                                             }`}>
-                                            {group.status === 'POSTED' && <FaCheckCircle size={10} />}
+                                            {group.status === 'POSTED' && <FaCircleCheck size={10} />}
                                             {group.status}
                                         </span>
                                     </td>
@@ -154,7 +154,7 @@ const Reconciliation = () => {
                                         </div>
                                         {group.hasError && (
                                             <div className="text-xs text-red-500 font-bold mt-1 flex items-center justify-end gap-1">
-                                                <FaExclamationTriangle /> Negative Balance
+                                                <FaTriangleExclamation /> Negative Balance
                                             </div>
                                         )}
                                     </td>
@@ -172,7 +172,7 @@ const Reconciliation = () => {
 
             {/* System Note */}
             <div className="bg-blue-50 border border-blue-100 p-6 rounded-2xl flex gap-4 items-start">
-                <FaCheckCircle className="text-blue-600 mt-1 flex-shrink-0" size={20} />
+                <FaCircleCheck className="text-blue-600 mt-1 flex-shrink-0" size={20} />
                 <div>
                     <h4 className="font-bold text-blue-900 text-sm">System Integrity Check Passed</h4>
                     <p className="text-xs text-blue-700 mt-1 opacity-80 max-w-2xl">

@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaCheckCircle,
-    FaExclamationTriangle,
-    FaTimesCircle,
+    FaCircleCheck,
+    FaTriangleExclamation,
+    FaCircleXmark,
     FaMoneyBillWave,
-    FaMobileAlt,
-    FaUniversity,
+    FaMobileScreen,
+    FaBuildingColumns,
     FaCalculator,
     FaLock,
     FaChartLine
-} from 'react-icons/fa';
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import NotificationService from '../services/NotificationService';
 import { useAuth } from '../context/AuthContext';
@@ -180,25 +180,25 @@ const CashReconciliation = () => {
             case 'BALANCED':
                 return {
                     color: 'bg-green-100 text-green-700 border-green-200',
-                    icon: <FaCheckCircle />,
+                    icon: <FaCircleCheck />,
                     text: 'BALANCED'
                 };
             case 'VARIANCE_FLAGGED':
                 return {
                     color: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-                    icon: <FaExclamationTriangle />,
+                    icon: <FaTriangleExclamation />,
                     text: varianceType
                 };
             case 'APPROVED':
                 return {
                     color: 'bg-blue-100 text-blue-700 border-blue-200',
-                    icon: <FaCheckCircle />,
+                    icon: <FaCircleCheck />,
                     text: 'APPROVED'
                 };
             case 'REJECTED':
                 return {
                     color: 'bg-red-100 text-red-700 border-red-200',
-                    icon: <FaTimesCircle />,
+                    icon: <FaCircleXmark />,
                     text: 'REJECTED'
                 };
             case 'LOCKED':
@@ -210,7 +210,7 @@ const CashReconciliation = () => {
             default:
                 return {
                     color: 'bg-gray-100 text-gray-700 border-gray-200',
-                    icon: <FaExclamationTriangle />,
+                    icon: <FaTriangleExclamation />,
                     text: status
                 };
         }
@@ -257,7 +257,7 @@ const CashReconciliation = () => {
                             <p className="text-xs text-green-700 uppercase font-bold">Balanced</p>
                             <p className="text-2xl font-black text-green-800 mt-1">{stats.balanced}</p>
                         </div>
-                        <FaCheckCircle className="text-3xl text-green-400" />
+                        <FaCircleCheck className="text-3xl text-green-400" />
                     </div>
                 </div>
                 <div className="bg-yellow-50 p-4 rounded-xl shadow-sm border border-yellow-100">
@@ -266,7 +266,7 @@ const CashReconciliation = () => {
                             <p className="text-xs text-yellow-700 uppercase font-bold">Variances</p>
                             <p className="text-2xl font-black text-yellow-800 mt-1">{stats.variances}</p>
                         </div>
-                        <FaExclamationTriangle className="text-3xl text-yellow-400" />
+                        <FaTriangleExclamation className="text-3xl text-yellow-400" />
                     </div>
                 </div>
                 <div className="bg-red-50 p-4 rounded-xl shadow-sm border border-red-100">
@@ -403,7 +403,7 @@ const CashReconciliation = () => {
                                     </div>
                                     <div>
                                         <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                                            <FaMobileAlt className="text-blue-600" />
+                                            <FaMobileScreen className="text-blue-600" />
                                             Mobile Money
                                         </label>
                                         <input
@@ -416,7 +416,7 @@ const CashReconciliation = () => {
                                     </div>
                                     <div>
                                         <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                                            <FaUniversity className="text-purple-600" />
+                                            <FaBuildingColumns className="text-purple-600" />
                                             Banked
                                         </label>
                                         <input
@@ -521,7 +521,7 @@ const CashReconciliation = () => {
                                     onClick={() => setShowDetailModal(false)}
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
-                                    <FaTimesCircle className="text-gray-600" />
+                                    <FaCircleXmark className="text-gray-600" />
                                 </button>
                             </div>
 

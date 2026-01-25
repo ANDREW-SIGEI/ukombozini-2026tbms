@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaCog, FaUsers, FaUserTie, FaChartLine, FaDatabase,
-    FaFileExport, FaShieldAlt, FaPlus, FaEdit, FaTrash,
-    FaSpinner, FaCheckCircle, FaCalendarAlt, FaMoneyBillWave,
-    FaMapMarkerAlt, FaEnvelope, FaPhone, FaSave, FaHistory
-} from 'react-icons/fa';
+    FaGear, FaUsers, FaUserTie, FaChartLine, FaDatabase,
+    FaFileExport, FaShieldHalved, FaPlus, FaPenToSquare, FaTrash,
+    FaSpinner, FaCircleCheck, FaCalendarDays, FaMoneyBillWave,
+    FaLocationDot, FaEnvelope, FaPhone, FaFloppyDisk, FaClockRotateLeft, FaUserPlus
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
@@ -218,8 +218,8 @@ const AdminPanel = () => {
         { id: 'groups', name: 'Groups', icon: <FaUsers /> },
         { id: 'officers', name: 'Officers', icon: <FaUserTie /> },
         { id: 'products', name: 'Loan Products', icon: <FaMoneyBillWave /> },
-        { id: 'settings', name: 'Settings', icon: <FaCog /> },
-        { id: 'audit', name: 'Audit Logs', icon: <FaHistory /> },
+        { id: 'settings', name: 'Settings', icon: <FaGear /> },
+        { id: 'audit', name: 'Audit Logs', icon: <FaClockRotateLeft /> },
         { id: 'backup', name: 'Backup & Export', icon: <FaDatabase /> }
     ];
 
@@ -229,7 +229,7 @@ const AdminPanel = () => {
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-black text-gray-800 flex items-center gap-2">
-                        <FaShieldAlt className="text-red-600" /> Admin Control Panel
+                        <FaShieldHalved className="text-red-600" /> Admin Control Panel
                     </h2>
                     <p className="text-sm font-bold text-gray-500 uppercase tracking-wide">
                         System Administration & Configuration
@@ -288,19 +288,133 @@ const AdminPanel = () => {
                                 <StatCard
                                     title="Active Officers"
                                     value={stats.activeOfficers}
-                                    icon={<FaShieldAlt />}
+                                    icon={<FaShieldHalved />}
                                     color="red"
                                 />
                             </div>
 
-                            {/* Recent Activity */}
-                            <div className="bg-gray-50 p-6 rounded-xl">
-                                <h4 className="font-black text-gray-700 mb-4">Recent System Activity</h4>
-                                <div className="space-y-2 text-sm text-gray-600">
-                                    <p>• New group "Ukombozi Warriors" registered - 2 hours ago</p>
-                                    <p>• Dividend payment processed for Group A - 5 hours ago</p>
-                                    <p>• 15 new member registrations - Today</p>
-                                    <p>• System backup completed successfully - Yesterday 3:00 AM</p>
+                            {/* Activity & Quick Actions Grid */}
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Timeline Column */}
+                                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                    <h4 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2">
+                                        <FaClockRotateLeft className="text-safaricom-green" /> Recent Activity Stream
+                                    </h4>
+                                    <div className="relative pl-6 border-l-2 border-gray-100 space-y-8">
+                                        <div className="relative group">
+                                            <span className="absolute -left-[35px] bg-green-100 text-green-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
+                                                <FaUsers size={14} />
+                                            </span>
+                                            <div className="bg-gray-50 p-4 rounded-xl hover:bg-green-50/50 transition-colors border border-transparent hover:border-green-100">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h5 className="font-black text-gray-800 text-sm">New Group Registered</h5>
+                                                        <p className="text-xs text-gray-500 mt-1">"Ukombozi Warriors" has been successfully registered and assigned to Field Officer John.</p>
+                                                    </div>
+                                                    <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100">2h ago</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="relative group">
+                                            <span className="absolute -left-[35px] bg-blue-100 text-blue-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
+                                                <FaMoneyBillWave size={14} />
+                                            </span>
+                                            <div className="bg-gray-50 p-4 rounded-xl hover:bg-blue-50/50 transition-colors border border-transparent hover:border-blue-100">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h5 className="font-black text-gray-800 text-sm">Dividend Run Processed</h5>
+                                                        <p className="text-xs text-gray-500 mt-1">Group A dividends calculated. Pending Director Approval.</p>
+                                                    </div>
+                                                    <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100">5h ago</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="relative group">
+                                            <span className="absolute -left-[35px] bg-purple-100 text-purple-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
+                                                <FaUserPlus size={14} />
+                                            </span>
+                                            <div className="bg-gray-50 p-4 rounded-xl hover:bg-purple-50/50 transition-colors border border-transparent hover:border-purple-100">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h5 className="font-black text-gray-800 text-sm">Member Intake Surge</h5>
+                                                        <p className="text-xs text-gray-500 mt-1">15 new members verified via biometric check.</p>
+                                                    </div>
+                                                    <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100">Today</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="relative group">
+                                            <span className="absolute -left-[35px] bg-gray-100 text-gray-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
+                                                <FaDatabase size={14} />
+                                            </span>
+                                            <div>
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h5 className="font-black text-gray-800 text-sm">System Backup Completed</h5>
+                                                        <p className="text-xs text-gray-500 mt-1">Automated daily backup successful. Size: 45MB.</p>
+                                                    </div>
+                                                    <span className="text-[10px] font-bold text-gray-400">Yesterday</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Quick Actions Column */}
+                                <div className="space-y-6">
+                                    <div className="bg-gradient-to-br from-safaricom-green to-green-700 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden group">
+                                        <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl group-hover:scale-110 transition-transform duration-500"></div>
+                                        <h4 className="font-black text-lg mb-4 relative z-10">Quick Actions</h4>
+                                        <div className="space-y-3 relative z-10">
+                                            <button
+                                                onClick={() => setShowOfficerModal(true)}
+                                                className="w-full py-3 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all border border-white/10"
+                                            >
+                                                <FaUserTie /> Assign Officer
+                                            </button>
+                                            <button
+                                                onClick={() => setShowGroupModal(true)}
+                                                className="w-full py-3 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all border border-white/10"
+                                            >
+                                                <FaUsers /> Register Group
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                        <h4 className="font-black text-gray-800 mb-4 flex items-center gap-2 text-sm">
+                                            <FaFloppyDisk className="text-blue-500" /> System Health
+                                        </h4>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <div className="flex justify-between text-xs font-bold text-gray-500 mb-1">
+                                                    <span>Storage Usage</span>
+                                                    <span>45%</span>
+                                                </div>
+                                                <div className="w-full bg-gray-100 rounded-full h-2">
+                                                    <div className="bg-blue-500 h-2 rounded-full w-[45%]"></div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="flex justify-between text-xs font-bold text-gray-500 mb-1">
+                                                    <span>API Latency</span>
+                                                    <span className="text-green-600">Total: 45ms</span>
+                                                </div>
+                                                <div className="w-full bg-gray-100 rounded-full h-2">
+                                                    <div className="bg-green-500 h-2 rounded-full w-[95%]"></div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={handleBackup}
+                                                className="w-full py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 text-xs font-bold hover:border-safaricom-green hover:text-safaricom-green transition-colors mt-2"
+                                            >
+                                                Run Manual Backup
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -332,23 +446,23 @@ const AdminPanel = () => {
                                                     {new Date(group.created_at || group.registration_date).toLocaleDateString()}
                                                 </p>
                                             </div>
-                                            <FaCheckCircle className="text-green-500" />
+                                            <FaCircleCheck className="text-green-500" />
                                         </div>
                                         <div className="space-y-1 text-sm text-gray-600 mb-4">
                                             <p className="flex items-center gap-2">
-                                                <FaCalendarAlt className="text-gray-400" />
+                                                <FaCalendarDays className="text-gray-400" />
                                                 {group.meeting_day} ({group.meeting_frequency})
                                             </p>
                                             {group.location && (
                                                 <p className="flex items-center gap-2">
-                                                    <FaMapMarkerAlt className="text-gray-400" />
+                                                    <FaLocationDot className="text-gray-400" />
                                                     {group.location}
                                                 </p>
                                             )}
                                         </div>
                                         <div className="flex gap-2">
                                             <button className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-bold text-sm">
-                                                <FaEdit className="inline mr-1" /> Edit
+                                                <FaPenToSquare className="inline mr-1" /> Edit
                                             </button>
                                             <button
                                                 onClick={() => handleDeleteGroup(group.id, group.group_name)}
@@ -379,7 +493,7 @@ const AdminPanel = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {officers.length === 0 ? (
                                     <div className="col-span-full bg-gray-50 p-6 rounded-xl text-center text-gray-500">
-                                        <FaUserTie className="text-4xl mx-auto mb-3 opacity-50" />
+                                        <FaShieldHalved className="text-purple-300 transform scale-150 rotate-12 opacity-50" />
                                         <p className="font-bold">No officers found</p>
                                     </div>
                                 ) : (
@@ -782,7 +896,7 @@ const LoanProductCard = ({ product, onEdit, onDelete }) => (
                 onClick={onEdit}
                 className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm"
             >
-                <FaEdit className="inline mr-1" /> Edit
+                <FaPenToSquare className="inline mr-1" /> Edit
             </button>
             <button
                 onClick={onDelete}
@@ -797,7 +911,7 @@ const LoanProductCard = ({ product, onEdit, onDelete }) => (
 const SettingsSection = ({ title, children }) => (
     <div className="bg-white border-2 border-gray-100 rounded-xl p-6">
         <h4 className="font-black text-gray-700 mb-4 flex items-center gap-2">
-            <FaCog className="text-safaricom-green" />
+            <FaGear className="text-safaricom-green" />
             {title}
         </h4>
         <div className="space-y-3">{children}</div>
@@ -843,7 +957,7 @@ const Modal = ({ title, onClose, onSubmit, children }) => (
                         type="submit"
                         className="flex-1 px-4 py-3 bg-safaricom-green text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md flex items-center justify-center gap-2"
                     >
-                        <FaSave /> Save
+                        <FaFloppyDisk /> Save
                     </button>
                 </div>
             </form>

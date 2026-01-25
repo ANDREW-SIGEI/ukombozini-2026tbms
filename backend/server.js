@@ -295,6 +295,9 @@ app.get('/api/admin/export/:table', (req, res) => {
 app.get('/api/groups', (req, res) => {
     const query = `
         SELECT g.*, 
+               g.meetingDay as meeting_day,
+               g.meetingFrequency as meeting_frequency,
+               g.registrationDate as registration_date,
                m1.name as chairperson_name, 
                m2.name as secretary_name, 
                m3.name as treasurer_name
@@ -594,6 +597,130 @@ app.get('/api/sessions', (req, res) => {
             reversalMetadata: row.reversalMetadata ? JSON.parse(row.reversalMetadata) : null
         }));
         res.json(sessions);
+    });
+});
+
+// ==========================================
+// UNIFIED TRANSACTION API
+// ==========================================
+
+// Create/Record a Transaction (Generic Hub)
+app.post('/api/transactions', (req, res) => {
+    const {
+        type, transaction_type,
+        memberId, sessionId,
+        amount, description,
+        // For Loans
+        loanId, loanType, breakdown,
+        // For others
+        paymentMethod
+    } = req.body;
+
+    const finalType = type || transaction_type;
+
+    if (!memberId || !amount) {
+        return res.status(400).json({ error: "Member ID and Amount are required." });
+    }
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        if (finalType === 'loan_repayment') {
+            // Handle Loan Repayment
+            if (!loanId) {
+                db.run("ROLLBACK");
+                return res.status(400).json({ error: "Loan ID is required for repayment." });
+            }
+
+            const desc = description || `Repayment for Loan #${loanId}`;
+            const stmt = db.prepare(`
+                INSERT INTO transactions (
+                    sessionId, memberId, stl_repayment, ltl_repayment, loan_interest, fines, description, transaction_type, uploaded, attended
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'LoanRepayment', 1, 1)
+            `);
+
+            // Safe breakdown access
+            const stl_amt = (loanType === 'STL' || !loanType) ? (breakdown?.principal || amount) : 0;
+            const ltl_amt = (loanType === 'LTL') ? (breakdown?.principal || amount) : 0;
+            const interest = breakdown?.interest || 0;
+            const penalty = breakdown?.penalty || 0;
+
+            stmt.run(sessionId || null, memberId, stl_amt, ltl_amt, interest, penalty, desc, function (err) {
+                if (err) {
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: err.message });
+                }
+
+                // Decrease Loan Balance
+                db.run("UPDATE members SET active_loan_balance = MAX(0, active_loan_balance - ?) WHERE id = ?", [amount, memberId], (err) => {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+                    db.run("COMMIT");
+                    logAudit(`Repayment Recieved: ${amount}`, 'transaction', { memberId, amount });
+                    res.json({ success: true, message: "Repayment recorded successfully." });
+                });
+            });
+            stmt.finalize();
+
+        } else if (finalType === 'Savings' || finalType === 'savings') {
+            // Handle Savings
+            const stmt = db.prepare(`
+                INSERT INTO transactions (
+                    sessionId, memberId, savings_amount, transaction_type, description, uploaded, attended
+                ) VALUES (?, ?, ?, 'Contribution', ?, 1, 1)
+            `);
+
+            stmt.run(sessionId || null, memberId, amount, description || 'Savings Deposit', function (err) {
+                if (err) {
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: err.message });
+                }
+
+                // Increase Savings
+                db.run("UPDATE members SET current_savings = current_savings + ? WHERE id = ?", [amount, memberId], (err) => {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+                    db.run("COMMIT");
+                    res.json({ success: true, message: "Savings recorded successfully." });
+                });
+            });
+            stmt.finalize();
+
+        } else if (finalType === 'withdrawal' || finalType === 'Withdrawal') {
+            // Handle Withdrawal
+            const stmt = db.prepare(`
+                INSERT INTO transactions (
+                    sessionId, memberId, withdrawals, transaction_type, description, uploaded, attended
+                ) VALUES (?, ?, ?, 'Withdrawal', ?, 1, 1)
+            `);
+
+            stmt.run(sessionId || null, memberId, amount, description || 'Cash Withdrawal', function (err) {
+                if (err) {
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: err.message });
+                }
+
+                // Decrease Savings
+                db.run("UPDATE members SET current_savings = MAX(0, current_savings - ?) WHERE id = ?", [amount, memberId], (err) => {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+                    db.run("COMMIT");
+                    res.json({ success: true, message: "Withdrawal recorded successfully." });
+                });
+            });
+            stmt.finalize();
+
+        } else {
+            // Generic Fallback
+            db.run("ROLLBACK");
+            return res.status(400).json({ error: "Invalid or unsupported transaction type." });
+        }
     });
 });
 

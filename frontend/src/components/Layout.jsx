@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import { FaBars, FaBell, FaUser, FaTimes } from 'react-icons/fa';
+import { FaBars, FaBell, FaUser, FaXmark } from 'react-icons/fa6';
 import NotificationService from '../services/NotificationService';
 import { useAuth } from '../context/AuthContext';
 
@@ -47,7 +47,7 @@ const Layout = ({ children }) => {
                 <div className="flex justify-between items-center p-4 border-b border-safaricom-dark text-white">
                     <span className="font-bold text-xl uppercase tracking-wider">TBMS Menu</span>
                     <button onClick={() => setIsMobileMenuOpen(false)} className="text-white hover:text-gray-200">
-                        <FaTimes size={24} />
+                        <FaXmark size={24} />
                     </button>
                 </div>
                 <Sidebar isMobile={true} closeMobileMenu={() => setIsMobileMenuOpen(false)} />

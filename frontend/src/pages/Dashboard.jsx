@@ -15,9 +15,9 @@ import { Bar, Pie, Doughnut, Line } from 'react-chartjs-2';
 import { useNavigate, Link } from 'react-router-dom';
 import {
     FaMoneyBillWave, FaUsers, FaChartLine, FaPiggyBank,
-    FaExclamationTriangle, FaGift, FaExchangeAlt, FaArrowUp, FaArrowDown,
-    FaHistory, FaCalendarAlt, FaHandHoldingUsd
-} from 'react-icons/fa';
+    FaTriangleExclamation, FaGift, FaRightLeft, FaArrowUp, FaArrowDown,
+    FaClockRotateLeft, FaCalendarDays, FaHandHoldingDollar
+} from 'react-icons/fa6';
 
 // Register ChartJS
 ChartJS.register(
@@ -112,9 +112,9 @@ const Dashboard = () => {
         { title: 'Total Members', value: '142', icon: <FaUsers />, color: 'bg-green-500', trend: '+12 this month', link: '/members' },
         { title: 'Active Loans', value: '38', icon: <FaMoneyBillWave />, color: 'bg-yellow-500', trend: 'KES 1.2M value', link: '/loans' },
         { title: 'Total Contributions', value: 'KES 2.4M', icon: <FaPiggyBank />, color: 'bg-blue-500', trend: '+15% vs last month', link: '/contributions' },
-        { title: 'Pending Repayments', value: '14', icon: <FaExclamationTriangle />, color: 'bg-red-500', trend: '5 overdue', link: '/loans' },
+        { title: 'Pending Repayments', value: '14', icon: <FaTriangleExclamation />, color: 'bg-red-500', trend: '5 overdue', link: '/loans' },
         { title: 'Total Dividends', value: 'KES 850K', icon: <FaGift />, color: 'bg-purple-500', trend: 'Calculated Dec 2025', link: '/dividends' },
-        { title: 'Cash In / Out', value: 'KES +450K', icon: <FaExchangeAlt />, color: 'bg-emerald-600', trend: 'Net cash flow', link: '/reconciliation' },
+        { title: 'Cash In / Out', value: 'KES +450K', icon: <FaRightLeft />, color: 'bg-emerald-600', trend: 'Net cash flow', link: '/reconciliation' },
     ];
 
     return (
@@ -128,7 +128,7 @@ const Dashboard = () => {
             {negativeBalanceReports.length > 0 && (
                 <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg">
                     <div className="flex items-start gap-3">
-                        <FaExclamationTriangle className="text-red-600 text-xl mt-1" />
+                        <FaTriangleExclamation className="text-red-600 text-xl mt-1" />
                         <div className="flex-1">
                             <h3 className="font-bold text-red-900 mb-2">⚠️ CRITICAL: Negative Balance Alerts</h3>
                             <div className="space-y-2">
@@ -166,7 +166,7 @@ const Dashboard = () => {
                             <p className="text-2xl font-bold text-gray-800 mt-1">{todayMeetings}</p>
                         </div>
                         <div className="p-3 bg-blue-100 rounded-lg">
-                            <FaCalendarAlt className="text-blue-600" />
+                            <FaCalendarDays className="text-blue-600" />
                         </div>
                     </div>
                 </div>
@@ -177,7 +177,7 @@ const Dashboard = () => {
                             <p className="text-2xl font-bold text-gray-800 mt-1">{dailyTransactions}</p>
                         </div>
                         <div className="p-3 bg-green-100 rounded-lg">
-                            <FaExchangeAlt className="text-green-600" />
+                            <FaRightLeft className="text-green-600" />
                         </div>
                     </div>
                 </div>
@@ -188,7 +188,7 @@ const Dashboard = () => {
                             <p className="text-2xl font-bold text-yellow-600 mt-1">{pendingApprovals}</p>
                         </div>
                         <div className="p-3 bg-yellow-100 rounded-lg">
-                            <FaExclamationTriangle className="text-yellow-600" />
+                            <FaTriangleExclamation className="text-yellow-600" />
                         </div>
                     </div>
                 </div>
@@ -266,7 +266,7 @@ const Dashboard = () => {
                 <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-lg font-bold text-gray-800 flex items-center">
-                            <FaHistory className="mr-2 text-safaricom-green" />
+                            <FaClockRotateLeft className="mr-2 text-safaricom-green" />
                             Daily Report Status (Today)
                         </h3>
                         <span className="px-2 py-1 bg-red-100 text-red-600 text-[10px] font-bold rounded-lg uppercase">3 Reports Pending</span>
@@ -339,7 +339,7 @@ const Dashboard = () => {
                         <span className="text-sm font-bold text-blue-800">Add Contribution</span>
                     </Link>
                     <Link to="/loans" className="p-4 rounded-lg bg-yellow-50 border border-yellow-100 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-yellow-100 transition-colors">
-                        <div className="text-yellow-600 mb-2"><FaHandHoldingUsd size={24} /></div>
+                        <div className="text-yellow-600 mb-2"><FaHandHoldingDollar size={24} /></div>
                         <span className="text-sm font-bold text-yellow-800">Approve Loan</span>
                     </Link>
                     <button className="p-4 rounded-lg bg-purple-50 border border-purple-100 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-purple-100 transition-colors">

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-    FaChartPie, FaCalculator, FaLock, FaCheckCircle, FaExclamationTriangle,
-    FaPlus, FaEye, FaFilePdf, FaFileExcel, FaShieldAlt, FaMoneyBillWave,
-    FaPercentage, FaHistory, FaTimesCircle, FaSync, FaInfoCircle, FaUserPlus
-} from 'react-icons/fa';
+    FaChartPie, FaCalculator, FaLock, FaCircleCheck, FaTriangleExclamation,
+    FaPlus, FaEye, FaFilePdf, FaFileExcel, FaShieldHalved, FaMoneyBillWave,
+    FaPercent, FaClockRotateLeft, FaCircleXmark, FaRotate, FaCircleInfo, FaUserPlus
+} from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -236,10 +236,10 @@ const DividendManagement = () => {
     };
 
     const getStatusIcon = (status) => {
-        if (status === 'POSTED' || status === 'APPROVED') return <FaCheckCircle />;
-        if (status === 'REJECTED') return <FaTimesCircle />;
+        if (status === 'POSTED' || status === 'APPROVED') return <FaCircleCheck />;
+        if (status === 'REJECTED') return <FaCircleXmark />;
         if (status === 'CALCULATED') return <FaCalculator />;
-        return <FaHistory />;
+        return <FaClockRotateLeft />;
     };
 
     return (
@@ -265,7 +265,7 @@ const DividendManagement = () => {
             {/* Info Banner */}
             <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                    <FaInfoCircle className="text-blue-600 mt-1" size={20} />
+                    <FaCircleInfo className="text-blue-600 mt-1" size={20} />
                     <div className="flex-1">
                         <h4 className="font-bold text-blue-900 text-sm mb-1">System-Calculated Dividends</h4>
                         <p className="text-xs text-blue-700">
@@ -280,7 +280,7 @@ const DividendManagement = () => {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100">
                 <div className="p-4 border-b border-gray-100">
                     <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                        <FaHistory /> Dividend Runs History
+                        <FaClockRotateLeft /> Dividend Runs History
                     </h3>
                 </div>
                 <div className="overflow-x-auto">
@@ -300,7 +300,7 @@ const DividendManagement = () => {
                             {loading ? (
                                 <tr>
                                     <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
-                                        <FaSync className="animate-spin inline mr-2" /> Loading runs...
+                                        <FaRotate className="animate-spin inline mr-2" /> Loading runs...
                                     </td>
                                 </tr>
                             ) : runs.length === 0 ? (
@@ -384,14 +384,14 @@ const DividendManagement = () => {
                         <div className="bg-gray-50 border-b border-gray-100 p-6 flex justify-between items-center sticky top-0 z-10">
                             <div>
                                 <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                                    <FaShieldAlt className="text-safaricom-green" /> New Dividend Run
+                                    <FaShieldHalved className="text-safaricom-green" /> New Dividend Run
                                 </h3>
                                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mt-1">
                                     Institutional Grade • Audit-Safe • System-Derived
                                 </p>
                             </div>
                             <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-red-500 transition-colors">
-                                <FaTimesCircle size={28} />
+                                <FaCircleXmark size={28} />
                             </button>
                         </div>
 
@@ -514,7 +514,7 @@ const DividendManagement = () => {
                                                         />
                                                     ) : (
                                                         <>
-                                                            <FaCheckCircle className="mx-auto text-green-600 mb-1" />
+                                                            <FaCircleCheck className="mx-auto text-green-600 mb-1" />
                                                             <div className="text-[10px] font-bold text-green-700 uppercase">Validated</div>
                                                         </>
                                                     )}
@@ -523,7 +523,7 @@ const DividendManagement = () => {
                                         </div>
                                         <div className="mt-4 flex items-center justify-between">
                                             <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50 p-3 rounded-lg border border-blue-100 max-w-md">
-                                                <FaInfoCircle className="text-blue-500" />
+                                                <FaCircleInfo className="text-blue-500" />
                                                 {formData.isManual
                                                     ? "Enter total shares for each month manually. The system will calculate the Weighted Average."
                                                     : "System uses bi-monthly weighted average shares from the database."}
@@ -571,7 +571,7 @@ const DividendManagement = () => {
                                     </div>
                                     <div className="bg-blue-50/50 border-b border-blue-100 p-4 flex justify-between items-center text-xs">
                                         <div className="flex items-center gap-2 text-blue-700 font-bold">
-                                            {formData.isManual ? <FaCheckCircle /> : <FaSync className={formData.isManual ? "" : "animate-spin-slow"} />}
+                                            {formData.isManual ? <FaCircleCheck /> : <FaRotate className={formData.isManual ? "" : "animate-spin-slow"} />}
                                             {formData.isManual ? "MANUAL OVERRIDE ACTIVE" : "System Ledger Sync Active"}
                                         </div>
                                         {!formData.isManual && (
@@ -773,7 +773,7 @@ const DividendManagement = () => {
                                 <FaPlus /> Create Dividend Run
                             </button>
                         </div>
-                    </div>
+                    </div >
                 </div >
             )
             }
@@ -799,7 +799,7 @@ const DividendManagement = () => {
                                     </p>
                                 </div>
                                 <button onClick={() => setShowDetailsModal(false)} className="text-gray-400 hover:text-red-500 transition-colors">
-                                    <FaTimesCircle size={28} />
+                                    <FaCircleXmark size={28} />
                                 </button>
                             </div>
 
@@ -957,7 +957,7 @@ const DividendManagement = () => {
                                                         onClick={() => handleApprove(selectedRun.id)}
                                                         className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 flex items-center justify-center gap-2 shadow-lg shadow-green-200"
                                                     >
-                                                        <FaCheckCircle /> Approve Dividends
+                                                        <FaCircleCheck /> Approve Dividends
                                                     </button>
                                                 )}
                                                 {selectedRun.status === 'APPROVED' && user?.role === 'director' && (
@@ -980,7 +980,7 @@ const DividendManagement = () => {
                                     <div className="border border-gray-200 rounded-xl overflow-hidden">
                                         <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
                                             <h4 className="font-bold text-gray-700 flex items-center gap-2">
-                                                <FaShieldAlt className="text-gray-400" /> Audit Trail
+                                                <FaShieldHalved className="text-gray-400" /> Audit Trail
                                             </h4>
                                         </div>
                                         <div className="p-6 space-y-3 text-xs font-mono text-gray-500 bg-gray-50/50 h-full">
@@ -1029,89 +1029,91 @@ const DividendManagement = () => {
             }
 
             {/* QUICK REGISTER MEMBER MODAL */}
-            {showAddMemberModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-slideUp">
-                        <div className="bg-gray-900 px-6 py-4 flex justify-between items-center">
-                            <h3 className="text-white font-bold flex items-center gap-2">
-                                <FaUserPlus className="text-green-400" /> Register New Member
-                            </h3>
-                            <button onClick={() => setShowAddMemberModal(false)} className="text-gray-400 hover:text-white">
-                                <FaTimesCircle size={20} />
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Full Name</label>
-                                <input
-                                    type="text"
-                                    className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none font-bold"
-                                    value={newMember.name}
-                                    onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                                    placeholder="Enter full name"
-                                />
+            {
+                showAddMemberModal && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-slideUp">
+                            <div className="bg-gray-900 px-6 py-4 flex justify-between items-center">
+                                <h3 className="text-white font-bold flex items-center gap-2">
+                                    <FaUserPlus className="text-green-400" /> Register New Member
+                                </h3>
+                                <button onClick={() => setShowAddMemberModal(false)} className="text-gray-400 hover:text-white">
+                                    <FaCircleXmark size={20} />
+                                </button>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
-                                <input
-                                    type="tel"
-                                    className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none font-bold"
-                                    value={newMember.phone}
-                                    onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
-                                    placeholder="07..."
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Group</label>
-                                <select
-                                    className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none font-bold bg-gray-50"
-                                    value={newMember.groupId}
-                                    onChange={(e) => setNewMember({ ...newMember, groupId: e.target.value })}
-                                >
-                                    <option value="">Select Group</option>
-                                    {groups.map(g => (
-                                        <option key={g.id} value={g.id}>{g.group_name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <button
-                                onClick={async () => {
-                                    if (!newMember.name || !newMember.phone || !newMember.groupId) {
-                                        toast.warning("Please fill all fields");
-                                        return;
-                                    }
-                                    try {
-                                        await api.createMember({
-                                            full_name: newMember.name,
-                                            phone: newMember.phone,
-                                            group_id: newMember.groupId
-                                        });
-                                        toast.success("✅ Member Added Successfully");
-
-                                        // Refresh groups to update count
-                                        const groupsData = await api.getGroups();
-                                        setGroups(groupsData || []);
-
-                                        // If the new member is in the currently selected group, verify count updates
-                                        if (formData.groupId == newMember.groupId) {
-                                            toast.info("Group member count updated.");
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Full Name</label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none font-bold"
+                                        value={newMember.name}
+                                        onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                                        placeholder="Enter full name"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
+                                    <input
+                                        type="tel"
+                                        className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none font-bold"
+                                        value={newMember.phone}
+                                        onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
+                                        placeholder="07..."
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Group</label>
+                                    <select
+                                        className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none font-bold bg-gray-50"
+                                        value={newMember.groupId}
+                                        onChange={(e) => setNewMember({ ...newMember, groupId: e.target.value })}
+                                    >
+                                        <option value="">Select Group</option>
+                                        {groups.map(g => (
+                                            <option key={g.id} value={g.id}>{g.group_name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        if (!newMember.name || !newMember.phone || !newMember.groupId) {
+                                            toast.warning("Please fill all fields");
+                                            return;
                                         }
+                                        try {
+                                            await api.createMember({
+                                                full_name: newMember.name,
+                                                phone: newMember.phone,
+                                                group_id: newMember.groupId
+                                            });
+                                            toast.success("✅ Member Added Successfully");
 
-                                        setShowAddMemberModal(false);
-                                        setNewMember({ name: '', phone: '', groupId: '' });
-                                    } catch (e) {
-                                        console.error(e);
-                                        toast.error("Failed to add member");
-                                    }
-                                }}
-                                className="w-full bg-safaricom-green text-white font-bold py-3 rounded-xl hover:bg-green-700 transition-colors shadow-lg flex justify-center items-center gap-2"
-                            >
-                                <FaPlus /> Register Member
-                            </button>
+                                            // Refresh groups to update count
+                                            const groupsData = await api.getGroups();
+                                            setGroups(groupsData || []);
+
+                                            // If the new member is in the currently selected group, verify count updates
+                                            if (formData.groupId == newMember.groupId) {
+                                                toast.info("Group member count updated.");
+                                            }
+
+                                            setShowAddMemberModal(false);
+                                            setNewMember({ name: '', phone: '', groupId: '' });
+                                        } catch (e) {
+                                            console.error(e);
+                                            toast.error("Failed to add member");
+                                        }
+                                    }}
+                                    className="w-full bg-safaricom-green text-white font-bold py-3 rounded-xl hover:bg-green-700 transition-colors shadow-lg flex justify-center items-center gap-2"
+                                >
+                                    <FaPlus /> Register Member
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div >
     );
 };
