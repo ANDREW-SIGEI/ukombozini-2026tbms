@@ -65,7 +65,7 @@ const Profile = () => {
         <div className="w-full space-y-4">
           <div className="flex justify-between">
             <span className="text-gray-500">Role:</span>
-            <span className="font-medium text-gray-800">{user?.role || 'Member'}</span>
+            <span className="font-medium text-gray-800">{user?.role || 'Guest'}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-500">Member Since:</span>
@@ -97,8 +97,8 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-            {/* Public Routes - Auth Disabled per User Request */}
-            <Route element={<Layout><Outlet /></Layout>}>
+            {/* Authenticated Routes */}
+            <Route element={<ProtectedLayout><Layout><Outlet /></Layout></ProtectedLayout>}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/members" element={<Members />} />
               <Route path="/members/:id" element={<MemberLedger />} />
@@ -107,8 +107,6 @@ function App() {
               <Route path="/loan-approvals" element={<LoanApprovals />} />
               <Route path="/loan-advisory" element={<LoanAdvisory />} />
               <Route path="/loan-repayment-tracking" element={<LoanRepaymentTracking />} />
-              <Route path="/dividends" element={<DividendManagement />} />
-              <Route path="/officers" element={<Officers />} />
               <Route path="/reconciliation" element={<Reconciliation />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/meeting-sessions" element={<MeetingSessions />} />
@@ -116,13 +114,15 @@ function App() {
               <Route path="/daily-reports" element={<DailyReports />} />
               <Route path="/daily-meeting-report" element={<DailyMeetingReport />} />
               <Route path="/contribution-compliance" element={<ContributionCompliance />} />
-              <Route path="/groups" element={<GroupsManagement />} />
               <Route path="/notifications" element={<NotificationsPage />} />
             </Route>
 
-            {/* Director Only Routes - Auth Check Disabled */}
-            <Route element={<Layout><Outlet /></Layout>}>
+            {/* Admin & Director Only Routes */}
+            <Route element={<ProtectedLayout allowedRoles={['admin', 'director']}><Layout><Outlet /></Layout></ProtectedLayout>}>
               <Route path="/admin" element={<AdminPanel />} />
+              <Route path="/groups" element={<GroupsManagement />} />
+              <Route path="/officers" element={<Officers />} />
+              <Route path="/dividends" element={<DividendManagement />} />
               <Route path="/sms-reports" element={<SMSReports />} />
               <Route path="/sms-automation-test" element={<SMSAutomationTest />} />
             </Route>

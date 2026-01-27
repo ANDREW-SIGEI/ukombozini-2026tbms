@@ -50,11 +50,13 @@ const authenticateToken = (req, res, next) => {
 };
 
 const isAdmin = (req, res, next) => {
-    if (req.user && req.user.role && req.user.role.toLowerCase() === 'admin') {
-        next();
-    } else {
-        res.status(403).json({ error: 'Access denied: Admin privileges required' });
+    if (req.user && req.user.role) {
+        const role = req.user.role.toLowerCase();
+        if (role === 'admin' || role === 'director') {
+            return next();
+        }
     }
+    res.status(403).json({ error: 'Access denied: Admin or Director privileges required' });
 };
 
 // ==========================================

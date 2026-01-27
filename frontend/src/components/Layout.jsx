@@ -90,7 +90,7 @@ const Layout = ({ children }) => {
                         <div className="flex items-center space-x-3 border-l pl-4 border-gray-100">
                             <div className="text-right hidden sm:block">
                                 <p className="text-xs font-bold text-gray-800 capitalize">
-                                    {user?.role || 'Member'}
+                                    {user?.role || 'Guest'}
                                 </p>
                                 <p className="text-[10px] text-gray-500">
                                     {user?.full_name || user?.email?.split('@')[0] || 'User'}

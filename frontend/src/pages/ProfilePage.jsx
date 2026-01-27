@@ -176,7 +176,7 @@ const ProfilePage = () => {
               </p>
               <div className="flex flex-wrap gap-2 pt-2 justify-center md:justify-start">
                 <span className="badge-officer text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest flex items-center gap-1">
-                  <FaUser /> {profile.role || 'Member'}
+                  <FaUser /> {profile.role || 'Officer'}
                 </span>
                 <span className="bg-white/10 text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest">
                   ID: #{String(user.id).padStart(4, '0')}

@@ -217,7 +217,7 @@ const init = async () => {
         await run(`CREATE TABLE IF NOT EXISTS officers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK( role IN ('Field Officer', 'Chairman', 'Secretary', 'Treasurer', 'Admin') ),
+            role TEXT NOT NULL CHECK( role IN ('Field Officer', 'Director', 'Admin') ),
             phone TEXT,
             email TEXT UNIQUE,
             password_hash TEXT,
@@ -254,9 +254,13 @@ const init = async () => {
         if (officerCount.count === 0) {
             console.log("Seeding Officers...");
             const adminPass = await bcrypt.hash('Teddymark1', 10);
+            const directorPass = await bcrypt.hash('Teddymark11$', 10);
             const staffPass = await bcrypt.hash('123456', 10);
+
             await run("INSERT INTO officers (name, role, phone, email, password_hash) VALUES (?, ?, ?, ?, ?)", ["System Admin", "Admin", "0700", "andrewsigei684@gmail.com", adminPass]);
-            await run("INSERT INTO officers (name, role, phone, email, password_hash) VALUES (?, ?, ?, ?, ?)", ["Sarah", "Chairman", "0711", "sarah@tbms.com", staffPass]);
+            await run("INSERT INTO officers (name, role, phone, email, password_hash) VALUES (?, ?, ?, ?, ?)", ["Andrew Sigei", "Director", "0711", "andrewsigei6@gmail.com", directorPass]);
+            await run("INSERT INTO officers (name, role, phone, email, password_hash) VALUES (?, ?, ?, ?, ?)", ["Sarah", "Field Officer", "0722", "sarah@tbms.com", staffPass]);
+
             await run("INSERT INTO officer_groups (officer_id, group_id) VALUES (1, 2), (2, 2)");
         }
 

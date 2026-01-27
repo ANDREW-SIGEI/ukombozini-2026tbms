@@ -13,6 +13,9 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
     const location = useLocation();
     const { user, logout } = useAuth();
 
+    const role = user?.role?.toLowerCase() || '';
+    const isPowerUser = role === 'admin' || role === 'director';
+
     const sections = [
         {
             title: "Overview",
@@ -24,7 +27,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
             title: "Operations",
             items: [
                 { path: '/members', name: 'Members', icon: <FaUsers /> },
-                { path: '/groups', name: 'Groups', icon: <FaLayerGroup /> },
+                ...(isPowerUser ? [{ path: '/groups', name: 'Groups', icon: <FaLayerGroup /> }] : []),
                 { path: '/meeting-sessions', name: 'Meeting Sessions', icon: <FaChartBar /> },
                 { path: '/daily-meeting-report', name: 'Meeting Reports', icon: <FaFileLines /> },
             ]
@@ -35,7 +38,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 { path: '/contributions', name: 'Contributions', icon: <FaFileInvoiceDollar /> },
                 { path: '/loans', name: 'Loans Management', icon: <FaHandHoldingDollar /> },
                 { path: '/loan-approvals', name: 'Approvals', icon: <FaCircleCheck /> },
-                { path: '/dividends', name: 'Dividends', icon: <FaMoneyBillWave /> },
+                ...(isPowerUser ? [{ path: '/dividends', name: 'Dividends', icon: <FaMoneyBillWave /> }] : []),
                 { path: '/reconciliation', name: 'Reconciliation', icon: <FaScaleBalanced /> },
             ]
         },
@@ -45,14 +48,16 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 { path: '/loan-advisory', name: 'Loan Calculator', icon: <FaCalculator /> },
                 { path: '/contribution-compliance', name: 'Compliance', icon: <FaChartLine /> },
                 { path: '/loan-repayment-tracking', name: 'Repayment Track', icon: <FaClipboardList /> },
-                { path: '/sms-reports', name: 'SMS Reports', icon: <FaCommentSms /> },
+                ...(isPowerUser ? [{ path: '/sms-reports', name: 'SMS Reports', icon: <FaCommentSms /> }] : []),
             ]
         },
         {
             title: "System",
             items: [
-                { path: '/officers', name: 'Officers', icon: <FaUserTie /> },
-                { path: '/admin', name: 'Admin Panel', icon: <FaShieldHalved /> },
+                ...(isPowerUser ? [
+                    { path: '/officers', name: 'Officers', icon: <FaUserTie /> },
+                    { path: '/admin', name: 'Admin Panel', icon: <FaShieldHalved /> },
+                ] : []),
                 { path: '/notifications', name: 'Notifications', icon: <FaBell /> },
             ]
         }
@@ -84,7 +89,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold truncate group-hover:text-white transition-colors">{user?.name || 'User'}</p>
-                            <p className="text-[10px] text-white/60 truncate uppercase tracking-wider">{user?.role || 'Member'}</p>
+                            <p className="text-[10px] text-white/60 truncate uppercase tracking-wider">{user?.role || 'Guest'}</p>
                         </div>
                         <FaCircleUser className="text-white/40 group-hover:text-white transition-colors" />
                     </NavLink>
