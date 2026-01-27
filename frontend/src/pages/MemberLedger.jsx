@@ -213,7 +213,14 @@ const MemberLedger = () => {
                         {member.name.charAt(0)}
                     </div>
                     <div>
-                        <h3 className="text-2xl font-black">{member.name}</h3>
+                        <h3 className="text-2xl font-black flex items-center gap-3">
+                            {member.name}
+                            {member.group_role && member.group_role !== 'Member' && (
+                                <span className="text-xs bg-white/20 px-3 py-1 rounded-full border border-white/30 uppercase tracking-widest font-black">
+                                    {member.group_role}
+                                </span>
+                            )}
+                        </h3>
                         <p className="text-blue-100">{member.phone}</p>
                     </div>
                 </div>
@@ -252,8 +259,13 @@ const MemberLedger = () => {
                     <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
                         <p className="text-xs text-blue-100 uppercase font-bold">Net Position</p>
                         <p className="text-lg font-black mt-1">
-                            KES {(member.savings - member.activeLoans - member.arrears).toLocaleString()}
+                            KES {(member.savings - member.activeLoans - (member.arrears || 0)).toLocaleString()}
                         </p>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm lg:col-span-1">
+                        <p className="text-xs text-blue-100 uppercase font-bold">Next of Kin</p>
+                        <p className="text-sm font-bold mt-1 line-clamp-1">{member.next_of_kin_name || 'None Set'}</p>
+                        <p className="text-[10px] text-blue-200">{member.next_of_kin_relationship} {member.next_of_kin_phone}</p>
                     </div>
                 </div>
             </div>

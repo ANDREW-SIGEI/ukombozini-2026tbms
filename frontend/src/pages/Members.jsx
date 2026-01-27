@@ -8,9 +8,14 @@ import {
     FaTrash
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
-import api from '../services/api';
+import { api } from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
 import { useAuth } from '../context/AuthContext';
+import LoanIssuanceModal from '../components/LoanIssuanceModal';
+
+const RELATIONSHIP_OPTIONS = [
+    'Spouse', 'Parent', 'Child', 'Sibling', 'Grandparent', 'Grandchild', 'Cousin', 'Business Partner', 'Other'
+];
 
 const Members = () => {
     const { user } = useAuth();
@@ -32,6 +37,7 @@ const Members = () => {
     const [showAddModal, setShowAddModal] = useState(false); // Register
     const [showDepositModal, setShowDepositModal] = useState(false); // Deposit
     const [showRepaymentModal, setShowRepaymentModal] = useState(false); // Repayment
+    const [showLoanModal, setShowLoanModal] = useState(false); // New Loan Modal
     const [selectedMember, setSelectedMember] = useState(null);
     const [depositAmount, setDepositAmount] = useState('');
     const [repaymentAmount, setRepaymentAmount] = useState('');
@@ -52,7 +58,8 @@ const Members = () => {
         opening_balance_stl: 0,    // Existing Short Term Loan
         nextOfKinName: '',
         nextOfKinPhone: '',
-        nextOfKinRelationship: ''
+        nextOfKinRelationship: '',
+        nextOfKinMemberId: ''
     });
     const [phoneError, setPhoneError] = useState('');
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -85,6 +92,7 @@ const Members = () => {
     const membersWithNetPosition = useMemo(() => {
         return members.map(member => ({
             ...member,
+            full_name: member.name, // Compatibility with existing code
             savings: member.current_savings || 0,
             activeLoans: member.active_loan_balance || 0,
             netPosition: (member.current_savings || 0) - (member.active_loan_balance || 0)
@@ -95,8 +103,9 @@ const Members = () => {
     const filteredMembers = useMemo(() => {
         return membersWithNetPosition.filter(member => {
             const matchesSearch =
-                member.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                member.phone?.toLowerCase().includes(searchTerm.toLowerCase());
+                member.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                member.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                member.group_role?.toLowerCase().includes(searchTerm.toLowerCase());
             const matchesGroup = selectedGroup ? member.group_id?.toString() === selectedGroup : true;
             return matchesSearch && matchesGroup;
         });
@@ -179,7 +188,8 @@ const Members = () => {
                 opening_balance_stl: parseFloat(newMember.opening_balance_stl || 0),
                 next_of_kin_name: newMember.nextOfKinName,
                 next_of_kin_phone: newMember.nextOfKinPhone,
-                next_of_kin_relationship: newMember.nextOfKinRelationship
+                next_of_kin_relationship: newMember.nextOfKinRelationship,
+                next_of_kin_member_id: newMember.nextOfKinMemberId ? parseInt(newMember.nextOfKinMemberId) : null
             };
 
             await api.createMember(payload);
@@ -187,7 +197,8 @@ const Members = () => {
             setShowAddModal(false);
             setNewMember({
                 name: '', phone: '', groupId: '', opening_balance_savings: 0,
-                nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: ''
+                opening_balance_reason: '', opening_balance_ltl: 0, opening_balance_stl: 0,
+                nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: '', nextOfKinMemberId: ''
             });
             fetchData(); // Refresh list
         } catch (error) {
@@ -561,8 +572,16 @@ const Members = () => {
                                                         {initials}
                                                     </div>
                                                     <div>
-                                                        <div className="font-black text-gray-800 text-sm group-hover:text-safaricom-green transition-colors">
+                                                        <div className="font-black text-gray-800 text-sm group-hover:text-safaricom-green transition-colors flex items-center gap-2">
                                                             {member.name}
+                                                            {member.group_role && member.group_role !== 'Member' && (
+                                                                <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider ${member.group_role === 'Chairman' ? 'bg-purple-100 text-purple-700 border border-purple-200' :
+                                                                    member.group_role === 'Secretary' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                                                                        'bg-orange-100 text-orange-700 border border-orange-200'
+                                                                    }`}>
+                                                                    {member.group_role}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
                                                             {member.phone}
@@ -620,6 +639,17 @@ const Members = () => {
                                                         title={(member.activeLoans || 0) > 0 ? "Quick Loaning / Repayment" : "No Active Loans to Repay"}
                                                     >
                                                         <FaHandHoldingDollar />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setSelectedMember(member); setShowLoanModal(true); }}
+                                                        disabled={!activeSession}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${activeSession
+                                                            ? 'text-safaricom-green hover:bg-green-50 cursor-pointer'
+                                                            : 'text-gray-300 cursor-not-allowed opacity-50'
+                                                            }`}
+                                                        title={activeSession ? "Issue New Loan" : "No Active Meeting - Open one to issue loans"}
+                                                    >
+                                                        <FaMoneyBillWave />
                                                     </button>
                                                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
                                                     <button
@@ -722,13 +752,41 @@ const Members = () => {
                                     <h4 className="text-xs font-black uppercase tracking-wide">Next of Kin Details</h4>
                                 </div>
                                 <div className="grid grid-cols-1 gap-3">
-                                    <input
-                                        type="text"
-                                        value={newMember.nextOfKinName}
-                                        onChange={(e) => setNewMember({ ...newMember, nextOfKinName: e.target.value })}
-                                        className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
-                                        placeholder="NoK Full Name"
-                                    />
+                                    <div className="flex gap-2">
+                                        <div className="flex-1">
+                                            <input
+                                                type="text"
+                                                value={newMember.nextOfKinName}
+                                                onChange={(e) => setNewMember({ ...newMember, nextOfKinName: e.target.value })}
+                                                className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                                placeholder="NoK Full Name"
+                                                disabled={!!newMember.nextOfKinMemberId}
+                                            />
+                                        </div>
+                                        <select
+                                            className="w-40 px-2 py-2 bg-white border border-blue-100 rounded-lg text-xs font-bold"
+                                            value={newMember.nextOfKinMemberId || ""}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === "") {
+                                                    setNewMember({ ...newMember, nextOfKinMemberId: '', nextOfKinName: '', nextOfKinPhone: '' });
+                                                } else {
+                                                    const m = members.find(mem => mem.id === parseInt(val));
+                                                    setNewMember({
+                                                        ...newMember,
+                                                        nextOfKinMemberId: val,
+                                                        nextOfKinName: m.name,
+                                                        nextOfKinPhone: m.phone
+                                                    });
+                                                }
+                                            }}
+                                        >
+                                            <option value="">Link Member...</option>
+                                            {members.map(m => (
+                                                <option key={m.id} value={m.id}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         <input
                                             type="tel"
@@ -736,14 +794,19 @@ const Members = () => {
                                             onChange={(e) => setNewMember({ ...newMember, nextOfKinPhone: e.target.value })}
                                             className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
                                             placeholder="NoK Phone"
+                                            disabled={!!newMember.nextOfKinMemberId}
                                         />
-                                        <input
-                                            type="text"
+                                        <select
                                             value={newMember.nextOfKinRelationship}
                                             onChange={(e) => setNewMember({ ...newMember, nextOfKinRelationship: e.target.value })}
                                             className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
-                                            placeholder="Relationship"
-                                        />
+                                            required={newMember.nextOfKinName?.length > 0}
+                                        >
+                                            <option value="">Relationship</option>
+                                            {RELATIONSHIP_OPTIONS.map(opt => (
+                                                <option key={opt} value={opt}>{opt}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -1426,6 +1489,38 @@ const Members = () => {
                 </div>
             )}
 
+            {/* NEW: Loan Issuance Modal */}
+            {selectedMember && (
+                <LoanIssuanceModal
+                    isOpen={showLoanModal}
+                    onClose={() => setShowLoanModal(false)}
+                    member={selectedMember}
+                    activeMeeting={activeSession}
+                    onSuccess={async (loanData) => {
+                        try {
+                            await api.issueLoan({
+                                memberId: loanData.memberId,
+                                groupId: selectedMember.groupId,
+                                sessionId: activeSession.id,
+                                loanType: loanData.loanType,
+                                amount: loanData.amount,
+                                interestRate: loanData.interestRate,
+                                duration: loanData.duration,
+                                officerId: user?.id,
+                                guarantor1_id: loanData.guarantor1_id,
+                                guarantor2_id: loanData.guarantor2_id,
+                                purpose: loanData.purpose
+                            });
+                            toast.success('Loan issued successfully!');
+                            setShowLoanModal(false);
+                            fetchData(); // Refresh member balances
+                        } catch (error) {
+                            toast.error('Failed to issue loan.');
+                            console.error("Loan issuance failed", error);
+                        }
+                    }}
+                />
+            )}
         </div >
     );
 };

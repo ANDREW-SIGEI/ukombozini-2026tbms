@@ -24,6 +24,8 @@ const LoanAdvisory = () => {
     const [selectedMemberId, setSelectedMemberId] = useState('');
     const [loanProducts, setLoanProducts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [guarantor1Id, setGuarantor1Id] = useState('');
+    const [guarantor2Id, setGuarantor2Id] = useState('');
 
     const selectedMember = useMemo(() =>
         members.find(m => m.id === parseInt(selectedMemberId)),
@@ -136,6 +138,16 @@ const LoanAdvisory = () => {
             return;
         }
 
+        if (activeTab === 'LTL' && (!guarantor1Id || !guarantor2Id)) {
+            toast.warn("Long Term Loans require at least 2 guarantors.");
+            return;
+        }
+
+        if (activeTab === 'STL' && !coverage?.isCovered && !guarantor1Id) {
+            toast.warn("This loan is not fully covered by savings. Please select a guarantor.");
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             const loanData = activeTab === 'STL' ? {
@@ -145,7 +157,9 @@ const LoanAdvisory = () => {
                 amount: parseFloat(stlAmount),
                 interestRate: activeProduct?.interest_rate || 10,
                 duration: parseInt(stlDuration),
-                officerId: 1
+                officerId: 1,
+                guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
+                guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null
             } : {
                 memberId: parseInt(selectedMemberId),
                 groupId: selectedMember?.group_id || 1,
@@ -153,7 +167,9 @@ const LoanAdvisory = () => {
                 amount: ltlSelection.amount,
                 interestRate: activeProduct?.interest_rate || 15,
                 duration: parseInt(ltlSelection.period.split(' ')[0]),
-                officerId: 1
+                officerId: 1,
+                guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
+                guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null
             };
 
             await api.issueLoan(loanData);
@@ -300,6 +316,35 @@ const LoanAdvisory = () => {
                                     ) : "Select a member to view guarantor requirements."}
                                 </p>
                             </div>
+
+                            {/* Guarantor Selectors (STL) */}
+                            {!coverage?.isCovered && (
+                                <div className="space-y-3 pt-2">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase">Select Guarantors</label>
+                                    <select
+                                        value={guarantor1Id}
+                                        onChange={(e) => setGuarantor1Id(e.target.value)}
+                                        className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
+                                    >
+                                        <option value="">-- Select Guarantor 1 --</option>
+                                        {members.filter(m => m.id !== parseInt(selectedMemberId)).map(m => (
+                                            <option key={m.id} value={m.id}>{m.name}</option>
+                                        ))}
+                                    </select>
+                                    {coverage?.gap > 5000 && (
+                                        <select
+                                            value={guarantor2Id}
+                                            onChange={(e) => setGuarantor2Id(e.target.value)}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
+                                        >
+                                            <option value="">-- Select Guarantor 2 --</option>
+                                            {members.filter(m => m.id !== parseInt(selectedMemberId) && m.id !== parseInt(guarantor1Id)).map(m => (
+                                                <option key={m.id} value={m.id}>{m.name}</option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="space-y-4">
@@ -332,6 +377,31 @@ const LoanAdvisory = () => {
                                             : "Long Term Loans require At least 3 Guarantors (More than 2). Ensure all forms are fully signed."
                                     ) : "Choose an amount to view requirements."}
                                 </p>
+                            </div>
+
+                            {/* Guarantor Selectors (LTL) */}
+                            <div className="space-y-3 pt-2">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase">Assign Guarantors (REQ: 2-3)</label>
+                                <select
+                                    value={guarantor1Id}
+                                    onChange={(e) => setGuarantor1Id(e.target.value)}
+                                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
+                                >
+                                    <option value="">-- Select Guarantor 1 --</option>
+                                    {members.filter(m => m.id !== parseInt(selectedMemberId)).map(m => (
+                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={guarantor2Id}
+                                    onChange={(e) => setGuarantor2Id(e.target.value)}
+                                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
+                                >
+                                    <option value="">-- Select Guarantor 2 --</option>
+                                    {members.filter(m => m.id !== parseInt(selectedMemberId) && m.id !== parseInt(guarantor1Id)).map(m => (
+                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
                     )}

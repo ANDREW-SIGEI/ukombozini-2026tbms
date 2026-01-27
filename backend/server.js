@@ -551,18 +551,34 @@ app.delete('/api/groups/:id', authenticateToken, isAdmin, (req, res) => {
 // MEMBERS API (WITH OPENING BALANCE RULES)
 // ==========================================
 
-// Get members (optionally filter by groupId)
-app.get('/api/members', (req, res) => {
+// Get members (optionally filter by groupId) - PROTECTED
+app.get('/api/members', authenticateToken, (req, res) => {
     const { groupId } = req.query;
+    const { role, id: officerId } = req.user;
+
     let query = `
-        SELECT m.*, g.name as group_name 
+        SELECT m.*, g.name as group_name,
+        (SELECT COALESCE(SUM(principal_amount), 0) FROM loans WHERE (guarantor1_id = m.id OR guarantor2_id = m.id) AND status = 'active') as total_guaranteed_amount,
+        CASE 
+            WHEN m.id = g.chairperson_id THEN 'Chairman'
+            WHEN m.id = g.secretary_id THEN 'Secretary'
+            WHEN m.id = g.treasurer_id THEN 'Treasurer'
+            ELSE 'Member'
+        END as group_role
         FROM members m
         LEFT JOIN groups g ON m.group_id = g.id
+        WHERE 1=1
     `;
     let params = [];
 
+    // Role-based filtering: Field Officers only see their assigned groups
+    if (role === 'Field Officer') {
+        query += ` AND m.group_id IN (SELECT group_id FROM officer_groups WHERE officer_id = ?) `;
+        params.push(officerId);
+    }
+
     if (groupId) {
-        query += " WHERE m.group_id = ?";
+        query += " AND m.group_id = ?";
         params.push(groupId);
     }
 
@@ -574,8 +590,44 @@ app.get('/api/members', (req, res) => {
     });
 });
 
+// Get Single Member Profile
+app.get('/api/members/:id', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const { role, id: officerId } = req.user;
+
+    const query = `
+        SELECT m.*, g.name as group_name,
+        (SELECT COALESCE(SUM(principal_amount), 0) FROM loans WHERE (guarantor1_id = m.id OR guarantor2_id = m.id) AND status = 'active') as total_guaranteed_amount,
+        CASE 
+            WHEN m.id = g.chairperson_id THEN 'Chairman'
+            WHEN m.id = g.secretary_id THEN 'Secretary'
+            WHEN m.id = g.treasurer_id THEN 'Treasurer'
+            ELSE 'Member'
+        END as group_role
+        FROM members m
+        LEFT JOIN groups g ON m.group_id = g.id
+        WHERE m.id = ?
+    `;
+
+    db.get(query, [id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: "Member not found" });
+
+        // Access Control: Field Officer must belong to member's group
+        if (role === 'Field Officer') {
+            db.get("SELECT 1 FROM officer_groups WHERE officer_id = ? AND group_id = ?", [officerId, row.group_id], (err, allowed) => {
+                if (err) return res.status(500).json({ error: err.message });
+                if (!allowed) return res.status(403).json({ error: "Access denied: You are not assigned to this member's group" });
+                res.json(row);
+            });
+        } else {
+            res.json(row);
+        }
+    });
+});
+
 // Create new member (WITH OPENING BALANCE RULES)
-app.post('/api/members', (req, res) => {
+app.post('/api/members', authenticateToken, (req, res) => {
     const {
         name, full_name, phone, groupId, group_id,
         opening_balance_savings = 0,
@@ -610,8 +662,8 @@ app.post('/api/members', (req, res) => {
             name, phone, group_id,
             opening_balance_savings, opening_balance_ltl, opening_balance_stl,
             opening_balance_set_by, opening_balance_set_at, opening_balance_reason, opening_balance_locked,
-            next_of_kin_name, next_of_kin_phone, next_of_kin_relationship
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            next_of_kin_name, next_of_kin_phone, next_of_kin_relationship, next_of_kin_member_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
         const now = new Date().toISOString();
         const locked = hasOpeningBalance ? 1 : 0; // Lock if opening balance is set
@@ -623,6 +675,7 @@ app.post('/api/members', (req, res) => {
             req.body.next_of_kin_name || null,
             req.body.next_of_kin_phone || null,
             req.body.next_of_kin_relationship || null,
+            req.body.next_of_kin_member_id || null,
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
                 logAudit(`Register Member: ${finalName}`, 'member', { id: this.lastID, name: finalName, groupId: finalGroupId });
@@ -1265,7 +1318,10 @@ app.post('/api/withdrawals', (req, res) => {
 
 // Issue Loan
 app.post('/api/loans', (req, res) => {
-    const { memberId, groupId, sessionId, loanType, amount, interestRate, duration, officerId } = req.body;
+    const {
+        memberId, groupId, sessionId, loanType, amount, interestRate, duration, officerId,
+        guarantor1_id, guarantor2_id
+    } = req.body;
 
     const issuedDate = new Date().toISOString().split('T')[0];
     const dueDate = new Date();
@@ -1277,40 +1333,44 @@ app.post('/api/loans', (req, res) => {
 
         const stmt = db.prepare(`INSERT INTO loans (
             member_id, group_id, loan_type, principal_amount, interest_rate, 
-            issued_date, due_date, status, issued_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`);
+            issued_date, due_date, status, issued_by, guarantor1_id, guarantor2_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`);
 
-        stmt.run(memberId, groupId || 1, loanType, amount, interestRate, issuedDate, dueDateStr, officerId || 1, function (err) {
-            if (err) {
-                db.run("ROLLBACK");
-                return res.status(500).json({ error: err.message });
-            }
-
-            const loanId = this.lastID;
-
-            // 1. Update member active loan balance
-            db.run("UPDATE members SET active_loan_balance = IFNULL(active_loan_balance, 0) + ? WHERE id = ?", [amount, memberId], (err) => {
+        stmt.run(
+            memberId, groupId || 1, loanType, amount, interestRate,
+            issuedDate, dueDateStr, officerId || 1,
+            guarantor1_id || null, guarantor2_id || null,
+            function (err) {
                 if (err) {
                     db.run("ROLLBACK");
                     return res.status(500).json({ error: err.message });
                 }
 
-                // 2. If session is active, record it in transactions for the ledger
-                if (sessionId) {
-                    const txStmt = db.prepare(`
+                const loanId = this.lastID;
+
+                // 1. Update member active loan balance
+                db.run("UPDATE members SET active_loan_balance = IFNULL(active_loan_balance, 0) + ? WHERE id = ?", [amount, memberId], (err) => {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+
+                    // 2. If session is active, record it in transactions for the ledger
+                    if (sessionId) {
+                        const txStmt = db.prepare(`
                         INSERT INTO transactions (
                             sessionId, memberId, loans_issued, transaction_type, description, attended
                         ) VALUES (?, ?, ?, 'LoanIssued', ?, 1)
                     `);
-                    txStmt.run(sessionId, memberId, amount, `${loanType} Loan Issued | Loan ID: ${loanId}`);
-                    txStmt.finalize();
-                }
+                        txStmt.run(sessionId, memberId, amount, `${loanType} Loan Issued | Loan ID: ${loanId}`);
+                        txStmt.finalize();
+                    }
 
-                db.run("COMMIT");
-                logAudit(`Issue Loan: ${amount}`, 'transaction', { memberId, loanId, amount, loanType });
-                res.json({ id: loanId, status: 'active', message: 'Loan issued successfully' });
+                    db.run("COMMIT");
+                    logAudit(`Issue Loan: ${amount}`, 'transaction', { memberId, loanId, amount, loanType });
+                    res.json({ id: loanId, status: 'active', message: 'Loan issued successfully' });
+                });
             });
-        });
         stmt.finalize();
     });
 });
@@ -1356,7 +1416,8 @@ app.get('/api/loan-applications', (req, res) => {
 app.post('/api/loan-applications', (req, res) => {
     const {
         memberId, groupId, loanType, amount, duration, purpose,
-        monthly_installment, principal_portion, interest_portion, shares_contribution, officerId
+        monthly_installment, principal_portion, interest_portion, shares_contribution, officerId,
+        guarantor1_id, guarantor2_id
     } = req.body;
 
     const appNumber = `APP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1365,14 +1426,14 @@ app.post('/api/loan-applications', (req, res) => {
         INSERT INTO loan_applications (
             application_number, member_id, group_id, loan_type, amount_requested, 
             duration_months, purpose, monthly_installment, interest_portion, 
-            principal_portion, shares_contribution, officer_id, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+            principal_portion, shares_contribution, officer_id, guarantor1_id, guarantor2_id, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
     `);
 
     stmt.run(
         appNumber, memberId, groupId, loanType, amount,
         duration, purpose, monthly_installment, interest_portion,
-        principal_portion, shares_contribution, officerId,
+        principal_portion, shares_contribution, officerId, guarantor1_id || null, guarantor2_id || null,
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             logAudit(`Submit Loan App: ${appNumber}`, 'transaction', { id: this.lastID, memberId, amount });

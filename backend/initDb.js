@@ -64,8 +64,10 @@ const init = async () => {
             next_of_kin_name TEXT,
             next_of_kin_phone TEXT,
             next_of_kin_relationship TEXT,
+            next_of_kin_member_id INTEGER, -- Linked to existing member
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (group_id) REFERENCES groups(id)
+            FOREIGN KEY (group_id) REFERENCES groups(id),
+            FOREIGN KEY (next_of_kin_member_id) REFERENCES members(id)
         )`);
 
         // 3. LOANS TABLE
@@ -80,9 +82,13 @@ const init = async () => {
             due_date TEXT NOT NULL,
             status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'defaulted', 'written_off')),
             issued_by INTEGER,
+            guarantor1_id INTEGER,
+            guarantor2_id INTEGER,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (group_id) REFERENCES groups(id)
+            FOREIGN KEY (group_id) REFERENCES groups(id),
+            FOREIGN KEY (guarantor1_id) REFERENCES members(id),
+            FOREIGN KEY (guarantor2_id) REFERENCES members(id)
         )`);
 
         // 4. MEETING SESSIONS
@@ -207,10 +213,14 @@ const init = async () => {
             principal_portion REAL,
             shares_contribution REAL,
             officer_id INTEGER,
+            guarantor1_id INTEGER,
+            guarantor2_id INTEGER,
             comments TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (group_id) REFERENCES groups(id)
+            FOREIGN KEY (group_id) REFERENCES groups(id),
+            FOREIGN KEY (guarantor1_id) REFERENCES members(id),
+            FOREIGN KEY (guarantor2_id) REFERENCES members(id)
         )`);
 
         // 9. OFFICERS

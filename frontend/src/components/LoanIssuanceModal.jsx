@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { checkLoanEligibility, calculateMaxLoan } from '../utils/loanRules';
 import { checkLoanApprovalBlock } from '../utils/cashReportEnforcement';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 
 // 🔐 LOAN TYPE RULES ENGINE
 const LOAN_TYPE_RULES = {
@@ -53,8 +54,29 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
     const [purpose, setPurpose] = useState('');
     const [guarantor1, setGuarantor1] = useState('');
     const [guarantor2, setGuarantor2] = useState('');
+    const [guarantor1Id, setGuarantor1Id] = useState('');
+    const [guarantor2Id, setGuarantor2Id] = useState('');
+    const [membersList, setMembersList] = useState([]);
+    const [loadingMembers, setLoadingMembers] = useState(false);
     const [repaymentPreview, setRepaymentPreview] = useState(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
+
+    // Fetch members for guarantors
+    useEffect(() => {
+        const fetchMembers = async () => {
+            setLoadingMembers(true);
+            try {
+                const data = await api.getMembers();
+                // Filter out the borrowing member
+                setMembersList(data.filter(m => m.id !== member.id));
+            } catch (error) {
+                console.error("Failed to fetch members for guarantors", error);
+            } finally {
+                setLoadingMembers(false);
+            }
+        };
+        if (isOpen) fetchMembers();
+    }, [isOpen, member.id]);
 
     // Meeting status check
     const hasMeeting = activeMeeting && activeMeeting.status === 'OPEN';
@@ -68,8 +90,9 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
     const currentRule = LOAN_TYPE_RULES[loanType];
     const interestRate = currentRule.interestRate;
 
-    // Calculate max loan based on type
-    const baseMaxLoan = member ? calculateMaxLoan(member.savings, systemRules.loanMultiplier) : 0;
+    // Calculate max loan based on type and liens
+    const rawLimit = member ? (member.savings * systemRules.loanMultiplier) : 0;
+    const baseMaxLoan = member ? calculateMaxLoan(member.savings, systemRules.loanMultiplier, member.guaranteedAmount || 0) : 0;
     const maxLoan = Math.min(baseMaxLoan, baseMaxLoan * (currentRule.maxMultiplier / systemRules.loanMultiplier));
 
     // Auto-calculate repayment
@@ -136,8 +159,13 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
             return;
         }
 
-        if (currentRule.requiresGuarantors && (!guarantor1 || !guarantor2)) {
+        if (currentRule.requiresGuarantors && (!guarantor1Id || !guarantor2Id)) {
             toast.error("⚠️ This loan type requires two guarantors");
+            return;
+        }
+
+        if (guarantor1Id && guarantor2Id && guarantor1Id === guarantor2Id) {
+            toast.error("⚠️ Guarantor 1 and Guarantor 2 must be different members");
             return;
         }
 
@@ -165,8 +193,10 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
             duration: parseInt(duration),
             interestRate: interestRate,
             purpose: purpose,
-            guarantor1: guarantor1,
-            guarantor2: guarantor2,
+            guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
+            guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null,
+            guarantor1_name: membersList.find(m => m.id === parseInt(guarantor1Id))?.name,
+            guarantor2_name: membersList.find(m => m.id === parseInt(guarantor2Id))?.name,
             meetingReference: activeMeeting.session_number,
             officerId: user?.id || 1,
             approvalStatus: currentRule.requiresApproval ? 'Pending' : 'Auto-Approved',
@@ -369,33 +399,39 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                             KES {baseMaxLoan.toLocaleString()}
                                         </div>
                                         <div className="text-[10px] text-gray-500 mt-1">
-                                            Calc: {member.savings.toLocaleString()} × 3
+                                            Calc: ({member.savings.toLocaleString()} × 3) {member.guaranteedAmount > 0 ? `- ${member.guaranteedAmount.toLocaleString()} Lien` : ''}
                                         </div>
                                     </div>
 
-                                    {/* Active Loans */}
-                                    <div className="bg-white p-3 rounded-xl">
+                                    {/* Active Loans Card - same code ... */}
+                                    <div className="bg-white p-3 rounded-xl border-l-4 border-orange-500">
                                         <div className="flex items-center justify-between mb-1">
                                             <div className="text-xs text-gray-500">Active Loans</div>
-                                            <button
-                                                type="button"
-                                                className="text-gray-400 hover:text-gray-600"
-                                                title="Total outstanding loan balance. Having active loans reduces available loan capacity."
-                                            >
-                                                <FaInfoCircle className="text-[10px]" />
-                                            </button>
                                         </div>
                                         <div className={`text-lg font-black ${member.activeLoans > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                                             KES {member.activeLoans.toLocaleString()}
                                         </div>
-                                        {member.activeLoans > maxLoan * 0.5 ? (
-                                            <div className="text-[10px] text-orange-600 mt-1 flex items-center gap-1">
-                                                <FaExclamationTriangle className="text-[8px]" />
-                                                High utilization
-                                            </div>
-                                        ) : (
-                                            <div className="text-[10px] text-gray-500 mt-1">
-                                                {((member.activeLoans / baseMaxLoan) * 100).toFixed(0)}% of limit
+                                    </div>
+
+                                    {/* Guaranteed for Others (LIEN) */}
+                                    <div className="bg-white p-3 rounded-xl border-l-4 border-blue-500">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <div className="text-xs text-gray-500">Liens (Guarantees)</div>
+                                            <button
+                                                type="button"
+                                                className="text-gray-400 hover:text-gray-600"
+                                                title="Total amount member has guaranteed for other members. This amount is 'locked' and reduces their own borrowing capacity."
+                                            >
+                                                <FaInfoCircle className="text-[10px]" />
+                                            </button>
+                                        </div>
+                                        <div className={`text-lg font-black ${member.guaranteedAmount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                            KES {(member.guaranteedAmount || 0).toLocaleString()}
+                                        </div>
+                                        {member.guaranteedAmount > 0 && (
+                                            <div className="text-[10px] text-blue-600 mt-1 flex items-center gap-1">
+                                                <FaLock className="text-[8px]" />
+                                                Reduces capacity
                                             </div>
                                         )}
                                     </div>
@@ -638,24 +674,31 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         </ul>
                                     </div>
 
-                                    <input
+                                    <select
                                         required={currentRule.requiresGuarantors}
-                                        type="text"
-                                        disabled={!hasMeeting}
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                                        placeholder="Guarantor 1 Name (must be present)"
-                                        value={guarantor1}
-                                        onChange={(e) => setGuarantor1(e.target.value)}
-                                    />
-                                    <input
+                                        disabled={!hasMeeting || loadingMembers}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed font-bold"
+                                        value={guarantor1Id}
+                                        onChange={(e) => setGuarantor1Id(e.target.value)}
+                                    >
+                                        <option value="">-- Select Guarantor 1 --</option>
+                                        {membersList.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name} (Savings: KES {m.savings?.toLocaleString()})</option>
+                                        ))}
+                                    </select>
+
+                                    <select
                                         required={currentRule.requiresGuarantors}
-                                        type="text"
-                                        disabled={!hasMeeting}
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                                        placeholder="Guarantor 2 Name (must be present)"
-                                        value={guarantor2}
-                                        onChange={(e) => setGuarantor2(e.target.value)}
-                                    />
+                                        disabled={!hasMeeting || loadingMembers}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none disabled:opacity-50 disabled:cursor-not-allowed font-bold"
+                                        value={guarantor2Id}
+                                        onChange={(e) => setGuarantor2Id(e.target.value)}
+                                    >
+                                        <option value="">-- Select Guarantor 2 --</option>
+                                        {membersList.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name} (Savings: KES {m.savings?.toLocaleString()})</option>
+                                        ))}
+                                    </select>
                                 </div>
                             )}
                         </div>

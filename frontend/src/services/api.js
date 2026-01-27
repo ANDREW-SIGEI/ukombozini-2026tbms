@@ -194,6 +194,7 @@ export const api = {
                 savings: member.current_savings || 0,
                 activeLoans: member.active_loan_balance || 0,
                 arrears: member.arrears || 0,
+                guaranteedAmount: member.total_guaranteed_amount || 0,
                 // Include original fields for backward compatibility/extra logic
                 full_name: member.name || member.full_name,
                 current_savings: member.current_savings || 0,

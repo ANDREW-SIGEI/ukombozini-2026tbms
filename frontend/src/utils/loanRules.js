@@ -9,10 +9,11 @@
  * Calculate maximum loan amount based on member's total contributions
  * @param {number} totalContributions - Member's total contributions
  * @param {number} multiplier - Loan multiplier (e.g., 3 for 3x)
+ * @param {number} guaranteedAmount - Amount member has guaranteed for others
  * @returns {number}
  */
-export const calculateMaxLoan = (totalContributions, multiplier) => {
-    return totalContributions * multiplier;
+export const calculateMaxLoan = (totalContributions, multiplier, guaranteedAmount = 0) => {
+    return (totalContributions * multiplier) - guaranteedAmount;
 };
 
 /**
@@ -99,13 +100,19 @@ export const checkLoanEligibility = (member, systemRules, requestedAmount, activ
 
     // Calculate max loan based on contributions
     const totalContributions = member.totalContributions || 0;
-    const maxLoan = calculateMaxLoan(totalContributions, loan_max_multiplier);
+    const guaranteedAmount = member.guaranteedAmount || 0;
+    const rawMaxLoan = totalContributions * loan_max_multiplier;
+    const maxLoan = rawMaxLoan - guaranteedAmount;
 
     if (maxLoan < loan_min_amount) {
+        let reason = `Insufficient contributions. Member needs at least KES ${Math.ceil(loan_min_amount / loan_max_multiplier).toLocaleString()} in contributions to qualify for a loan.`;
+        if (guaranteedAmount > 0) {
+            reason = `Insufficient available capacity. Member has raw limit of KES ${rawMaxLoan.toLocaleString()} but has KES ${guaranteedAmount.toLocaleString()} in liens (guarantees for others).`;
+        }
         return {
             eligible: false,
             maxLoan: 0,
-            reason: `Insufficient contributions. Member needs at least KES ${Math.ceil(loan_min_amount / loan_max_multiplier).toLocaleString()} in contributions to qualify for a loan.`,
+            reason,
         };
     }
 
@@ -114,7 +121,7 @@ export const checkLoanEligibility = (member, systemRules, requestedAmount, activ
         return {
             eligible: false,
             maxLoan,
-            reason: `Requested amount exceeds maximum allowed. Based on contributions of KES ${totalContributions.toLocaleString()}, maximum loan is KES ${maxLoan.toLocaleString()} (${loan_max_multiplier}x multiplier).`,
+            reason: `Requested amount exceeds maximum allowed. Based on contributions of KES ${totalContributions.toLocaleString()} and guarantees of KES ${guaranteedAmount.toLocaleString()}, maximum loan is KES ${maxLoan.toLocaleString()}.`,
         };
     }
 
@@ -138,7 +145,7 @@ export const checkLoanEligibility = (member, systemRules, requestedAmount, activ
         return {
             eligible: false,
             maxLoan: availableLoan,
-            reason: `Insufficient available loan limit. Member has KES ${totalOutstanding.toLocaleString()} in outstanding loans. Available limit: KES ${availableLoan.toLocaleString()}.`,
+            reason: `Insufficient available loan limit. Member has KES ${totalOutstanding.toLocaleString()} in outstanding loans and KES ${guaranteedAmount.toLocaleString()} in liens. Available limit: KES ${availableLoan.toLocaleString()}.`,
         };
     }
 
@@ -196,12 +203,12 @@ export const autoUpdateLoanStatus = (loan, currentDate = new Date()) => {
 
     if (isLoanOverdue(loan.dueDate, currentDate)) {
         const daysOverdue = calculateDaysOverdue(loan.dueDate, currentDate);
-        
+
         // Consider defaulted after 90 days overdue
         if (daysOverdue > 90) {
             return 'defaulted';
         }
-        
+
         return 'overdue';
     }
 
