@@ -291,7 +291,11 @@ export const api = {
      */
     async postContribution(contributionData) {
         try {
-            const response = await axiosInstance.post('/transactions', contributionData);
+            const payload = {
+                ...contributionData,
+                sessionId: contributionData.meetingId // Map meetingId to sessionId requirement
+            };
+            const response = await axiosInstance.post('/contributions', payload);
             return response.data;
         } catch (error) {
             handleApiError(error);

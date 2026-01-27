@@ -1355,16 +1355,19 @@ app.post('/api/loans', (req, res) => {
                         return res.status(500).json({ error: err.message });
                     }
 
-                    // 2. If session is active, record it in transactions for the ledger
-                    if (sessionId) {
-                        const txStmt = db.prepare(`
+                    // 2. Strict Session Enforcement for Ledger
+                    if (!sessionId) {
+                        db.run("ROLLBACK");
+                        return res.status(400).json({ error: "Session Integrity Violation: Loan cannot be issued without an active Meeting Session." });
+                    }
+
+                    const txStmt = db.prepare(`
                         INSERT INTO transactions (
                             sessionId, memberId, loans_issued, transaction_type, description, attended
                         ) VALUES (?, ?, ?, 'LoanIssued', ?, 1)
                     `);
-                        txStmt.run(sessionId, memberId, amount, `${loanType} Loan Issued | Loan ID: ${loanId}`);
-                        txStmt.finalize();
-                    }
+                    txStmt.run(sessionId, memberId, amount, `${loanType} Loan Issued | Loan ID: ${loanId}`);
+                    txStmt.finalize();
 
                     db.run("COMMIT");
                     logAudit(`Issue Loan: ${amount}`, 'transaction', { memberId, loanId, amount, loanType });
@@ -1712,15 +1715,23 @@ app.post('/api/dividends/post', (req, res) => {
 });
 
 // Contributions Endpoint (Local)
-app.post('/api/contributions', (req, res) => {
-    const { memberId, amount, type } = req.body;
+// Contributions Endpoint (Local) - STRICT SESSION ENFORCEMENT
+app.post('/api/contributions', authenticateToken, (req, res) => {
+    const { memberId, amount, type, sessionId } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).json({ error: "Session Integrity Violation: Contribution must be linked to an active Session." });
+    }
+
+    // Optional: Verify session is actually open (can be added if strictness needs to prevent late posting to closed sessions)
+
     const stmt = db.prepare(`
         INSERT INTO transactions (
-            memberId, savings_amount, transaction_type, description, created_at, uploaded
-        ) VALUES (?, ?, 'Contribution', ?, ?, 1)
+            sessionId, memberId, savings_amount, transaction_type, description, created_at, uploaded
+        ) VALUES (?, ?, ?, 'Contribution', ?, ?, 1)
     `);
 
-    stmt.run(memberId, amount, `${type} Contribution`, new Date().toISOString(), function (err) {
+    stmt.run(sessionId, memberId, amount, `${type} Contribution`, new Date().toISOString(), function (err) {
         if (err) return res.status(500).json({ error: err.message });
 
         // Update Savings
