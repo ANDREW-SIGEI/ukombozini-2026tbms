@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
     FaUserPlus, FaMagnifyingGlass, FaClockRotateLeft, FaUser, FaCircleInfo,
     FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
@@ -19,6 +19,7 @@ const RELATIONSHIP_OPTIONS = [
 
 const Members = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const { activeSession } = useTransactions();
     const [searchTerm, setSearchTerm] = useState('');
     const [showEditModal, setShowEditModal] = useState(false);
@@ -653,7 +654,7 @@ const Members = () => {
                                                     </button>
                                                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
                                                     <button
-                                                        onClick={() => { setSelectedMember(member); setShowLedgerModal(true); }}
+                                                        onClick={() => navigate(`/members/${member.id}`)}
                                                         className="w-8 h-8 rounded-lg flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-colors"
                                                         title="View History"
                                                     >

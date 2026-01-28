@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
     FaPlus, FaSearch, FaFilter, FaFileDownload,
-    FaMoneyBillWave, FaExclamationTriangle, FaCheckCircle, FaSpinner
+    FaMoneyBillWave, FaExclamationTriangle, FaCheckCircle, FaSpinner,
+    FaFileExcel, FaFilePdf
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import ExcelService from '../services/excelService';
+import PdfService from '../services/pdfService';
 
 const Loans = () => {
     const navigate = useNavigate();
@@ -64,6 +67,45 @@ const Loans = () => {
         return matchesSearch && matchesFilter;
     });
 
+    const handleExportList = () => {
+        if (!filteredLoans || filteredLoans.length === 0) return toast.info("No loans to export");
+
+        const exportData = filteredLoans.map(l => ({
+            id: l.id,
+            member: l.members?.full_name || 'Unknown',
+            principal: l.principal_amount || 0,
+            status: l.status,
+            duration: l.duration_months,
+            repayable: l.total_repayable || 0,
+            issued: new Date(l.created_at).toLocaleDateString()
+        }));
+
+        const columns = [
+            { header: 'Loan ID', key: 'id' },
+            { header: 'Member Name', key: 'member' },
+            { header: 'Date Issued', key: 'issued' },
+            { header: 'Principal (KES)', key: 'principal', formatter: (val) => val.toLocaleString() },
+            { header: 'Duration (Months)', key: 'duration' },
+            { header: 'Total Repayable', key: 'repayable', formatter: (val) => val.toLocaleString() },
+            { header: 'Current Status', key: 'status' }
+        ];
+
+        ExcelService.exportToExcel(
+            exportData,
+            columns,
+            "Loan Portfolio Schedule",
+            "Loan_Schedule_Active",
+            { "Total Principal": stats.totalPrincipal.toLocaleString(), "Active Count": stats.countActive }
+        );
+        toast.success("Loan Schedule Exported");
+    };
+
+    const handleExportPDF = () => {
+        if (!filteredLoans || filteredLoans.length === 0) return toast.info("No loans to export");
+        PdfService.generateLoanSchedule(filteredLoans, stats);
+        toast.success("PDF Schedule Downloaded");
+    };
+
     const getStatusStyle = (status) => {
         const styles = {
             'Active': 'bg-green-100 text-green-800 border-green-200',
@@ -87,8 +129,15 @@ const Loans = () => {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <button className="flex items-center gap-2 bg-white border-2 border-gray-200 text-gray-600 px-4 py-2 rounded-xl font-bold hover:bg-gray-50 transition-colors">
-                        <FaFileDownload /> Export List
+                    <button
+                        onClick={handleExportList}
+                        className="flex items-center gap-2 bg-white border-2 border-gray-200 text-gray-600 px-4 py-2 rounded-xl font-bold hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all text-sm">
+                        <FaFileExcel className="text-lg" /> Excel
+                    </button>
+                    <button
+                        onClick={handleExportPDF}
+                        className="flex items-center gap-2 bg-white border-2 border-gray-200 text-gray-600 px-4 py-2 rounded-xl font-bold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all text-sm">
+                        <FaFilePdf className="text-lg" /> PDF
                     </button>
                     <button
                         onClick={() => navigate('/loan-approvals')}

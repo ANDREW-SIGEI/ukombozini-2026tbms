@@ -39,6 +39,7 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const FinancialReports = lazy(() => import('./pages/FinancialReports'));
 const ProjectManager = lazy(() => import('./pages/ProjectManager'));
+const GroupLedger = lazy(() => import('./pages/GroupLedger'));
 
 
 // Profile component
@@ -129,6 +130,7 @@ function App() {
             <Route element={<ProtectedLayout allowedRoles={['admin', 'director']}><Layout><Outlet /></Layout></ProtectedLayout>}>
               <Route path="/admin" element={<AdminPanel />} />
               <Route path="/groups" element={<GroupsManagement />} />
+              <Route path="/groups/:id/ledger" element={<GroupLedger />} />
               <Route path="/officers" element={<Officers />} />
               <Route path="/dividends" element={<DividendManagement />} />
               <Route path="/sms-reports" element={<SMSReports />} />

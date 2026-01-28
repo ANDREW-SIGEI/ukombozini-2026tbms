@@ -547,6 +547,16 @@ export const api = {
         }
     },
 
+    async getGroupTransactions(groupId) {
+        try {
+            const response = await axiosInstance.get(`/groups/${groupId}/transactions`);
+            return response.data;
+        } catch (error) {
+            console.error('getGroupTransactions error:', error);
+            return [];
+        }
+    },
+
     // ========================================
     // ADMIN & SYSTEM MANAGEMENT
     // ========================================

@@ -117,7 +117,7 @@ const MemberLedger = () => {
             return {
                 ...txn,
                 date: txn.created_at,
-                type: txn.type.charAt(0).toUpperCase() + txn.type.slice(1).replace('_', ' '), // Format type
+                type: (txn.type || 'unknown').charAt(0).toUpperCase() + (txn.type || 'unknown').slice(1).replace('_', ' '), // Format type
                 reference: txn.reference || `TRX - ${txn.id} `,
                 debit,
                 credit,
@@ -179,7 +179,23 @@ const MemberLedger = () => {
             Status: 'Completed'
         }));
 
-        ExcelService.exportToExcel(data, `Statement_${member.name.replace(/\s+/g, '_')}`, 'Ledger');
+        // Define Columns
+        const columns = [
+            { header: 'Date', key: 'Date' },
+            { header: 'Reference', key: 'Ref' },
+            { header: 'Type', key: 'Type' },
+            { header: 'Description', key: 'Description' },
+            { header: 'Amount (KES)', key: 'Amount' },
+            { header: 'Status', key: 'Status' }
+        ];
+
+        ExcelService.exportToExcel(
+            data,
+            columns,
+            "Member Ledger Statement",
+            `Statement_${member.name.replace(/\s+/g, '_')}`,
+            { "Member Name": member.name, "Member ID": member.id }
+        );
         toast.success("Excel Exported!");
     };
 
@@ -270,11 +286,11 @@ const MemberLedger = () => {
                     </div>
                     <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
                         <p className="text-xs text-blue-100 uppercase font-bold">Total Savings</p>
-                        <p className="text-lg font-black mt-1">KES {member.savings.toLocaleString()}</p>
+                        <p className="text-lg font-black mt-1">KES {(member.savings || 0).toLocaleString()}</p>
                     </div>
                     <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
                         <p className="text-xs text-blue-100 uppercase font-bold">Active Loan</p>
-                        <p className="text-lg font-black mt-1">KES {member.activeLoans.toLocaleString()}</p>
+                        <p className="text-lg font-black mt-1">KES {(member.activeLoans || 0).toLocaleString()}</p>
                     </div>
                     <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
                         <p className="text-xs text-blue-100 uppercase font-bold">Monthly Installment</p>
@@ -284,7 +300,7 @@ const MemberLedger = () => {
                         <p className="text-xs text-blue-100 uppercase font-bold">Current Arrears</p>
                         <p className="text-lg font-black mt-1">
                             {member.arrears > 0 ? (
-                                <span className="text-red-300">KES {member.arrears.toLocaleString()}</span>
+                                <span className="text-red-300">KES {(member.arrears || 0).toLocaleString()}</span>
                             ) : (
                                 <span className="text-green-300">KES 0</span>
                             )}
@@ -293,7 +309,7 @@ const MemberLedger = () => {
                     <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
                         <p className="text-xs text-blue-100 uppercase font-bold">Net Position</p>
                         <p className="text-lg font-black mt-1">
-                            KES {(member.savings - member.activeLoans - (member.arrears || 0)).toLocaleString()}
+                            KES {((member.savings || 0) - (member.activeLoans || 0) - (member.arrears || 0)).toLocaleString()}
                         </p>
                     </div>
                     <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm lg:col-span-1">
@@ -408,7 +424,7 @@ const MemberLedger = () => {
                                         <td className="px-6 py-4 text-right">
                                             {txn.debit > 0 ? (
                                                 <span className="text-red-600 font-bold font-mono">
-                                                    KES {txn.debit.toLocaleString()}
+                                                    KES {(txn.debit || 0).toLocaleString()}
                                                 </span>
                                             ) : (
                                                 <span className="text-gray-300">–</span>
@@ -417,7 +433,7 @@ const MemberLedger = () => {
                                         <td className="px-6 py-4 text-right">
                                             {txn.credit > 0 ? (
                                                 <span className="text-green-600 font-bold font-mono">
-                                                    KES {txn.credit.toLocaleString()}
+                                                    KES {(txn.credit || 0).toLocaleString()}
                                                 </span>
                                             ) : (
                                                 <span className="text-gray-300">–</span>
@@ -425,7 +441,7 @@ const MemberLedger = () => {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <span className="text-blue-900 font-black font-mono text-base">
-                                                KES {txn.balance.toLocaleString()}
+                                                KES {(txn.balance || 0).toLocaleString()}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-gray-600 text-xs">{txn.notes}</td>

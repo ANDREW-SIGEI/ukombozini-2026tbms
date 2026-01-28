@@ -20,8 +20,12 @@ import {
     FaLightbulb,
     FaLayerGroup,
     FaPrint,
-    FaFileExport
+    FaFileExport,
+    FaFileExcel,
+    FaFilePdf
 } from 'react-icons/fa';
+import ExcelService from '../services/excelService';
+import PdfService from '../services/pdfService';
 import { Doughnut, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, LineElement, PointElement, LinearScale, CategoryScale } from 'chart.js';
 
@@ -143,6 +147,51 @@ const ProjectManager = () => {
     const fetchMemberStatus = async (memberId) => { setMemberStatus(await api.getProjectMemberStatus(memberId)); };
     const fetchDayLimit = async (memberId) => { setDailyLimit(await api.getProjectMemberDayLimit(memberId)); };
     const fetchGroupMatrix = async (groupId) => { setGroupMatrix(await api.getProjectGroupMatrix(groupId)); };
+
+    // EXCEL EXPORT HANDLER
+    const handleExportExcel = () => {
+        if (!groupMatrix || groupMatrix.length === 0) return toast.info("No data to export");
+
+        const exportData = groupMatrix.map(m => ({
+            name: m.name,
+            phone: m.phone || '-',
+            edu_saved: m.edu_saved || 0,
+            agri_saved: m.agri_saved || 0,
+            total_saved: (m.edu_saved || 0) + (m.agri_saved || 0),
+            payout_eligibility: ((m.edu_saved || 0) + (m.agri_saved || 0)) * 1.5,
+            health_score: calculateHealthScore(m) + '%',
+            status: ((m.edu_saved || 0) + (m.agri_saved || 0)) >= 2000 ? 'MAX CAP' : 'ACTIVE'
+        }));
+
+        const columns = [
+            { header: 'Member Name', key: 'name' },
+            { header: 'Phone', key: 'phone' },
+            { header: 'Education Pool (KES)', key: 'edu_saved', formatter: (val) => val.toLocaleString() },
+            { header: 'Agriculture Pool (KES)', key: 'agri_saved', formatter: (val) => val.toLocaleString() },
+            { header: 'Total Invested', key: 'total_saved', formatter: (val) => val.toLocaleString() },
+            { header: 'Jan Payout (150%)', key: 'payout_eligibility', formatter: (val) => val.toLocaleString() },
+            { header: 'Health Score', key: 'health_score' },
+            { header: 'Account Status', key: 'status' }
+        ];
+
+        const groupName = groups.find(g => g.id == selectedGroup)?.group_name || 'All Groups';
+        ExcelService.exportToExcel(
+            exportData,
+            columns,
+            `Project Matrix - ${groupName}`,
+            `ProjectMatrix_${groupName.replace(/\s+/g, '_')}`,
+            { "Group": groupName, "Total Members": exportData.length }
+        );
+        toast.success("Excel Matrix Downloaded Successfully");
+    };
+
+    // PDF EXPORT HANDLER
+    const handleExportPDF = () => {
+        if (!groupMatrix || groupMatrix.length === 0) return toast.info("No data to export");
+        const groupName = groups.find(g => g.id == selectedGroup)?.group_name || 'All Groups';
+        PdfService.generateProjectMatrix(groupMatrix, groupName);
+        toast.success("PDF Matrix Downloaded");
+    };
 
     const handleRegister = async () => {
         if (!selectedMember) return toast.error('Select member');
@@ -397,6 +446,25 @@ const ProjectManager = () => {
                                 <div className={`w-3 h-3 rounded-full ${isSaveWindow && !isRegWindow ? 'bg-blue-500 shadow-[0_0_10px_#3B82F6]' : 'bg-gray-200'}`} title="Saving Window"></div>
                                 <div className={`w-3 h-3 rounded-full ${!isSaveWindow ? 'bg-red-500 shadow-[0_0_10px_#EF4444]' : 'bg-gray-200'}`} title="Locked / Payout"></div>
                             </div>
+
+                            <div className="h-10 w-px bg-gray-100 mx-4"></div>
+
+                            <button
+                                onClick={handleExportExcel}
+                                disabled={!selectedGroup}
+                                className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold hover:bg-emerald-100 hover:scale-105 active:scale-95 transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <FaFileExcel className="text-lg" />
+                                <span>Export Excel</span>
+                            </button>
+                            <button
+                                onClick={handleExportPDF}
+                                disabled={!selectedGroup}
+                                className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl font-bold hover:bg-red-100 hover:scale-105 active:scale-95 transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <FaFilePdf className="text-lg" />
+                                <span>Export PDF</span>
+                            </button>
                         </div>
                     </div>
                 </div>

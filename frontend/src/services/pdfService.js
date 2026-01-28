@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 // BRAND COLORS
 const SAFARICOM_GREEN = [67, 176, 42]; // #43B02A
@@ -142,7 +142,7 @@ const PdfService = {
             ];
         });
 
-        doc.autoTable({
+        autoTable(doc, {
             startY: startY + 35,
             head: headers,
             body: data,
@@ -173,6 +173,99 @@ const PdfService = {
 
         addFooter();
         doc.save(`Statement_${member.name.replace(/\s+/g, '_')}.pdf`);
+    },
+
+    /**
+     * GENERATE GROUP STATEMENT (Consolidated)
+     */
+    generateGroupStatement(group, transactions, dateRange) {
+        const { doc, addFooter } = this.initDoc("Group Ledger", `Group: ${group.name} | Period: ${dateRange}`);
+
+        // Summary Card
+        const startY = 60;
+        doc.setFillColor(248, 250, 248);
+        doc.setDrawColor(200, 200, 200);
+        doc.roundedRect(15, startY, 180, 25, 2, 2, 'FD');
+
+        const labelX = 20;
+        const valueX = 55;
+        const labelX2 = 110;
+        const valueX2 = 140;
+        const row1 = startY + 8;
+        const row2 = startY + 16;
+
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+
+        doc.text("Group Name:", labelX, row1);
+        doc.text("Total Members:", labelX, row2);
+        doc.text("Total Transactions:", labelX2, row1);
+        doc.text("Report Date:", labelX2, row2);
+
+        doc.setTextColor(0);
+        doc.setFont('helvetica', 'bold');
+        doc.text(group.name, valueX, row1);
+        doc.text(`${group.member_count || '-'} Members`, valueX, row2);
+        doc.text(`${transactions.length}`, valueX2, row1);
+        doc.text(new Date().toLocaleDateString(), valueX2, row2);
+
+        // --- TABLE ---
+        const headers = [["Date", "Member", "Ref", "Type", "Debit (Out)", "Credit (In)"]];
+
+        // Data Processing - Sort by date descending (Newest first) or ascending? 
+        // Ledgers usually ascending for balance calculation, but since there's no single balance, Descending is better for history.
+        // Let's do Descending (Newest first) as requested by general utility
+        const sortedTx = [...transactions].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        const data = sortedTx.map(t => {
+            const amount = t.amount || (t.savings_amount + t.loan_interest + t.fines + t.welfare) || 0;
+            const isCredit = ['Savings', 'LoanRepayment', 'DividendPayout', 'Contribution', 'SocialWelfare'].includes(t.transaction_type);
+            // Note: DividendPayout is Money OUT from Group perspective if checking cash, but IN for member.
+            // This is a "Member Activity Log" for the group. 
+            // So Credits = Member Deposits. Debits = Member Withdrawals/Loans.
+
+            const isDebit = ['Withdrawal', 'LoanIssue'].includes(t.transaction_type);
+
+            return [
+                new Date(t.created_at).toLocaleDateString(),
+                t.memberName || 'Unknown',
+                `TX-${t.id}`,
+                t.transaction_type,
+                isDebit ? amount.toLocaleString() : "-",
+                isCredit ? amount.toLocaleString() : "-"
+            ];
+        });
+
+        autoTable(doc, {
+            startY: startY + 35,
+            head: headers,
+            body: data,
+            theme: 'grid',
+            headStyles: {
+                fillColor: SAFARICOM_GREEN,
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                halign: 'center'
+            },
+            bodyStyles: {
+                fontSize: 8,
+                cellPadding: 3
+            },
+            columnStyles: {
+                0: { cellWidth: 25 },
+                1: { cellWidth: 40, fontStyle: 'bold' },
+                2: { cellWidth: 20 },
+                3: { cellWidth: 35 },
+                4: { cellWidth: 30, halign: 'right', textColor: [200, 0, 0] }, // Debit Red
+                5: { cellWidth: 30, halign: 'right', textColor: [0, 100, 0] }  // Credit Green
+            },
+            alternateRowStyles: {
+                fillColor: [245, 245, 245]
+            }
+        });
+
+        addFooter();
+        doc.save(`Group_Ledger_${group.name.replace(/\s+/g, '_')}.pdf`);
     },
 
     /**
@@ -235,6 +328,218 @@ const PdfService = {
 
         addFooter();
         doc.save(`Dividend_Voucher_${allocation.name}.pdf`);
+    },
+    /**
+     * GENERATE LOAN SCHEDULE
+     */
+    generateLoanSchedule(loans, stats) {
+        const { doc, addFooter } = this.initDoc("Loan Portfolio Schedule", "Active & Defaulted Loans");
+
+        // Summary Statistics
+        doc.setFontSize(12);
+        doc.setTextColor(...DARK_GREY);
+        doc.text("Portfolio Summary", 15, 58);
+
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Total Active Principal:`, 15, 65);
+        doc.text(`Active Loans Count:`, 15, 71);
+        doc.text(`Defaulted Count:`, 80, 71);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0);
+        doc.text(`KES ${stats.totalPrincipal.toLocaleString()}`, 55, 65);
+        doc.text(`${stats.countActive}`, 55, 71);
+        doc.setTextColor(200, 0, 0);
+        doc.text(`${stats.countDefaulted}`, 115, 71);
+
+        const data = loans.map(l => [
+            l.id,
+            l.members?.full_name || 'Unknown',
+            `KES ${l.principal_amount?.toLocaleString()}`,
+            `KES ${l.total_repayable?.toLocaleString()}`,
+            l.duration_months + ' M',
+            l.status,
+            new Date(l.created_at).toLocaleDateString()
+        ]);
+
+        autoTable(doc, {
+            startY: 80,
+            head: [['ID', 'Member', 'Principal', 'Repayable', 'Term', 'Status', 'Issued']],
+            body: data,
+            theme: 'grid',
+            headStyles: { fillColor: SAFARICOM_GREEN },
+            styles: { fontSize: 8, cellPadding: 3 },
+            columnStyles: {
+                0: { cellWidth: 15 },
+                1: { cellWidth: 'auto' },
+                2: { halign: 'right', fontStyle: 'bold' },
+                3: { halign: 'right' },
+                4: { halign: 'center' },
+                5: { fontStyle: 'bold', halign: 'center' },
+                6: { halign: 'right' }
+            },
+            didParseCell: (data) => {
+                if (data.section === 'body' && data.column.index === 5) {
+                    const status = data.cell.raw;
+                    if (status === 'active' || status === 'Active') data.cell.styles.textColor = [0, 100, 0];
+                    if (status === 'defaulted' || status === 'Defaulted') data.cell.styles.textColor = [200, 0, 0];
+                }
+            }
+        });
+
+        addFooter();
+        doc.save(`Loan_Schedule_${new Date().toISOString().split('T')[0]}.pdf`);
+    },
+    /**
+     * GENERATE PROJECT MATRIX
+     */
+    generateProjectMatrix(groupMatrix, groupName) {
+        const { doc, addFooter } = this.initDoc("Project Savings Matrix", `Group: ${groupName}`);
+
+        // Summary Statistics
+        const totalSaved = groupMatrix.reduce((sum, m) => sum + (m.edu_saved || 0) + (m.agri_saved || 0), 0);
+        const totalPayout = totalSaved * 1.5;
+
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text("Group Performance:", 15, 60);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0);
+        doc.text(`Total Project Pool: KES ${totalSaved.toLocaleString()}`, 15, 66);
+        doc.setTextColor(...SAFARICOM_GREEN);
+        doc.text(`Predicted Jan Payout: KES ${totalPayout.toLocaleString()}`, 15, 72);
+
+        const data = groupMatrix.map(m => {
+            const saved = (m.edu_saved || 0) + (m.agri_saved || 0);
+            return [
+                m.name,
+                `KES ${(m.edu_saved || 0).toLocaleString()}`,
+                `KES ${(m.agri_saved || 0).toLocaleString()}`,
+                `KES ${saved.toLocaleString()}`,
+                `KES ${(saved * 1.5).toLocaleString()}`,
+                saved >= 2000 ? 'MAX CAP' : 'ACTIVE'
+            ];
+        });
+
+        autoTable(doc, {
+            startY: 80,
+            head: [['Member Name', 'Education', 'Agriculture', 'Total Invested', 'Jan Payout (150%)', 'Status']],
+            body: data,
+            theme: 'grid',
+            headStyles: { fillColor: SAFARICOM_GREEN },
+            styles: { fontSize: 9, cellPadding: 3 },
+            columnStyles: {
+                1: { halign: 'right' },
+                2: { halign: 'right' },
+                3: { halign: 'right', fontStyle: 'bold' },
+                4: { halign: 'right', textColor: [0, 100, 0], fontStyle: 'bold' },
+                5: { halign: 'center', fontStyle: 'bold' }
+            }
+        });
+
+        addFooter();
+        doc.save(`Project_Matrix_${groupName.replace(/\s+/g, '_')}.pdf`);
+    },
+    /**
+     * GENERATE DAILY CASH CLOSING SLIP
+     */
+    generateDailyClosingSlip(report, summary, user, groupName) {
+        // A5 equivalent width (148mm) usually better for slips, but A4 Portrait is fine for official docs
+        const { doc, addFooter, PageWidth } = this.initDoc("Daily Cash Closing Slip", `Group: ${groupName} | Date: ${report.date}`);
+
+        const cols = [40, 100, 160];
+        let y = 60;
+
+        // 1. OFFICER DETAILS
+        doc.setFillColor(245, 245, 245);
+        doc.rect(15, y, PageWidth - 30, 20, 'F');
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text("Field Officer:", 20, y + 8);
+        doc.text("Session ID:", 110, y + 8);
+        doc.text("Status:", 20, y + 16);
+
+        doc.setTextColor(0);
+        doc.setFont('helvetica', 'bold');
+        doc.text(user.name, 45, y + 8);
+        doc.text(report.sys_ref || 'N/A', 135, y + 8);
+
+        if (report.isBalanced) {
+            doc.setTextColor(...SAFARICOM_GREEN);
+            doc.text("BALANCED & VERIFIED", 45, y + 16);
+        } else {
+            doc.setTextColor(200, 0, 0);
+            doc.text("DISCREPANCY FLAGGED", 45, y + 16);
+        }
+
+        y += 30;
+
+        // 2. CASH FLOW SUMMARY
+        doc.setTextColor(0);
+        doc.setFontSize(14);
+        doc.text("Cash Flow Summary", 15, y);
+        doc.setDrawColor(...SAFARICOM_GREEN);
+        doc.line(15, y + 2, 70, y + 2);
+        y += 10;
+
+        const summaryData = [
+            ["Total Cash Collected (In)", `KES ${summary.totalIn.toLocaleString()}`],
+            ["Total Cash Disbursed (Out)", `KES ${summary.totalOut.toLocaleString()}`],
+            ["Net Cash at Hand", `KES ${summary.netCash.toLocaleString()}`],
+            ["Banked Amount (Treasury)", `KES ${summary.banked.toLocaleString()}`]
+        ];
+
+        autoTable(doc, {
+            startY: y,
+            head: [['Description', 'Amount']],
+            body: summaryData,
+            theme: 'grid',
+            headStyles: { fillColor: [60, 60, 60] },
+            columnStyles: {
+                0: { cellWidth: 100 },
+                1: { cellWidth: 60, halign: 'right', fontStyle: 'bold' }
+            }
+        });
+
+        y = doc.lastAutoTable.finalY + 20;
+
+        // 3. DENOMINATION BREAKDOWN (If available)
+        // ... (Skipping for now as strict denoms aren't in frontend state yet)
+
+        // 4. SIGNATURES
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text("Authorized Signatures:", 15, y);
+        y += 5;
+        doc.setDrawColor(200);
+        doc.line(15, y, PageWidth - 15, y);
+        y += 15;
+
+        // Signature Boxes
+        const boxWidth = 50;
+        const boxHeight = 25;
+
+        doc.rect(20, y, boxWidth, boxHeight);
+        doc.rect(80, y, boxWidth, boxHeight);
+        doc.rect(140, y, boxWidth, boxHeight);
+
+        y += boxHeight + 5;
+        doc.setFontSize(8);
+        doc.setTextColor(0);
+        doc.text("Treasurer", 45, y, { align: 'center' });
+        doc.text("Secretary", 105, y, { align: 'center' });
+        doc.text("Chairperson", 165, y, { align: 'center' });
+
+        // Disclaimer
+        y += 15;
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(150);
+        doc.text("* By signing, officials confirm the physical cash matches the Net Cash figure above.", PageWidth / 2, y, { align: 'center' });
+
+        addFooter();
+        doc.save(`Daily_Closing_Slip_${report.date}.pdf`);
     }
 };
 

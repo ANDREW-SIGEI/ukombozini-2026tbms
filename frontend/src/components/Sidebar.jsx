@@ -6,7 +6,7 @@ import {
     FaHandHoldingDollar, FaFileInvoiceDollar, FaUserTie,
     FaScaleBalanced, FaGear, FaBell, FaCircleUser, FaCircleCheck,
     FaCommentSms, FaChartLine, FaClipboardList, FaArrowRightFromBracket,
-    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank
+    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank, FaSackDollar
 } from 'react-icons/fa6';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -29,6 +29,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 { path: '/members', name: 'Members', icon: <FaUsers /> },
                 ...(isPowerUser ? [{ path: '/groups', name: 'Groups', icon: <FaLayerGroup /> }] : []),
                 { path: '/meeting-sessions', name: 'Meeting Sessions', icon: <FaChartBar /> },
+                { path: '/daily-cash-report', name: 'Daily Cash Report', icon: <FaSackDollar /> },
                 { path: '/daily-meeting-report', name: 'Meeting Reports', icon: <FaFileLines /> },
             ]
         },

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     FaUsers, FaPlus, FaMagnifyingGlass, FaPenToSquare, FaTrash,
-    FaSpinner, FaCalendarDays, FaLocationDot, FaCircleCheck
+    FaSpinner, FaCalendarDays, FaLocationDot, FaCircleCheck, FaBook
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
@@ -9,6 +10,7 @@ import api from '../services/api';
 
 const GroupsManagement = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -347,6 +349,14 @@ const GroupsManagement = () => {
                                         className="flex items-center gap-2 text-sm font-bold text-gray-600 hover:text-safaricom-green transition-colors"
                                     >
                                         <FaPenToSquare /> Manage
+                                    </button>
+                                </div>
+                                <div className="px-6 pb-4 flex justify-between">
+                                    <button
+                                        onClick={() => navigate(`/groups/${group.id}/ledger`)}
+                                        className="w-full flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 py-2 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors"
+                                    >
+                                        <FaBook /> View Ledger
                                     </button>
                                 </div>
                             </div>

@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
 import { mockGroups, mockMembers } from "../data/mockData";
 import MemberTransactionTable from "../components/MemberTransactionTable";
+import PdfService from "../services/pdfService";
+import { FaFilePdf, FaCheckCircle, FaPrint } from "react-icons/fa";
 
 export default function DailyCashReport() {
     const [selectedGroup, setSelectedGroup] = useState(mockGroups[0]);
@@ -81,8 +83,26 @@ export default function DailyCashReport() {
             return;
         }
         setStatus("submitted");
-        alert("Report submitted successfully!");
-        // In a real app, this would save to database
+        // alert("Report submitted successfully!");
+    };
+
+    const handleDownloadSlip = () => {
+        const report = {
+            date: meetingDate,
+            sys_ref: `SESS-${selectedGroup.id}-${Date.now().toString().slice(-6)}`,
+            isBalanced: true // Assuming balanced if we allow submission
+        };
+
+        const summary = {
+            totalIn: calculatedTotals.totalCashIn,
+            totalOut: Math.abs(closingBalance - openingBalance - calculatedTotals.totalCashIn), // Approximation for demo
+            netCash: closingBalance,
+            banked: closingBalance // Assuming full banking for now
+        };
+
+        const user = { name: "Hilda Sigei" }; // Mock User
+
+        PdfService.generateDailyClosingSlip(report, summary, user, selectedGroup.name);
     };
 
     return (
@@ -96,21 +116,22 @@ export default function DailyCashReport() {
                         Ukombozi TBMS • Field Officer Portal
                     </p>
                     <div className="mt-3 flex gap-2">
-                        <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
-                            status === "draft" ? "bg-yellow-100 text-yellow-700" :
+                        <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${status === "draft" ? "bg-yellow-100 text-yellow-700" :
                             status === "submitted" ? "bg-blue-100 text-blue-700" :
-                            "bg-green-100 text-green-700"
-                        }`}>
+                                "bg-green-100 text-green-700"
+                            }`}>
                             {status.toUpperCase()}
                         </span>
                     </div>
                 </div>
-                <button
-                    onClick={() => window.print()}
-                    className="bg-gray-800 text-white px-4 py-2 rounded text-sm hover:bg-gray-900 no-print"
-                >
-                    Export PDF
-                </button>
+                {status === "submitted" && (
+                    <button
+                        onClick={handleDownloadSlip}
+                        className="bg-gray-800 text-white px-4 py-2 rounded text-sm hover:bg-gray-900 no-print flex items-center gap-2"
+                    >
+                        <FaFilePdf /> Export Copy
+                    </button>
+                )}
             </div>
 
             {/* Session Info */}
@@ -163,65 +184,71 @@ export default function DailyCashReport() {
             </div>
 
             {/* Initialize Button */}
-            {status === "draft" && sessionData.length === 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded p-4">
-                    <p className="text-blue-800 mb-3">Ready to start data entry for {selectedGroup.name}?</p>
-                    <button
-                        onClick={initializeSessionData}
-                        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                    >
-                        Initialize Member Transactions
-                    </button>
-                </div>
-            )}
+            {
+                status === "draft" && sessionData.length === 0 && (
+                    <div className="bg-blue-50 border border-blue-200 rounded p-4">
+                        <p className="text-blue-800 mb-3">Ready to start data entry for {selectedGroup.name}?</p>
+                        <button
+                            onClick={initializeSessionData}
+                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                            Initialize Member Transactions
+                        </button>
+                    </div>
+                )
+            }
 
             {/* Member Transaction Table */}
-            {sessionData.length > 0 && (
-                <MemberTransactionTable
-                    members={groupMembers}
-                    sessionData={sessionData}
-                    onUpdateTransaction={updateTransaction}
-                />
-            )}
+            {
+                sessionData.length > 0 && (
+                    <MemberTransactionTable
+                        members={groupMembers}
+                        sessionData={sessionData}
+                        onUpdateTransaction={updateTransaction}
+                    />
+                )
+            }
 
             {/* Cash In Summary */}
-            {sessionData.length > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded p-4">
-                    <h3 className="text-lg font-semibold text-green-800 mb-3">Cash In Summary</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white p-3 rounded shadow-sm">
-                            <div className="text-xs text-gray-500 uppercase">Savings</div>
-                            <div className="text-lg font-bold text-green-600">
-                                KES {calculatedTotals.totalSavings.toLocaleString()}
+            {
+                sessionData.length > 0 && (
+                    <div className="bg-green-50 border border-green-200 rounded p-4">
+                        <h3 className="text-lg font-semibold text-green-800 mb-3">Cash In Summary</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="bg-white p-3 rounded shadow-sm">
+                                <div className="text-xs text-gray-500 uppercase">Savings</div>
+                                <div className="text-lg font-bold text-green-600">
+                                    KES {calculatedTotals.totalSavings.toLocaleString()}
+                                </div>
+                            </div>
+                            <div className="bg-white p-3 rounded shadow-sm">
+                                <div className="text-xs text-gray-500 uppercase">STL Repayments</div>
+                                <div className="text-lg font-bold text-green-600">
+                                    KES {calculatedTotals.totalStl.toLocaleString()}
+                                </div>
+                            </div>
+                            <div className="bg-white p-3 rounded shadow-sm">
+                                <div className="text-xs text-gray-500 uppercase">LTL Repayments</div>
+                                <div className="text-lg font-bold text-green-600">
+                                    KES {calculatedTotals.totalLtl.toLocaleString()}
+                                </div>
+                            </div>
+                            <div className="bg-white p-3 rounded shadow-sm">
+                                <div className="text-xs text-gray-500 uppercase">Welfare</div>
+                                <div className="text-lg font-bold text-green-600">
+                                    KES {calculatedTotals.totalWelfare.toLocaleString()}
+                                </div>
                             </div>
                         </div>
-                        <div className="bg-white p-3 rounded shadow-sm">
-                            <div className="text-xs text-gray-500 uppercase">STL Repayments</div>
-                            <div className="text-lg font-bold text-green-600">
-                                KES {calculatedTotals.totalStl.toLocaleString()}
-                            </div>
-                        </div>
-                        <div className="bg-white p-3 rounded shadow-sm">
-                            <div className="text-xs text-gray-500 uppercase">LTL Repayments</div>
-                            <div className="text-lg font-bold text-green-600">
-                                KES {calculatedTotals.totalLtl.toLocaleString()}
-                            </div>
-                        </div>
-                        <div className="bg-white p-3 rounded shadow-sm">
-                            <div className="text-xs text-gray-500 uppercase">Welfare</div>
-                            <div className="text-lg font-bold text-green-600">
-                                KES {calculatedTotals.totalWelfare.toLocaleString()}
-                            </div>
+                        <div className="mt-4 flex justify-between items-center">
+                            <span className="text-lg font-semibold text-green-800">Total Cash In:</span>
+                            <span className="text-2xl font-bold text-green-700">
+                                KES {calculatedTotals.totalCashIn.toLocaleString()}
+                            </span>
                         </div>
                     </div>
-                    <div className="mt-4 flex justify-between items-center">
-                        <span className="text-lg font-semibold text-green-800">Total Cash In:</span>
-                        <span className="text-2xl font-bold text-green-700">
-                            KES {calculatedTotals.totalCashIn.toLocaleString()}
-                        </span>
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Control Section */}
             <div className="bg-gray-50 p-4 rounded border">
@@ -243,26 +270,38 @@ export default function DailyCashReport() {
             </div>
 
             {/* Submit Button */}
-            {status === "draft" && sessionData.length > 0 && (
-                <div className="flex justify-center">
-                    <button
-                        onClick={handleSubmit}
-                        className="bg-green-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-green-700 transition-colors shadow-lg"
-                    >
-                        Submit Daily Cash Report
-                    </button>
-                </div>
-            )}
+            {
+                status === "draft" && sessionData.length > 0 && (
+                    <div className="flex justify-center">
+                        <button
+                            onClick={handleSubmit}
+                            className="bg-green-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-green-700 transition-colors shadow-lg"
+                        >
+                            Submit Daily Cash Report
+                        </button>
+                    </div>
+                )
+            }
 
             {/* Status Messages */}
-            {status === "submitted" && (
-                <div className="bg-blue-50 border-2 border-blue-200 p-6 rounded-xl text-center">
-                    <div className="text-4xl mb-4">✅</div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Report Submitted Successfully!</h3>
-                    <p className="text-blue-700">Your daily cash report has been submitted for supervisor approval.</p>
-                </div>
-            )}
+            {
+                status === "submitted" && (
+                    <div className="bg-blue-50 border-2 border-blue-200 p-8 rounded-xl text-center shadow-lg animate-in fade-in slide-in-from-bottom-5">
+                        <div className="text-5xl mb-4 text-green-500"><FaCheckCircle className="mx-auto" /></div>
+                        <h3 className="text-2xl font-black text-blue-900 mb-2">Report Submitted Successfully!</h3>
+                        <p className="text-blue-700 font-medium mb-6">Your daily cash report has been secured and sent for supervisor approval.</p>
 
-        </div>
+                        <button
+                            onClick={handleDownloadSlip}
+                            className="bg-safaricom-green text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-green-700 hover:scale-105 transition-all flex items-center gap-3 mx-auto"
+                        >
+                            <FaFilePdf className="text-xl" />
+                            <span>Download Official Closing Slip</span>
+                        </button>
+                    </div>
+                )
+            }
+
+        </div >
     );
 }

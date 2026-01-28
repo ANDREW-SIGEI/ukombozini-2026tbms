@@ -1926,6 +1926,22 @@ app.get('/api/officers', (req, res) => {
     });
 });
 
+// Get all transactions for a group
+app.get('/api/groups/:id/transactions', (req, res) => {
+    const groupId = req.params.id;
+    const query = `
+        SELECT t.*, m.name as memberName, m.phone as memberPhone
+        FROM transactions t
+        JOIN members m ON t.memberId = m.id
+        WHERE m.group_id = ?
+        ORDER BY t.created_at DESC
+    `;
+    db.all(query, [groupId], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 // ==========================================
 // REPORTS & ANALYTICS API
 // ==========================================
