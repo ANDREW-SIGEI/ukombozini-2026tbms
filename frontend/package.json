@@ -11,6 +11,9 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.13.2",
     "chart.js": "^4.5.1",
+    "file-saver": "^2.0.5",
+    "jspdf": "^4.0.0",
+    "jspdf-autotable": "^5.0.7",
     "react": "^19.2.3",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.3",
@@ -21,6 +24,7 @@
     "react-toastify": "^11.0.5",
     "sweetalert2": "^11.26.17",
     "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5",
     "yup": "^1.7.1"
   },
   "scripts": {

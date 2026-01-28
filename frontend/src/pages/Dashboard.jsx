@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../services/api';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -16,7 +17,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
     FaMoneyBillWave, FaUsers, FaChartLine, FaPiggyBank,
     FaTriangleExclamation, FaGift, FaRightLeft, FaArrowUp, FaArrowDown,
-    FaClockRotateLeft, FaCalendarDays, FaHandHoldingDollar
+    FaClockRotateLeft, FaCalendarDays, FaHandHoldingDollar, FaHandshake,
+    FaArrowRight
 } from 'react-icons/fa6';
 
 // Register ChartJS
@@ -33,6 +35,21 @@ ChartJS.register(
 );
 
 const Dashboard = () => {
+    const [highPotentialCount, setHighPotentialCount] = useState(0);
+
+    useEffect(() => {
+        const fetchOpportunities = async () => {
+            try {
+                const members = await api.getMembers();
+                const hp = members.filter(m => (m.current_savings > 2000) && (!m.project_savings_total || m.project_savings_total === 0)).length;
+                setHighPotentialCount(hp);
+            } catch (err) {
+                console.error("Dashboard Intelligence failed", err);
+            }
+        };
+        fetchOpportunities();
+    }, []);
+
     // 1. Cash In / Out (Monthly) - Bar/Line Chart
     const cashFlowData = {
         labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
@@ -125,37 +142,74 @@ const Dashboard = () => {
             </div>
 
             {/* Critical Alerts Banner */}
-            {negativeBalanceReports.length > 0 && (
-                <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg">
-                    <div className="flex items-start gap-3">
-                        <FaTriangleExclamation className="text-red-600 text-xl mt-1" />
-                        <div className="flex-1">
-                            <h3 className="font-bold text-red-900 mb-2">⚠️ CRITICAL: Negative Balance Alerts</h3>
-                            <div className="space-y-2">
-                                {negativeBalanceReports.map((report, idx) => (
-                                    <div key={idx} className="bg-white p-3 rounded border border-red-200">
-                                        <div className="flex justify-between items-center">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {negativeBalanceReports.length > 0 && (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg h-full">
+                        <div className="flex items-start gap-3">
+                            <FaTriangleExclamation className="text-red-600 text-xl mt-1" />
+                            <div className="flex-1">
+                                <h3 className="font-bold text-red-900 mb-2 uppercase text-xs tracking-wider">⚠️ Negative Balance Alerts</h3>
+                                <div className="space-y-2">
+                                    {negativeBalanceReports.map((report, idx) => (
+                                        <div key={idx} className="bg-white/80 backdrop-blur-sm p-3 rounded border border-red-100 flex justify-between items-center shadow-sm">
                                             <div>
-                                                <p className="font-bold text-gray-800">{report.officer}</p>
-                                                <p className="text-sm text-gray-600">{report.group}</p>
+                                                <p className="font-bold text-gray-800 text-sm">{report.group}</p>
+                                                <p className="text-[10px] text-gray-500">{report.officer}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="font-bold text-red-600 text-lg">
-                                                    KES {Math.abs(report.balance).toLocaleString()}
-                                                </p>
-                                                <p className="text-xs text-gray-500">{report.date}</p>
+                                                <p className="font-bold text-red-600">KES {Math.abs(report.balance).toLocaleString()}</p>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
-                            <Link to="/reconciliation" className="mt-3 inline-block text-sm font-bold text-red-700 hover:underline">
-                                View All Alerts →
-                            </Link>
+                        </div>
+                    </div>
+                )}
+
+                {/* Partnership Risk Dashboard */}
+                <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded-lg h-full">
+                    <div className="flex items-start gap-3">
+                        <FaHandshake className="text-orange-600 text-xl mt-1" />
+                        <div className="flex-1">
+                            <h3 className="font-bold text-orange-900 mb-2 uppercase text-xs tracking-wider">🤝 Partnership Health (High Risk)</h3>
+                            <div className="space-y-2">
+                                <div className="bg-white/80 backdrop-blur-sm p-3 rounded border border-orange-100 flex justify-between items-center shadow-sm">
+                                    <div>
+                                        <p className="font-bold text-gray-800 text-sm">Sunrise Farmers Society</p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                <div className="bg-red-500 h-full w-[38%]"></div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-red-600 uppercase">Score: 38/100 (Risky)</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[10px] text-orange-700 font-bold">Low Commitment</p>
+                                        <p className="text-[9px] text-gray-500">Last Repay: 45 days ago</p>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white/80 backdrop-blur-sm p-3 rounded border border-orange-100 flex justify-between items-center shadow-sm">
+                                    <div>
+                                        <p className="font-bold text-gray-800 text-sm">Amani Women Group</p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                <div className="bg-orange-500 h-full w-[52%]"></div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-orange-600 uppercase">Score: 52/100 (Fair)</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[10px] text-orange-700 font-bold">Lien Threshold Met</p>
+                                        <p className="text-[9px] text-gray-500">Next Meeting: Tomorrow</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            )}
+            </div>
 
             {/* Quick Stats Row */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
@@ -324,6 +378,49 @@ const Dashboard = () => {
                 </div>
             </div>
 
+            {/* UKOMBOZI PARTNERSHIP MANAGER BUTTON (CRITCAL) */}
+            <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-900 rounded-xl shadow-lg p-1 mb-6 transform hover:scale-[1.01] transition-transform">
+                <Link to="/partnership-manager" className="block bg-white/10 hover:bg-white/20 rounded-lg p-6 flex justify-between items-center group">
+                    <div className="flex items-center gap-4">
+                        <div className="bg-yellow-400 text-blue-900 p-4 rounded-full shadow-lg shadow-yellow-400/20 group-hover:rotate-12 transition-transform">
+                            <FaHandshake size={32} />
+                        </div>
+                        <div>
+                            <h3 className="text-2xl font-black text-white tracking-tight">UKOMBOZI LOAN & TOP-UP MANAGER</h3>
+                            <p className="text-blue-200 font-medium">Manage Capital Injections, Commitment Deposits & Product Financing</p>
+                        </div>
+                    </div>
+                    <div className="bg-white text-blue-900 px-6 py-3 rounded-full font-bold shadow-md flex items-center gap-2 group-hover:bg-yellow-400 transition-colors">
+                        OPEN MANAGER <FaArrowRight />
+                    </div>
+                </Link>
+            </div>
+
+            {/* PROJECT SAVINGS & TABLE POOL MANAGER (NEW) */}
+            <div className="bg-gradient-to-r from-green-900 via-green-800 to-green-900 rounded-xl shadow-lg p-1 mb-6 transform hover:scale-[1.01] transition-transform relative overflow-hidden">
+                <Link to="/project-manager" className="block bg-white/10 hover:bg-white/20 rounded-lg p-6 flex justify-between items-center group">
+                    <div className="flex items-center gap-4">
+                        <div className="bg-safaricom-green text-white p-4 rounded-full shadow-lg shadow-green-400/20 group-hover:rotate-12 transition-transform">
+                            <FaPiggyBank size={32} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-3">
+                                <h3 className="text-2xl font-black text-white tracking-tight">PROJECT SAVINGS & TABLE POOL</h3>
+                                {highPotentialCount > 0 && (
+                                    <span className="bg-amber-400 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
+                                        {highPotentialCount} OPPORTUNITIES
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-green-200 font-medium">Rotating Project Pools (Education & Agriculture) with 150% Jan Payout</p>
+                        </div>
+                    </div>
+                    <div className="bg-white text-green-900 px-6 py-3 rounded-full font-bold shadow-md flex items-center gap-2 group-hover:bg-safaricom-green group-hover:text-white transition-colors">
+                        MANAGE POOLS <FaArrowRight />
+                    </div>
+                </Link>
+            </div>
+
             {/* Quick Actions Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <div className="flex justify-between items-center mb-6">
@@ -344,7 +441,11 @@ const Dashboard = () => {
                     </Link>
                     <Link to="/daily-meeting-report" className="p-4 rounded-lg bg-purple-50 border border-purple-100 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-purple-100 transition-colors">
                         <div className="text-purple-600 mb-2"><FaChartLine size={24} /></div>
-                        <span className="text-sm font-bold text-purple-800">Generate Report</span>
+                        <span className="text-sm font-bold text-purple-800">Meeting Minutes</span>
+                    </Link>
+                    <Link to="/daily-cash-report" className="p-4 rounded-lg bg-emerald-50 border border-emerald-100 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-emerald-100 transition-colors">
+                        <div className="text-emerald-600 mb-2"><FaMoneyBillWave size={24} /></div>
+                        <span className="text-sm font-bold text-emerald-800">Officer Cash Report</span>
                     </Link>
                 </div>
             </div>

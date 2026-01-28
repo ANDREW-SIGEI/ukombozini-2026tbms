@@ -6,7 +6,7 @@ import {
     FaHandHoldingDollar, FaFileInvoiceDollar, FaUserTie,
     FaScaleBalanced, FaGear, FaBell, FaCircleUser, FaCircleCheck,
     FaCommentSms, FaChartLine, FaClipboardList, FaArrowRightFromBracket,
-    FaCalculator, FaLayerGroup, FaShieldHalved
+    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank
 } from 'react-icons/fa6';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -36,6 +36,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
             title: "Financials",
             items: [
                 { path: '/contributions', name: 'Contributions', icon: <FaFileInvoiceDollar /> },
+                { path: '/project-manager', name: 'Project Savings', icon: <FaPiggyBank /> },
                 { path: '/loans', name: 'Loans Management', icon: <FaHandHoldingDollar /> },
                 { path: '/loan-approvals', name: 'Approvals', icon: <FaCircleCheck /> },
                 ...(isPowerUser ? [{ path: '/dividends', name: 'Dividends', icon: <FaMoneyBillWave /> }] : []),

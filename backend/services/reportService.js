@@ -359,6 +359,98 @@ const reportService = {
             }
         });
     }
+    ,
+
+    /**
+     * Generate Partnership Statement (Group vs Company)
+     */
+    generatePartnershipStatement: async (groupId) => {
+        return new Promise((resolve, reject) => {
+            // 1. Fetch Group & Financials
+            db.get("SELECT name FROM groups WHERE id = ?", [groupId], (err, group) => {
+                if (err || !group) return reject("Group not found");
+
+                // 2. Fetch Aggregates
+                const queries = {
+                    savings: "SELECT SUM(current_savings) as val FROM members WHERE group_id = ?",
+                    commitments: "SELECT SUM(amount) as val FROM group_commitments WHERE group_id = ? AND status = 'LOCKED'",
+                    topups: "SELECT SUM(amount) as val FROM company_investments WHERE group_id = ? AND status = 'ACTIVE'",
+                    products: "SELECT SUM(financed_amount) as val FROM product_financing pf JOIN members m ON pf.member_id = m.id WHERE m.group_id = ? AND pf.status = 'ACTIVE'"
+                };
+
+                // Run parallel queries (manual promise style for sqlite3)
+                const runQ = (q) => new Promise((res, rej) => db.get(q, [groupId], (e, r) => e ? rej(e) : res(r?.val || 0)));
+
+                Promise.all([
+                    runQ(queries.savings),
+                    runQ(queries.commitments),
+                    runQ(queries.topups),
+                    runQ(queries.products)
+                ]).then(([savings, commitments, topups, products]) => {
+                    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+                    let buffers = [];
+                    doc.on('data', buffers.push.bind(buffers));
+                    doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+                    // BRANDING
+                    doc.fontSize(24).fillColor('#008524').text('UKOMBOZI', { align: 'center' }).fillColor('black');
+                    doc.fontSize(10).text('PARTNERSHIP STATEMENT', { align: 'center', letterSpacing: 2 });
+                    doc.moveDown();
+
+                    // INFO
+                    doc.fontSize(12).font('Helvetica-Bold').text(`Partner Group: ${group.name}`);
+                    doc.font('Helvetica').text(`Date: ${new Date().toLocaleDateString()}`);
+                    doc.moveDown();
+
+                    // 2-COLUMN LAYOUT
+                    const mid = doc.page.width / 2;
+                    const yStart = doc.y;
+
+                    // LEFT: GROUP POSITION
+                    doc.rect(40, yStart, mid - 50, 200).fillOpacity(0.05).fill('#008524').stroke('#008524').fillOpacity(1);
+                    doc.fillColor('#006400').fontSize(14).font('Helvetica-Bold').text('GROUP FUNDS', 50, yStart + 20);
+                    doc.fontSize(10).font('Helvetica').text('Member Savings:', 50, yStart + 50);
+                    doc.font('Helvetica-Bold').text(`KES ${savings.toLocaleString()}`, 150, yStart + 50);
+
+                    doc.font('Helvetica').text('Commitment Deposit:', 50, yStart + 80);
+                    doc.font('Helvetica-Bold').text(`KES ${commitments.toLocaleString()}`, 150, yStart + 80);
+
+                    doc.moveTo(50, yStart + 110).lineTo(mid - 20, yStart + 110).stroke();
+                    doc.fontSize(12).text('TOTAL SECURITY', 50, yStart + 120);
+                    doc.fontSize(14).text(`KES ${(savings + commitments).toLocaleString()}`, 50, yStart + 135);
+
+
+                    // RIGHT: COMPANY POSITION
+                    doc.rect(mid + 10, yStart, mid - 50, 200).fillOpacity(0.05).fill('#00008B').stroke('#00008B').fillOpacity(1);
+                    doc.fillColor('#00008B').fontSize(14).font('Helvetica-Bold').text('COMPANY FUNDS', mid + 20, yStart + 20);
+
+                    doc.fontSize(10).font('Helvetica').text('Capital Top-Ups:', mid + 20, yStart + 50);
+                    doc.font('Helvetica-Bold').text(`KES ${topups.toLocaleString()}`, mid + 120, yStart + 50);
+
+                    doc.font('Helvetica').text('Product Financing:', mid + 20, yStart + 80);
+                    doc.font('Helvetica-Bold').text(`KES ${products.toLocaleString()}`, mid + 120, yStart + 80);
+
+                    doc.moveTo(mid + 20, yStart + 110).lineTo(doc.page.width - 40, yStart + 110).stroke();
+                    doc.fontSize(12).text('TOTAL EXPOSURE', mid + 20, yStart + 120);
+                    doc.fontSize(14).text(`KES ${(topups + products).toLocaleString()}`, mid + 20, yStart + 135);
+
+                    // NET POSITION
+                    doc.moveDown(8);
+                    const net = (topups + products) - (savings + commitments);
+                    const msg = net > 0 ? "Net Company Risk (Uncovered)" : "Fully Secured (Surplus)";
+                    const color = net > 0 ? 'red' : 'green';
+
+                    doc.fontSize(16).fillColor(color).text(`${msg}: KES ${Math.abs(net).toLocaleString()}`, { align: 'center' });
+
+                    // Footer
+                    doc.fontSize(8).fillColor('gray').text('This statement confirms the mutual partnership standing.', 40, 750, { align: 'center' });
+
+                    doc.end();
+
+                }).catch(reject);
+            });
+        });
+    }
 };
 
 module.exports = reportService;

@@ -329,44 +329,16 @@ export const api = {
     /**
      * Get contribution compliance data for a period (Institutional)
      */
+    /**
+     * Get contribution compliance data for a period (Institutional)
+     */
     async getContributionCompliance(month, groupId = 'all') {
         try {
-            // 1. Fetch relevant members
-            const members = await this.getMembers();
-            const filteredMembers = groupId === 'all' ? members : members.filter(m => m.groupId.toString() === groupId.toString());
-
-            // 2. Fetch savings transactions for the month
-            const startDate = `${month}-01`;
-            const endDate = `${month}-31`;
-            const transactions = await this.getTransactions(null, { type: 'savings', startDate, endDate });
-
-            // 3. Aggregate
-            const memberSavings = {};
-            transactions.forEach(t => {
-                memberSavings[t.memberId] = (memberSavings[t.memberId] || 0) + Number(t.amount);
-            });
-
-            const expectation = 2000;
-            return filteredMembers.map(m => {
-                const paid = memberSavings[m.id] || 0;
-                let status = 'Skipped';
-                if (paid >= expectation) status = 'Paid';
-                else if (paid > 0) status = 'Partial';
-
-                return {
-                    id: m.id,
-                    name: m.name,
-                    phone: m.phone,
-                    groupId: m.groupId,
-                    groupName: m.groupName,
-                    contributionAmount: paid,
-                    contributionStatus: status,
-                    expectedAmount: expectation,
-                    shortfall: Math.max(0, expectation - paid)
-                };
-            });
+            const response = await axiosInstance.get(`/reports/contribution-compliance?month=${month}&groupId=${groupId}`);
+            return response.data;
         } catch (error) {
             handleApiError(error);
+            return [];
         }
     },
 
@@ -407,10 +379,20 @@ export const api = {
      */
     async getLoanRepaymentTracking(month) {
         try {
-            const response = await axiosInstance.get(`/admin/loan-repayment-tracking?month=${month}`);
+            const response = await axiosInstance.get(`/reports/loan-repayment-tracking?month=${month}`);
             return response.data;
         } catch (error) {
             handleApiError(error);
+            return [];
+        }
+    },
+
+    async getSMSLogs() {
+        try {
+            const response = await axiosInstance.get('/reports/sms-logs');
+            return response.data;
+        } catch (error) {
+            console.error('getSMSLogs error:', error);
             return [];
         }
     },
@@ -474,7 +456,16 @@ export const api = {
      */
     async closeMeeting(meetingId, closureData) {
         try {
-            const response = await axiosInstance.put(`/sessions/${meetingId}/close`, closureData);
+            const response = await axiosInstance.patch(`/sessions/${meetingId}/close`, closureData);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async postMeeting(meetingId, postData) {
+        try {
+            const response = await axiosInstance.post(`/sessions/${meetingId}/post`, postData);
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -614,6 +605,38 @@ export const api = {
             return response.data;
         } catch (error) {
             handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // DIVIDEND ENGINE
+    // ========================================
+
+    async getDividendRuns() {
+        try {
+            const response = await axiosInstance.get('/dividends/runs');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async previewDividends(params) {
+        try {
+            const response = await axiosInstance.post('/dividends/preview', params);
+            return response.data;
+        } catch (error) {
+            // Let the caller handle this specific error for UI feedback
+            throw error;
+        }
+    },
+
+    async postDividends(data) {
+        try {
+            const response = await axiosInstance.post('/dividends/post', data);
+            return response.data;
+        } catch (error) {
+            throw error;
         }
     },
 
@@ -875,6 +898,185 @@ export const api = {
 
     async findClosestLoanProduct(desiredAmount) {
         return null;
+    }
+    ,
+
+    // ==========================================
+    // FINANCIAL REPORTS (Standardized)
+    // ==========================================
+    async getBalanceSheet(date) {
+        try {
+            const response = await axiosInstance.get('/reports/financial/balance-sheet', { params: { date } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getIncomeStatement(startDate, endDate) {
+        try {
+            const response = await axiosInstance.get('/reports/financial/income-statement', { params: { startDate, endDate } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getDailyCashFlow(date) {
+        try {
+            const response = await axiosInstance.get('/reports/financial/daily-cash-flow', { params: { date } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ==========================================
+    // PARTNERSHIP MODEL (Commitments/Top-Ups)
+    // ==========================================
+    async addCompanyTopUp(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/top-up', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async addCommitmentDeposit(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/commitment-deposit', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async issueProduct(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/issue-product', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getPartnershipExposure(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/exposure/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async applyPartnerOffset(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/apply-offset', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async downloadPartnershipStatement(groupId) {
+        try {
+            const response = await axiosInstance.get(`/reports/partnership/${groupId}`, { responseType: 'blob' });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getRelationshipScore(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/score/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // PROJECT SAVINGS MODULE
+    // ========================================
+
+    async registerProject(memberId, projectType) {
+        try {
+            const response = await axiosInstance.post('/projects/register', {
+                member_id: memberId,
+                project_type: projectType
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async postProjectSaving(registrationId, amount, date) {
+        try {
+            const response = await axiosInstance.post('/projects/save', {
+                registration_id: registrationId,
+                amount,
+                date
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getProjectGroupStats(groupId) {
+        try {
+            const response = await axiosInstance.get(`/projects/group-stats/${groupId}`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectGroupStats error:', error);
+            return {
+                pools: [],
+                total_project_pool: 0,
+                total_table_savings: 0,
+                total_active_loans: 0,
+                payout_obligation: 0,
+                available_cash: 0,
+                liquidity_alert: 'SAFE',
+                participation_rate: 0,
+                loan_utilization: 0,
+                education_pool: 0,
+                agriculture_pool: 0
+            };
+        }
+    },
+
+    async getProjectMemberStatus(memberId) {
+        try {
+            const response = await axiosInstance.get(`/projects/member-status/${memberId}`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectMemberStatus error:', error);
+            return [];
+        }
+    },
+
+    async getProjectMemberDayLimit(memberId, date) {
+        try {
+            const formattedDate = date || new Date().toISOString().split('T')[0];
+            const response = await axiosInstance.get(`/projects/member-day-limit/${memberId}/${formattedDate}`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectMemberDayLimit error:', error);
+            return { daily_limit: 0, already_saved: 0, remaining_limit: 0 };
+        }
+    },
+
+    async getProjectGroupMatrix(groupId) {
+        try {
+            const response = await axiosInstance.get(`/projects/group-matrix/${groupId}`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectGroupMatrix error:', error);
+            return [];
+        }
     }
 };
 

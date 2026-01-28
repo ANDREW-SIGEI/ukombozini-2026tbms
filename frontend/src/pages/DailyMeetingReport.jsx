@@ -79,6 +79,10 @@ const DailyMeetingReport = () => {
     const [actualCashStart, setActualCashStart] = useState('');
     const [actualCashEnd, setActualCashEnd] = useState('');
 
+    // Partnership State
+    const [partnershipExposure, setPartnershipExposure] = useState(null);
+    const [ukomboziRepayment, setUkomboziRepayment] = useState(0);
+
     // Access Transaction Context
     const {
         activeSession,
@@ -172,9 +176,13 @@ const DailyMeetingReport = () => {
                     setMemberTransactions(initialTransactions);
                     setOpeningBalance(groupOpeningBalance);
                     setClosingBalance(groupOpeningBalance);
+
+                    // Fetch Partnership Exposure
+                    const exposure = await api.getPartnershipExposure(selectedGroup.id);
+                    setPartnershipExposure(exposure);
                 } catch (error) {
-                    console.error("Error fetching members:", error);
-                    toast.error("Failed to load group members");
+                    console.error("Error fetching members/exposure:", error);
+                    toast.error("Failed to load group data");
                 }
             }
         };
@@ -213,11 +221,11 @@ const DailyMeetingReport = () => {
         });
     }, [memberTransactions]);
 
-    // Calculate closing balance (opening + cash in - cash out)
+    // Calculate closing balance (opening + cash in - cash out - partnership repayment)
     useEffect(() => {
-        const calculatedClosing = openingBalance + systemTotals.total_cash_in - cashOut;
+        const calculatedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment;
         setClosingBalance(calculatedClosing);
-    }, [openingBalance, systemTotals.total_cash_in, cashOut]);
+    }, [openingBalance, systemTotals.total_cash_in, cashOut, ukomboziRepayment]);
 
     // Get balance alert
     const balanceAlert = useMemo(() => {
@@ -449,7 +457,7 @@ const DailyMeetingReport = () => {
             openingBalance,
             cashCollected: systemTotals.total_cash_in,
             cashIssued: cashOut,
-            expectedClosing: openingBalance + systemTotals.total_cash_in - cashOut,
+            expectedClosing: openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment,
             actualClosing: closingBalance,
             variance: 0,
             varianceExplanation: approvalReason,
@@ -474,7 +482,8 @@ const DailyMeetingReport = () => {
             openingBalance,
             closingBalance,
             meetingType,
-            meetingNotes // Add notes
+            meetingNotes, // Add notes
+            ukomboziRepayment // Add Partnership Repayment
         };
 
         const success = postSession(sessionMetadata, memberTransactions);
@@ -499,7 +508,8 @@ const DailyMeetingReport = () => {
             status: 'POSTED',
             totals: systemTotals,
             openingBalance,
-            closingBalance
+            closingBalance,
+            ukomboziRepayment
         };
 
         const success = postSession(sessionMetadata, memberTransactions);
@@ -867,6 +877,28 @@ const DailyMeetingReport = () => {
                                     }`}>
                                     KES {closingBalance.toLocaleString()}
                                 </div>
+                                {partnershipExposure?.portfolio?.totalTopUp > 0 && (
+                                    <div className="mt-4 p-3 bg-white/10 rounded-lg border border-white/20">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-xs font-bold uppercase">Ukombozi Repayment</span>
+                                            <span className="text-xs bg-yellow-400 text-blue-900 px-2 py-0.5 rounded font-black">TOP-UP ACTIVE</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-lg font-bold">KES</span>
+                                            <input
+                                                type="number"
+                                                value={ukomboziRepayment || ''}
+                                                onChange={(e) => {
+                                                    const val = parseFloat(e.target.value) || 0;
+                                                    setUkomboziRepayment(val);
+                                                }}
+                                                className="bg-white/20 border border-white/30 rounded px-2 py-1 w-full text-xl font-bold outline-none focus:bg-white/30"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                        <p className="text-[10px] opacity-75 mt-1">Deducted from collections for Company Top-Up clearing.</p>
+                                    </div>
+                                )}
                                 {closingBalance < 0 && (
                                     <div className="text-xs text-red-200 mt-1 font-bold">
                                         ⚠️ NEGATIVE BALANCE - SUPERVISOR APPROVAL REQUIRED

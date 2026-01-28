@@ -9,9 +9,13 @@ import {
     FaCalendarAlt,
     FaCheckCircle,
     FaExclamationTriangle,
-    FaMoneyBillWave
+    FaMoneyBillWave,
+    FaFilePdf,
+    FaFileExcel
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import PdfService from '../services/pdfService';
+import ExcelService from '../services/excelService';
 
 // Mock transaction data - will be replaced with real data from API
 // Real data is now fetched from API
@@ -58,6 +62,12 @@ const MemberLedger = () => {
 
         if (id) loadData();
     }, [id, navigate]);
+
+    const handleExportStatement = () => {
+        if (!member || !transactions.length) return;
+        PdfService.generateMemberStatement(member, transactions, "All Time");
+        toast.success("Statement Exported!");
+    };
 
     // Calculate running balances
     const transactionsWithBalance = useMemo(() => {
@@ -145,15 +155,32 @@ const MemberLedger = () => {
     // Early return if no member
     if (!member) return null;
 
-    const handleExportPDF = async () => {
-        try {
-            toast.info('📄 Generating Statement PDF...');
-            await api.downloadMemberStatement(id, startDate, endDate);
-            toast.success(`Statement downloaded successfully`);
-        } catch (error) {
-            console.error('PDF generation error:', error);
-            toast.error('Failed to generate PDF statement from server');
+    const handleExportPDF = () => {
+        if (!member || !transactions.length) {
+            toast.warn("No data to export");
+            return;
         }
+        PdfService.generateMemberStatement(member, transactions, "All Time");
+        toast.success("Statement Exported!");
+    };
+
+    const handleExportExcel = () => {
+        if (!member || !transactions.length) {
+            toast.warn("No data to export");
+            return;
+        }
+        // Format data for Excel
+        const data = transactions.map(t => ({
+            Date: new Date(t.created_at).toLocaleDateString(),
+            Ref: `TX-${t.id}`,
+            Type: t.transaction_type,
+            Description: t.description,
+            Amount: t.amount || (t.savings_amount + t.loan_interest) || 0,
+            Status: 'Completed'
+        }));
+
+        ExcelService.exportToExcel(data, `Statement_${member.name.replace(/\s+/g, '_')}`, 'Ledger');
+        toast.success("Excel Exported!");
     };
 
     const handlePrint = () => {
@@ -198,10 +225,17 @@ const MemberLedger = () => {
                         <FaPrint className="mr-2" /> Print
                     </button>
                     <button
+                        onClick={handleExportExcel}
+                        className="flex items-center px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 transition-colors shadow-sm"
+                        title="Export to Excel"
+                    >
+                        <FaFileExcel className="mr-2" /> Excel
+                    </button>
+                    <button
                         onClick={handleExportPDF}
                         className="flex items-center px-4 py-2 bg-safaricom-green text-white rounded-lg hover:bg-safaricom-dark transition-colors shadow-sm"
                     >
-                        <FaFileDownload className="mr-2" /> Export PDF
+                        <FaFilePdf className="mr-2" /> Export PDF
                     </button>
                 </div>
             </div>

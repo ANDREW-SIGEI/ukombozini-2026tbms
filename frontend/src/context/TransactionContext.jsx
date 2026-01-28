@@ -198,20 +198,27 @@ export const TransactionProvider = ({ children }) => {
      */
     const postSession = async (sessionMetadata, newTransactions) => {
         try {
-            // In new architecture, we just ensure session is closed/posted.
-            // If newTransactions are passed that aren't in DB, we would insert them individually (not batch).
-            // But Assuming UI calls api.postContribution, they are already there.
-            // We'll just toast success.
+            // Call API to post session and transactions
+            const result = await api.postMeeting(sessionMetadata.id, {
+                metadata: sessionMetadata,
+                transactions: newTransactions
+            });
 
-            toast.success(`Session Sync Verified!`);
+            if (result && result.success) {
+                toast.success(`Session Posted successfully!`);
 
-            // Refetch to be sure
-            const data = await api.getTransactions();
-            setTransactions(data || []);
+                // Refetch sessions and transactions to update local state
+                const fetchedSessions = await api.getMeetingSessions();
+                setSessions(fetchedSessions || []);
 
-            return true;
+                const data = await api.getTransactions();
+                setTransactions(data || []);
+
+                return true;
+            }
+            return false;
         } catch (error) {
-            toast.error(error.message);
+            toast.error(error.message || "Failed to post session");
             return false;
         }
     };

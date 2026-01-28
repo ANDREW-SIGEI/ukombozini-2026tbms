@@ -7,6 +7,7 @@
 export const VALIDATION_RULES = {
     maxLoanToSavingsRatio: 3, // Max loan = 3x total savings
     minOpeningBalance: 5000, // Minimum cash to start meeting
+    minSavingAmount: 200, // Minimum normal savings contribution
     maxCashHandling: 100000, // Require supervisor for >100K
     lowBalanceThreshold: 0.2, // Alert if balance < 20% of opening
     criticalBalanceThreshold: 0, // Critical if balance < 0
@@ -45,10 +46,10 @@ export const validateTransaction = (transaction, member, session) => {
     }
 
     // Rule 3: Large cash handling requires supervisor
-    const totalAmount = transaction.savings_amount + transaction.stl_repayment + 
-                       transaction.ltl_repayment + transaction.loan_principal + 
-                       transaction.welfare + transaction.project + transaction.fines;
-    
+    const totalAmount = transaction.savings_amount + transaction.stl_repayment +
+        transaction.ltl_repayment + transaction.loan_principal +
+        transaction.welfare + transaction.project + transaction.fines;
+
     if (totalAmount > VALIDATION_RULES.maxCashHandling) {
         warnings.push({
             type: 'LARGE_TRANSACTION',
@@ -67,13 +68,22 @@ export const validateTransaction = (transaction, member, session) => {
     }
 
     // Rule 5: Negative values not allowed
-    if (transaction.savings_amount < 0 || transaction.stl_repayment < 0 || 
-        transaction.ltl_repayment < 0 || transaction.loan_interest < 0 || 
-        transaction.loan_principal < 0 || transaction.welfare < 0 || 
+    if (transaction.savings_amount < 0 || transaction.stl_repayment < 0 ||
+        transaction.ltl_repayment < 0 || transaction.loan_interest < 0 ||
+        transaction.loan_principal < 0 || transaction.welfare < 0 ||
         transaction.project < 0 || transaction.fines < 0) {
         errors.push({
             type: 'NEGATIVE_VALUE',
             message: 'Negative values are not allowed in any field',
+            severity: 'error',
+        });
+    }
+
+    // Rule 7: Minimum savings amount (if saving anything)
+    if (transaction.savings_amount > 0 && transaction.savings_amount < VALIDATION_RULES.minSavingAmount) {
+        errors.push({
+            type: 'MIN_SAVING_VIOLATION',
+            message: `Normal savings must be at least KES ${VALIDATION_RULES.minSavingAmount}. Entered: KES ${transaction.savings_amount}`,
             severity: 'error',
         });
     }

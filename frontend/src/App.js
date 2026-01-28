@@ -32,9 +32,13 @@ const LoanRepaymentTracking = lazy(() => import('./pages/LoanRepaymentTracking')
 const SMSAutomationTest = lazy(() => import('./pages/SMSAutomationTest'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const LoanAdvisory = lazy(() => import('./pages/LoanAdvisory'));
+const DailyCashReport = lazy(() => import('./pages/DailyCashReport'));
 const GroupsManagement = lazy(() => import('./pages/GroupsManagement'));
+const CompanyPartnershipManager = lazy(() => import('./pages/CompanyPartnershipManager'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const FinancialReports = lazy(() => import('./pages/FinancialReports'));
+const ProjectManager = lazy(() => import('./pages/ProjectManager'));
 
 
 // Profile component
@@ -112,9 +116,13 @@ function App() {
               <Route path="/meeting-sessions" element={<MeetingSessions />} />
               <Route path="/cash-reconciliation" element={<CashReconciliation />} />
               <Route path="/daily-reports" element={<DailyReports />} />
+              <Route path="/daily-cash-report" element={<DailyCashReport />} />
               <Route path="/daily-meeting-report" element={<DailyMeetingReport />} />
+              <Route path="/project-manager" element={<ProjectManager />} />
               <Route path="/contribution-compliance" element={<ContributionCompliance />} />
+              <Route path="/partnership-manager" element={<CompanyPartnershipManager />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/financial-reports" element={<FinancialReports />} />
             </Route>
 
             {/* Admin & Director Only Routes */}

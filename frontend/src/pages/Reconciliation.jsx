@@ -34,8 +34,8 @@ const Reconciliation = () => {
                     status: 'POSTED',
                     lastUpdate: latestSession.date,
                     cashIn: latestSession.totals?.total_cash_in || 0,
-                    closingBalance: latestSession.closingBalance,
-                    hasError: latestSession.closingBalance < 0
+                    closingBalance: latestSession.closingBalance || 0,
+                    hasError: (latestSession.closingBalance || 0) < 0
                 };
             }
 
@@ -44,7 +44,7 @@ const Reconciliation = () => {
                 status: 'PENDING',
                 lastUpdate: '-',
                 cashIn: 0,
-                closingBalance: group.openingBalance, // Fallback to opening
+                closingBalance: group.openingBalance || 0, // Fallback to opening
                 hasError: false
             };
         });

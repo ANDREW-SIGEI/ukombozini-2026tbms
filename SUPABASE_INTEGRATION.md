@@ -248,3 +248,78 @@ I'll create the updated files for you in the next step.
 3. Run the SQL schema
 
 Then I'll update the backend code! 🚀
+---
+
+## 🏗️ STEP 3.5: V2 ENTERPRISE SCHEMA (RELATIONSHIP ALIGNMENT)
+
+As per our recent updates, the system now requires several advanced tables for **Project Pools**, **Loan Advisory**, and **Relationship Health**. Paste the following in the Supabase SQL Editor:
+
+### Project Pools & Governance
+```sql
+-- 5. PROJECT REGISTRATIONS
+CREATE TABLE project_registrations (
+    id BIGSERIAL PRIMARY KEY,
+    member_id BIGINT NOT NULL REFERENCES members(id),
+    project_type TEXT NOT NULL CHECK( project_type IN ('EDUCATION', 'AGRICULTURE') ),
+    registration_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    fee_paid NUMERIC(15, 2) DEFAULT 200,
+    year INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6. PROJECT SAVINGS (THE 150% ENGINE)
+CREATE TABLE project_savings (
+    id BIGSERIAL PRIMARY KEY,
+    registration_id BIGINT NOT NULL REFERENCES project_registrations(id),
+    amount NUMERIC(15, 2) NOT NULL,
+    date DATE NOT NULL,
+    status TEXT DEFAULT 'ACTIVE' CHECK( status IN ('ACTIVE', 'LOCKED', 'PAID') ),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 7. LOAN APPLICATIONS (ADVISORY QUEUE)
+CREATE TABLE loan_applications (
+    id BIGSERIAL PRIMARY KEY,
+    application_number TEXT UNIQUE,
+    member_id BIGINT NOT NULL REFERENCES members(id),
+    group_id BIGINT NOT NULL REFERENCES groups(id),
+    loan_type TEXT NOT NULL,
+    amount_requested NUMERIC(15, 2) NOT NULL,
+    duration_months INTEGER NOT NULL,
+    purpose TEXT,
+    status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED', 'DISBURSED', 'CANCELLED')),
+    monthly_installment NUMERIC(15, 2),
+    interest_portion NUMERIC(15, 2),
+    principal_portion NUMERIC(15, 2),
+    shares_contribution NUMERIC(15, 2),
+    officer_id BIGINT,
+    guarantor1_id BIGINT REFERENCES members(id),
+    guarantor2_id BIGINT REFERENCES members(id),
+    comments TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### Intelligence Columns (ALTER SCRIPTS)
+If you already ran the Step 3 SQL, run these to update your tables:
+
+```sql
+-- Add tracking columns for Hybrid Equity
+ALTER TABLE members ADD COLUMN IF NOT EXISTS current_savings NUMERIC(15, 2) DEFAULT 0;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS active_loan_balance NUMERIC(15, 2) DEFAULT 0;
+
+-- Update groups for smart rules
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS loan_multiplier NUMERIC(5, 2) DEFAULT 3.0;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS stl_interest_rate NUMERIC(5, 2) DEFAULT 10.0;
+```
+
+---
+
+## 📝 BACKEND ALERT: server.js vs server-supabase.js
+
+> [!WARNING]
+> **Schema Desync Detected**
+> Our recent "Project Manager" and "Relationship Alignment" logic currently resides in `server.js` (SQLite). 
+> `server-supabase.js` needs to be updated to handle the new Project routes before you can switch fully to Supabase.
+
+**Are you ready to migrate your current SQLite data to Supabase?** I can provide a script to bulk-upload your current "Relationship Alignment" data into the cloud.

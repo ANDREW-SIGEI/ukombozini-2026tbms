@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     FaMobileAlt,
     FaCheckCircle,
@@ -9,63 +9,57 @@ import {
     FaSearch,
     FaChartLine
 } from 'react-icons/fa';
-
-// Mock SMS data for demonstration
-const mockSMSLogs = [
-    {
-        id: 1,
-        timestamp: '2026-01-19T15:30:00',
-        memberName: 'Hilda Sigei',
-        phone: '+254712345678',
-        type: 'CONTRIBUTION',
-        message: 'UKOMBOZI: KES 2,000 savings received on 19/01/2026. Balance: KES 97,000. Meeting #MTG-202501-001 - Ukombozi Group A.',
-        status: 'DELIVERED',
-        cost: 0.80,
-        messageId: 'AT-MSG-12345',
-        sentBy: 'John Kamau'
-    },
-    {
-        id: 2,
-        timestamp: '2026-01-19T14:20:00',
-        memberName: 'Jane Smith',
-        phone: '+254722345678',
-        type: 'LOAN_APPROVED',
-        message: 'UKOMBOZI: Your loan application for KES 50,000 has been APPROVED. Visit your group meeting for disbursement. App #APP-202601-0012.',
-        status: 'SENT',
-        cost: 1.60,
-        messageId: 'AT-MSG-12344',
-        sentBy: 'Sarah Admin'
-    },
-    {
-        id: 3,
-        timestamp: '2026-01-19T13:10:00',
-        memberName: 'Bob Brown',
-        phone: '+254733345678',
-        type: 'ARREARS_ALERT',
-        message: 'UKOMBOZI: You have arrears of KES 2,500. Please clear in next meeting to avoid penalties. Contact: +254700000000.',
-        status: 'FAILED',
-        cost: 0,
-        error: 'Number not reachable',
-        messageId: 'AT-MSG-12343',
-        sentBy: 'System'
-    }
-];
+import api from '../services/api';
+import { toast } from 'react-toastify';
 
 const SMSReports = () => {
-    const [smsLogs, setSmsLogs] = useState(mockSMSLogs);
+    const [smsLogs, setSmsLogs] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [filterType, setFilterType] = useState('ALL');
     const [filterStatus, setFilterStatus] = useState('ALL');
     const [searchTerm, setSearchTerm] = useState('');
     const [dateFilter, setDateFilter] = useState('TODAY');
 
+    useEffect(() => {
+        fetchLogs();
+    }, []);
+
+    const fetchLogs = async () => {
+        setLoading(true);
+        try {
+            const data = await api.getSMSLogs();
+            setSmsLogs(data || []);
+        } catch (error) {
+            toast.error("Failed to fetch SMS logs");
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Filter SMS logs
     const filteredLogs = smsLogs.filter(log => {
         const matchesType = filterType === 'ALL' || log.type === filterType;
         const matchesStatus = filterStatus === 'ALL' || log.status === filterStatus;
-        const matchesSearch = log.memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            log.phone.includes(searchTerm);
+        const matchesSearch = (log.memberName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (log.phone || '').includes(searchTerm);
 
-        return matchesType && matchesStatus && matchesSearch;
+        // Date Filter (Simple implementation)
+        let matchesDate = true;
+        const logDate = new Date(log.created_at);
+        const today = new Date();
+
+        if (dateFilter === 'TODAY') {
+            matchesDate = logDate.toDateString() === today.toDateString();
+        } else if (dateFilter === 'WEEK') {
+            const weekAgo = new Date();
+            weekAgo.setDate(today.getDate() - 7);
+            matchesDate = logDate >= weekAgo;
+        } else if (dateFilter === 'MONTH') {
+            matchesDate = logDate.getMonth() === today.getMonth() && logDate.getFullYear() === today.getFullYear();
+        }
+
+        return matchesType && matchesStatus && matchesSearch && matchesDate;
     });
 
     // Statistics
@@ -112,8 +106,10 @@ const SMSReports = () => {
                     <h2 className="text-2xl font-bold text-gray-800">SMS Delivery Reports</h2>
                     <p className="text-sm text-gray-500">Member transaction confirmations & alerts</p>
                 </div>
-                <button className="flex items-center px-6 py-3 bg-safaricom-green text-white rounded-lg hover:bg-safaricom-dark transition-colors shadow-sm font-bold">
-                    <FaDownload className="mr-2" /> Export Report
+                <button
+                    onClick={fetchLogs}
+                    className="flex items-center px-6 py-3 bg-safaricom-green text-white rounded-lg hover:bg-safaricom-dark transition-colors shadow-sm font-bold">
+                    <FaDownload className="mr-2" /> Refresh Logs
                 </button>
             </div>
 
@@ -210,10 +206,17 @@ const SMSReports = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {filteredLogs.length === 0 ? (
+                            {loading ? (
+                                <tr>
+                                    <td colSpan="6" className="px-6 py-10 text-center">
+                                        <div className="animate-spin w-8 h-8 border-4 border-safaricom-green border-t-transparent rounded-full mx-auto mb-4"></div>
+                                        <p className="text-gray-500 font-bold">Loading SMS Logs...</p>
+                                    </td>
+                                </tr>
+                            ) : filteredLogs.length === 0 ? (
                                 <tr>
                                     <td colSpan="6" className="px-6 py-10 text-center text-gray-500">
-                                        No SMS logs found.
+                                        No SMS logs found matching your filters.
                                     </td>
                                 </tr>
                             ) : (
@@ -224,7 +227,7 @@ const SMSReports = () => {
                                     return (
                                         <tr key={log.id} className="hover:bg-blue-50/50 transition-colors">
                                             <td className="px-6 py-4 text-gray-600">
-                                                {new Date(log.timestamp).toLocaleString('en-GB', {
+                                                {new Date(log.created_at).toLocaleString('en-GB', {
                                                     day: '2-digit',
                                                     month: 'short',
                                                     hour: '2-digit',
@@ -245,8 +248,8 @@ const SMSReports = () => {
                                             </td>
                                             <td className="px-6 py-4 max-w-md">
                                                 <p className="text-gray-700 text-xs line-clamp-2">{log.message}</p>
-                                                {log.error && (
-                                                    <p className="text-red-600 text-xs font-bold mt-1">Error: {log.error}</p>
+                                                {log.error_message && (
+                                                    <p className="text-red-600 text-xs font-bold mt-1">Error: {log.error_message}</p>
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
@@ -274,7 +277,7 @@ const SMSReports = () => {
                     <div className="text-sm">
                         <p className="font-bold text-blue-900 mb-1">📲 SMS Notifications are System-Generated</p>
                         <p className="text-blue-700">
-                            All SMS alerts are automatically sent when transactions are posted. Officers cannot edit or resend messages manually.
+                            All SMS alerts are automatically sent when transactions are posted or Loans are approved.
                         </p>
                     </div>
                 </div>

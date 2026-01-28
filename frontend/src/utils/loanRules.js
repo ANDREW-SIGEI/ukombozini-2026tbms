@@ -12,8 +12,10 @@
  * @param {number} guaranteedAmount - Amount member has guaranteed for others
  * @returns {number}
  */
-export const calculateMaxLoan = (totalContributions, multiplier, guaranteedAmount = 0) => {
-    return (totalContributions * multiplier) - guaranteedAmount;
+export const calculateMaxLoan = (totalContributions, multiplier, guaranteedAmount = 0, projectSavings = 0) => {
+    // Project savings act as "Bonus Equity"
+    const totalEquity = totalContributions + projectSavings;
+    return (totalEquity * multiplier) - guaranteedAmount;
 };
 
 /**

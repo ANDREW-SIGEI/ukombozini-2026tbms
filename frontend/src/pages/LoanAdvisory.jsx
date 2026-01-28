@@ -3,16 +3,36 @@ import {
     FaCalculator, FaMoneyBillWave, FaPercent, FaSpinner,
     FaTriangleExclamation, FaTable, FaCircleInfo, FaCalendarDays, FaCircleCheck, FaFilePdf
 } from 'react-icons/fa6';
+import { FaShieldAlt, FaInfoCircle } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
 /**
- * LOAN ADVISORY PAGE
- * -------------------
- * Provides Field Officers with tools to calculate and advise on:
  * 1. Short Term Loans (STL) - Reducing Balance (3 Month Max)
  * 2. Long Term Loans (LTL) - Standard Table Schedule
  */
+
+import { calculateMaxLoan } from '../utils/loanRules';
+
+// 🔐 LOAN TYPE RULES (Aligned with Issuance Modal)
+const LOAN_TYPE_RULES = {
+    'LTL': {
+        minAmount: 5000,
+        maxMultiplier: 3,
+        minDuration: 6,
+        maxDuration: 24,
+        interestRate: 1.0, // 1% per month on reducing balance roughly or flat depending on policy
+        requiresGuarantors: true
+    },
+    'STL': {
+        minAmount: 1000,
+        maxMultiplier: 3,
+        minDuration: 1,
+        maxDuration: 3,
+        interestRate: 10, // 10% Flat Rate
+        requiresGuarantors: false
+    }
+};
 
 const LoanAdvisory = () => {
     const [activeTab, setActiveTab] = useState('STL'); // STL or LTL
@@ -22,7 +42,10 @@ const LoanAdvisory = () => {
     // ==========================================
     const [members, setMembers] = useState([]);
     const [selectedMemberId, setSelectedMemberId] = useState('');
-    const [loanProducts, setLoanProducts] = useState([]);
+    const [loanProducts, setLoanProducts] = useState([
+        { code: 'STL', name: 'Short Term Loan', interest_rate: 10 },
+        { code: 'LTL', name: 'Long Term Loan', interest_rate: 1.2 } // Monthly
+    ]);
     const [loading, setLoading] = useState(true);
     const [guarantor1Id, setGuarantor1Id] = useState('');
     const [guarantor2Id, setGuarantor2Id] = useState('');
@@ -42,9 +65,30 @@ const LoanAdvisory = () => {
     const [stlDuration, setStlDuration] = useState(1); // 1, 2, or 3 months
     const [stlSchedule, setStlSchedule] = useState({ breakdown: [], totalPaid: 0 });
 
+    // Derived Member Eligibility
+    const memberEligibility = useMemo(() => {
+        if (!selectedMember) return { maxLoan: 0, savings: 0, projectSavings: 0, guaranteed: 0, available: 0 };
+
+        const savings = selectedMember.current_savings || selectedMember.savings || 0;
+        const projectSavings = selectedMember.project_savings_total || 0;
+        const guaranteed = selectedMember.total_guaranteed_amount || 0;
+        const maxLoan = calculateMaxLoan(savings, 3, guaranteed, projectSavings);
+
+        return {
+            savings,
+            projectSavings,
+            guaranteed,
+            maxLoan: Math.max(0, maxLoan),
+            totalEquity: savings + projectSavings,
+            available: Math.max(0, ((savings + projectSavings) * 3) - guaranteed)
+        };
+    }, [selectedMember]);
+
+
+
     useEffect(() => {
         calculateStlSchedule();
-    }, [stlAmount, stlDuration, activeProduct]);
+    }, [stlAmount, stlDuration, activeProduct, activeTab]);
 
     const calculateStlSchedule = () => {
         const principal = parseFloat(stlAmount) || 0;
@@ -189,7 +233,7 @@ const LoanAdvisory = () => {
     const coverage = useMemo(() => {
         if (!selectedMember) return null;
         const loanTotal = activeTab === 'STL' ? stlAmount : (ltlSelection?.amount || 0);
-        const savings = selectedMember.savings || 0;
+        const savings = (selectedMember.current_savings || selectedMember.savings || 0) + (selectedMember.project_savings_total || 0);
 
         return {
             isCovered: savings >= loanTotal,
@@ -223,8 +267,54 @@ const LoanAdvisory = () => {
                 </button>
             </div>
 
+            {/* Member Selection & Eligibility */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                    <div className="w-full md:w-1/3">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Select Member to Advise</label>
+                        <select
+                            value={selectedMemberId}
+                            onChange={(e) => setSelectedMemberId(e.target.value)}
+                            className="w-full bg-gray-50 border-2 border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-safaricom-green focus:border-safaricom-green block p-3 font-bold outline-none transition-all"
+                        >
+                            <option value="">-- Choose Member --</option>
+                            {members.map(m => (
+                                <option key={m.id} value={m.id}>{m.name} ({m.groupName || 'Group A'})</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="w-full md:w-2/3">
+                        {selectedMember ? (
+                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100 flex items-center gap-4">
+                                <div className="p-3 bg-white rounded-full shadow-sm">
+                                    <FaShieldAlt className="text-2xl text-green-600" />
+                                </div>
+                                <div>
+                                    <div className="text-xs text-green-800 font-black uppercase tracking-wider mb-1">Max Loan Eligibility</div>
+                                    <div className="text-3xl font-black text-green-700 tracking-tight">
+                                        KES {memberEligibility.maxLoan.toLocaleString()}
+                                    </div>
+                                    <div className="text-[10px] text-green-600 font-bold mt-1 flex gap-3">
+                                        <span>BASE: KES {memberEligibility.savings.toLocaleString()}</span>
+                                        {memberEligibility.projectSavings > 0 && (
+                                            <span className="text-blue-600 bg-blue-100 px-2 rounded-full uppercase">PROJECT BONUS: +KES {memberEligibility.projectSavings.toLocaleString()}</span>
+                                        )}
+                                        <span>LIENS: -KES {memberEligibility.guaranteed.toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-gray-50 rounded-xl p-6 border border-gray-200 border-dashed flex items-center justify-center text-gray-400 font-bold text-sm h-full">
+                                <FaInfoCircle className="mr-2" /> Select a member to see their loan limit
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             {/* Tab Switcher */}
-            <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
+            <div className="bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
                 <div className="flex p-1 bg-gray-100 rounded-lg w-full md:w-auto">
                     <button
                         onClick={() => setActiveTab('STL')}
@@ -244,20 +334,6 @@ const LoanAdvisory = () => {
                     >
                         Long Term (LTL)
                     </button>
-                </div>
-
-                {/* Member Selector */}
-                <div className="w-full md:w-auto flex items-center gap-2">
-                    <select
-                        value={selectedMemberId}
-                        onChange={(e) => setSelectedMemberId(e.target.value)}
-                        className="w-full md:w-64 bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-safaricom-green focus:border-safaricom-green block p-2.5 font-bold"
-                    >
-                        <option value="">-- Select Member to Apply --</option>
-                        {members.map(m => (
-                            <option key={m.id} value={m.id}>{m.name} ({m.groupName})</option>
-                        ))}
-                    </select>
                 </div>
             </div>
 

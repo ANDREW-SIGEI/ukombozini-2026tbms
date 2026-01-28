@@ -243,6 +243,51 @@ const init = async () => {
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
         )`);
 
+        // 10. SMS LOGS
+        await run(`CREATE TABLE IF NOT EXISTS sms_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER,
+            phone TEXT NOT NULL,
+            message TEXT NOT NULL,
+            type TEXT, -- CONTRIBUTION, LOAN, ALERT
+            cost REAL DEFAULT 0,
+            status TEXT DEFAULT 'SENT', -- SENT, DELIVERED, FAILED
+            error_message TEXT,
+            transaction_id INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // 11. PROJECT SAVINGS MODULE
+        await run(`CREATE TABLE IF NOT EXISTS project_registrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            project_type TEXT NOT NULL CHECK( project_type IN ('EDUCATION', 'AGRICULTURE') ),
+            registration_date TEXT DEFAULT CURRENT_TIMESTAMP,
+            fee_paid REAL DEFAULT 200,
+            year INTEGER NOT NULL,
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )`);
+
+        await run(`CREATE TABLE IF NOT EXISTS project_savings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registration_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            date TEXT NOT NULL,
+            status TEXT DEFAULT 'ACTIVE' CHECK( status IN ('ACTIVE', 'LOCKED', 'PAID') ),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (registration_id) REFERENCES project_registrations(id)
+        )`);
+
+        await run(`CREATE TABLE IF NOT EXISTS company_revenue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL, -- e.g., 'PROJECT_REGISTRATION_FEE'
+            amount REAL NOT NULL,
+            member_id INTEGER,
+            date TEXT DEFAULT CURRENT_TIMESTAMP,
+            description TEXT,
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )`);
+
         // SEEDING
         const groupCount = await get("SELECT count(*) as count FROM groups");
         if (groupCount.count === 0) {

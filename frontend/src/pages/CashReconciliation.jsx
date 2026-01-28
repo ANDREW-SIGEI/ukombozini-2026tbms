@@ -13,6 +13,7 @@ import {
 import { toast } from 'react-toastify';
 import NotificationService from '../services/NotificationService';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 
 // Mock data - replace with API
 const mockReconciliations = [
@@ -82,6 +83,27 @@ const CashReconciliation = () => {
     });
 
     const { user } = useAuth();
+
+    // Load Real Data
+    useEffect(() => {
+        const fetchDailyData = async () => {
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const flow = await api.getDailyCashFlow(today);
+                if (flow) {
+                    setExpectedCash({
+                        total: flow.cashIn.total,
+                        breakdown: [
+                            { session_number: 'SYSTEM-TOTAL', group_name: 'All Groups', total_collected: flow.cashIn.total, members_present: '-' }
+                        ]
+                    });
+                }
+            } catch (error) {
+                console.error("Failed to load cash flow", error);
+            }
+        };
+        fetchDailyData();
+    }, []);
 
     // Calculate variance
     const calculateVariance = () => {
