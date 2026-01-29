@@ -40,6 +40,10 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const FinancialReports = lazy(() => import('./pages/FinancialReports'));
 const ProjectManager = lazy(() => import('./pages/ProjectManager'));
 const GroupLedger = lazy(() => import('./pages/GroupLedger'));
+const GovernanceHub = lazy(() => import('./pages/GovernanceHub'));
+const AuditorMode = lazy(() => import('./pages/AuditorMode'));
+const OfficialsDirectory = lazy(() => import('./pages/OfficialsDirectory'));
+const RiskCommandCenter = lazy(() => import('./pages/RiskCommandCenter'));
 
 
 // Profile component
@@ -122,7 +126,7 @@ function App() {
               <Route path="/project-manager" element={<ProjectManager />} />
               <Route path="/contribution-compliance" element={<ContributionCompliance />} />
               <Route path="/partnership-manager" element={<CompanyPartnershipManager />} />
-              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/messaging-hub" element={<NotificationsPage />} />
               <Route path="/financial-reports" element={<FinancialReports />} />
             </Route>
 
@@ -135,6 +139,10 @@ function App() {
               <Route path="/dividends" element={<DividendManagement />} />
               <Route path="/sms-reports" element={<SMSReports />} />
               <Route path="/sms-automation-test" element={<SMSAutomationTest />} />
+              <Route path="/governance-hub" element={<GovernanceHub />} />
+              <Route path="/auditor-mode" element={<AuditorMode />} />
+              <Route path="/officials-directory" element={<OfficialsDirectory />} />
+              <Route path="/risk-command-center" element={<RiskCommandCenter />} />
             </Route>
 
             {/* Catch all redirect */}

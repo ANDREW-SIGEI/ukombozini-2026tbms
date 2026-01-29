@@ -197,7 +197,7 @@ const ProjectManager = () => {
         if (!selectedMember) return toast.error('Select member');
         setLoading(true);
         try {
-            const res = await api.registerProject(selectedMember.id, regProject);
+            const res = await api.registerProject(selectedMember.id, regProject, selectedGroup);
             if (res?.success) {
                 toast.success(res.message);
                 fetchMemberStatus(selectedMember.id);
@@ -215,7 +215,7 @@ const ProjectManager = () => {
         if (amt > dailyLimit.remaining_limit) return toast.error('Exceeds daily slot');
         setLoading(true);
         try {
-            const res = await api.postProjectSaving(regId, amt, new Date().toISOString());
+            const res = await api.postProjectSaving(regId, amt, new Date().toISOString(), selectedGroup);
             if (res?.success) {
                 toast.success('Posted!');
                 setSavingAmount('');

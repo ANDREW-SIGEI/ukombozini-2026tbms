@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     FaUserShield, FaEnvelope, FaPhone, FaPenToSquare, FaPlus, FaCircleCheck,
-    FaXmark, FaObjectGroup, FaTrash, FaMagnifyingGlass, FaFilter
+    FaXmark, FaObjectGroup, FaTrash, FaMagnifyingGlass
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
@@ -114,7 +114,7 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
         } else {
             setFormData({
                 name: '',
-                role: 'field_officer',
+                role: 'Field Officer',
                 phone: '',
                 email: '',
                 status: 'active',
@@ -131,7 +131,7 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
                 <div className="p-8">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-2xl font-black text-gray-800 tracking-tight">
-                            {editingOfficer ? 'Edit Officer' : 'Assign New Officer'}
+                            {editingOfficer ? 'Edit Staff Profile' : 'Register New Staff'}
                         </h3>
                         <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                             <FaXmark size={20} className="text-gray-400" />
@@ -151,15 +151,15 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest leading-none">Role</label>
+                                <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest leading-none">Role Category</label>
                                 <select
                                     value={formData.role}
                                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                                     className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-safaricom-green/20 font-medium"
                                 >
-                                    <option value="field_officer">Field Officer</option>
-                                    <option value="admin">Administrator</option>
-                                    <option value="director">Director</option>
+                                    <option value="Field Officer">Field Officer</option>
+                                    <option value="Admin">Administrator</option>
+                                    <option value="Director">Director</option>
                                 </select>
                             </div>
                         </div>
@@ -190,7 +190,7 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
                         {!editingOfficer && (
                             <div className="p-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
                                 <div className="flex justify-between items-center mb-2">
-                                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Initial Password</label>
+                                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Initial System Password</label>
                                     <button
                                         onClick={generateRandomPassword}
                                         className="text-[10px] font-black text-safaricom-green hover:underline"
@@ -226,7 +226,6 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
                                         </button>
                                     ))}
                                 </div>
-                                <p className="text-[10px] text-gray-400 mt-2 italic">Inactive officers cannot access the system.</p>
                             </div>
                         )}
                     </div>
@@ -242,7 +241,7 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
                             onClick={() => onSave(formData)}
                             className="flex-1 py-3 bg-black text-white rounded-2xl font-black text-sm shadow-xl shadow-gray-200 hover:bg-gray-900 active:scale-95 transition-all"
                         >
-                            {editingOfficer ? 'Update Profile' : 'Save & Assign Account'}
+                            {editingOfficer ? 'Update Profile' : 'Activate Staff Account'}
                         </button>
                     </div>
                 </div>
@@ -277,7 +276,7 @@ const Officers = () => {
             setGroups(groupsData || []);
         } catch (error) {
             console.error(error);
-            toast.error("Failed to load officers data");
+            toast.error("Failed to load staff data");
         } finally {
             setLoading(false);
         }
@@ -286,7 +285,7 @@ const Officers = () => {
     const handleSaveOfficer = async (officerData) => {
         try {
             await api.saveOfficer(officerData);
-            toast.success(officerData.id ? "Officer updated!" : "Officer assigned!");
+            toast.success(officerData.id ? "Staff profile updated!" : "Staff member registered!");
             setIsFormOpen(false);
             fetchData();
         } catch (error) {
@@ -309,10 +308,10 @@ const Officers = () => {
     };
 
     const handleDeleteOfficer = async (id) => {
-        if (!window.confirm("Are you sure you want to remove this officer?")) return;
+        if (!window.confirm("Are you sure you want to remove this staff member?")) return;
         try {
             await api.deleteOfficer(id);
-            toast.success("Officer removed");
+            toast.success("Staff member removed");
             fetchData();
         } catch (error) {
             console.error(error);
@@ -327,11 +326,11 @@ const Officers = () => {
             newPassword += charset.charAt(Math.floor(Math.random() * n));
         }
 
-        if (!window.confirm(`Reset password for ${officer.name}? A new one will be generated.`)) return;
+        if (!window.confirm(`Reset password for ${officer.name || officer.full_name}? A new one will be generated.`)) return;
 
         try {
             await api.resetOfficerPassword(officer.id, newPassword);
-            alert(`PASSWORD RESET SUCCESSFUL!\n\nNew Password for ${officer.name}:\n${newPassword}\n\nPlease share this securely with them.`);
+            alert(`PASSWORD RESET SUCCESSFUL!\n\nNew Password for ${officer.name || officer.full_name}:\n${newPassword}\n\nPlease share this securely with them.`);
             fetchData();
         } catch (error) {
             console.error(error);
@@ -346,24 +345,17 @@ const Officers = () => {
     });
 
     return (
-        <div className="space-y-8 pb-20">
-            {/* 1. Glass Header & Stats */}
+        <div className="space-y-8 pb-20 max-w-7xl mx-auto">
+            {/* Header Area */}
             <div className="relative p-8 bg-white/80 backdrop-blur-md rounded-[2.5rem] shadow-xl shadow-gray-200/50 border border-white overflow-hidden">
                 <div className="absolute right-0 top-0 w-64 h-64 bg-safaricom-green/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
-                <div className="absolute left-0 bottom-0 w-64 h-64 bg-green-400/5 rounded-full blur-3xl -ml-16 -mb-16"></div>
 
                 <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6">
                     <div>
-                        <h2 className="text-3xl font-black text-gray-800 tracking-tight mb-2">Table Officers</h2>
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-1.5 px-3 py-1 bg-green-50 rounded-full">
-                                <span className="w-1.5 h-1.5 bg-safaricom-green rounded-full animate-pulse"></span>
-                                <span className="text-[10px] font-black text-safaricom-green uppercase tracking-wider">{officers.length} Active Officers</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 px-3 py-1 bg-gray-50 rounded-full">
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{groups.length} Available Groups</span>
-                            </div>
-                        </div>
+                        <h2 className="text-3xl font-black text-gray-800 tracking-tight">System Staff & Field Officers</h2>
+                        <p className="text-sm font-bold text-gray-400 mt-1 uppercase tracking-widest italic">
+                            Manage access control and field operations
+                        </p>
                     </div>
 
                     <div className="flex items-center gap-3 w-full md:w-auto">
@@ -374,12 +366,13 @@ const Officers = () => {
                                 placeholder="Search by name or role..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-12 pr-4 py-3 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-safaricom-green/20 text-sm font-bold"
+                                className="w-full pl-12 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-safaricom-green/20 text-sm font-bold"
                             />
                         </div>
                         <button
                             onClick={() => { setSelectedOfficer(null); setIsFormOpen(true); }}
                             className="p-4 bg-safaricom-green text-white rounded-2xl shadow-lg shadow-green-100 hover:bg-green-600 transition-all active:scale-95"
+                            title="Register New Staff"
                         >
                             <FaPlus />
                         </button>
@@ -387,7 +380,7 @@ const Officers = () => {
                 </div>
             </div>
 
-            {/* 2. Officers Grid */}
+            {/* Staff Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {loading ? (
                     [1, 2, 3].map(i => (
@@ -395,15 +388,13 @@ const Officers = () => {
                     ))
                 ) : filteredOfficers.length > 0 ? filteredOfficers.map((officer) => (
                     <div key={officer.id} className="group relative bg-white rounded-[2.5rem] p-6 shadow-xl shadow-gray-100/50 border border-transparent hover:border-gray-100 hover:shadow-2xl transition-all duration-500 overflow-hidden">
-                        {/* Card Hover Decor */}
                         <div className="absolute top-0 right-0 w-32 h-32 bg-gray-50 rounded-full blur-3xl group-hover:bg-safaricom-green/5 transition-colors duration-500"></div>
 
                         <div className="relative z-10">
-                            {/* Profile Header */}
                             <div className="flex justify-between items-start mb-6">
                                 <div className="flex items-center gap-4">
                                     <div className="relative">
-                                        <div className="w-16 h-16 rounded-3xl bg-gray-100 flex items-center justify-center text-safaricom-green group-hover:scale-110 transition-transform duration-500 shadow-inner">
+                                        <div className="w-16 h-16 rounded-3xl bg-gray-100 flex items-center justify-center text-safaricom-green group-hover:scale-110 transition-transform duration-500 shadow-inner border border-gray-50">
                                             <FaUserShield size={32} />
                                         </div>
                                         <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-4 border-white ${officer.status === 'active' ? 'bg-safaricom-green' : 'bg-gray-300'}`}></div>
@@ -413,7 +404,7 @@ const Officers = () => {
                                             {officer.full_name || officer.name}
                                         </h3>
                                         <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest leading-none block mt-1">
-                                            {officer.role?.replace('_', ' ')}
+                                            {officer.role}
                                         </span>
                                     </div>
                                 </div>
@@ -440,31 +431,29 @@ const Officers = () => {
                                 </div>
                             </div>
 
-                            {/* Info Rows */}
                             <div className="space-y-4 mb-6">
-                                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl">
-                                    <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-gray-400">
+                                <div className="flex items-center gap-3 p-3 bg-gray-50/50 rounded-2xl border border-gray-100">
+                                    <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-gray-400 shadow-sm">
                                         <FaPhone size={12} />
                                     </div>
                                     <span className="text-xs font-bold text-gray-600">{officer.phone}</span>
                                 </div>
-                                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl">
-                                    <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-gray-400">
+                                <div className="flex items-center gap-3 p-3 bg-gray-50/50 rounded-2xl border border-gray-100">
+                                    <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-gray-400 shadow-sm">
                                         <FaEnvelope size={12} />
                                     </div>
                                     <span className="text-xs font-bold text-gray-600 truncate">{officer.email}</span>
                                 </div>
                             </div>
 
-                            {/* Group Allocation */}
                             <div className="pt-6 border-t border-gray-100">
                                 <div className="flex justify-between items-center mb-3">
-                                    <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Allocated Groups</span>
+                                    <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Active Portfolios</span>
                                     <button
                                         onClick={() => { setSelectedOfficer(officer); setIsAllocationOpen(true); }}
                                         className="text-[10px] font-black text-safaricom-green hover:underline cursor-pointer"
                                     >
-                                        + Allocate
+                                        + Manage Groups
                                     </button>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
@@ -475,7 +464,7 @@ const Officers = () => {
                                             </span>
                                         ))
                                     ) : (
-                                        <span className="text-[10px] font-bold text-gray-300 italic">No groups allocated</span>
+                                        <span className="text-[10px] font-bold text-gray-300 italic">No portfolios assigned</span>
                                     )}
                                 </div>
                             </div>
@@ -484,13 +473,13 @@ const Officers = () => {
                 )) : (
                     <div className="col-span-full py-20 text-center">
                         <FaUserShield size={64} className="mx-auto text-gray-100 mb-4" />
-                        <h3 className="text-xl font-black text-gray-400">No officers found</h3>
-                        <p className="text-sm text-gray-400">Try adjusting your search or add a new officer.</p>
+                        <h3 className="text-xl font-black text-gray-400">Registry Empty</h3>
+                        <p className="text-sm text-gray-400 italic">No staff members found in the current registry.</p>
                     </div>
                 )}
             </div>
 
-            {/* 3. Modals */}
+            {/* Modals */}
             <AllocationModal
                 isOpen={isAllocationOpen}
                 onClose={() => setIsAllocationOpen(false)}

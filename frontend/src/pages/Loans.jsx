@@ -4,11 +4,13 @@ import {
     FaMoneyBillWave, FaExclamationTriangle, FaCheckCircle, FaSpinner,
     FaFileExcel, FaFilePdf
 } from 'react-icons/fa';
+import { Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import ExcelService from '../services/excelService';
 import PdfService from '../services/pdfService';
+import LoanScheduleModal from '../components/LoanScheduleModal';
 
 const Loans = () => {
     const navigate = useNavigate();
@@ -21,6 +23,13 @@ const Loans = () => {
         totalPrincipal: 0,
         countActive: 0,
         countDefaulted: 0
+    });
+
+    const [scheduleModal, setScheduleModal] = useState({
+        isOpen: false,
+        schedule: [],
+        loan: null,
+        loading: false
     });
 
     useEffect(() => {
@@ -104,6 +113,17 @@ const Loans = () => {
         if (!filteredLoans || filteredLoans.length === 0) return toast.info("No loans to export");
         PdfService.generateLoanSchedule(filteredLoans, stats);
         toast.success("PDF Schedule Downloaded");
+    };
+
+    const handleViewSchedule = async (loan) => {
+        setScheduleModal({ ...scheduleModal, loading: true, isOpen: true, loan: { id: loan.id, member_name: loan.members?.full_name } });
+        try {
+            const data = await api.getLoanSchedule(loan.id);
+            setScheduleModal(prev => ({ ...prev, schedule: data || [], loading: false }));
+        } catch (error) {
+            console.error(error);
+            setScheduleModal(prev => ({ ...prev, isOpen: false, loading: false }));
+        }
     };
 
     const getStatusStyle = (status) => {
@@ -275,8 +295,11 @@ const Loans = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            <button className="text-gray-400 hover:text-blue-600 font-bold text-xs group-hover:visible transition-colors">
-                                                View
+                                            <button
+                                                onClick={() => handleViewSchedule(loan)}
+                                                className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1 mx-auto"
+                                            >
+                                                <Clock size={12} /> Schedule
                                             </button>
                                         </td>
                                     </tr>
@@ -286,6 +309,14 @@ const Loans = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Repayment Schedule Modal */}
+            <LoanScheduleModal
+                isOpen={scheduleModal.isOpen}
+                onClose={() => setScheduleModal({ ...scheduleModal, isOpen: false })}
+                schedule={scheduleModal.schedule}
+                loanDetails={scheduleModal.loan}
+            />
         </div>
     );
 };

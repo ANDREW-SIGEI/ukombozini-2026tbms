@@ -12,19 +12,34 @@ const Layout = ({ children }) => {
     const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
 
+    const [systemLockdown, setSystemLockdown] = useState(false);
+
     useEffect(() => {
         // Fetch initially
-        fetchUnreadCount();
+        fetchStatus();
 
         // Poll every 30s (simple real-time for MVP)
-        const interval = setInterval(fetchUnreadCount, 30000);
+        const interval = setInterval(fetchStatus, 30000);
         return () => clearInterval(interval);
     }, []);
 
-    const fetchUnreadCount = async () => {
-        const logs = await NotificationService.getLogs(20);
-        // Simple mock "unread" - in real app, logs would have 'read' status
-        setUnreadCount(logs.filter(l => l.status === 'SENT').length > 5 ? 5 : logs.length);
+    const fetchStatus = async () => {
+        try {
+            const [logs, govStatus] = await Promise.all([
+                NotificationService.getLogs(20).catch(() => []),
+                import('../services/api').then(m => m.api.getGovernanceStatus().catch(() => ({ system_lockdown: false })))
+            ]);
+
+            // Unread Badge
+            if (logs && Array.isArray(logs)) {
+                setUnreadCount(logs.filter(l => l.status === 'SENT').length > 5 ? 5 : logs.length);
+            }
+
+            // Governance Status
+            setSystemLockdown(govStatus?.system_lockdown || false);
+        } catch (error) {
+            console.warn('Status poll failed:', error);
+        }
     };
 
     return (
@@ -55,6 +70,15 @@ const Layout = ({ children }) => {
 
             {/* Main Content */}
             <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+
+                {/* GLOBAL LOCKDOWN BANNER */}
+                {systemLockdown && (
+                    <div className="bg-red-600 text-white px-6 py-3 flex items-center justify-center gap-3 shadow-lg z-50 animate-pulse">
+                        <span className="text-xl">🚨</span>
+                        <span className="font-bold tracking-wider">SYSTEM FROZEN: EMERGENCY LOCKDOWN ACTIVE - NO FINANCIAL ACTIONS PERMITTED</span>
+                    </div>
+                )}
+
                 {/* Topbar */}
                 <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 z-10 sticky top-0">
                     <div className="flex items-center">

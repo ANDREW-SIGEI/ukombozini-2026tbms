@@ -446,10 +446,9 @@ const PdfService = {
      * GENERATE DAILY CASH CLOSING SLIP
      */
     generateDailyClosingSlip(report, summary, user, groupName) {
-        // A5 equivalent width (148mm) usually better for slips, but A4 Portrait is fine for official docs
+        // Use A4 for detailed report
         const { doc, addFooter, PageWidth } = this.initDoc("Daily Cash Closing Slip", `Group: ${groupName} | Date: ${report.date}`);
 
-        const cols = [40, 100, 160];
         let y = 60;
 
         // 1. OFFICER DETAILS
@@ -476,17 +475,18 @@ const PdfService = {
 
         y += 30;
 
-        // 2. CASH FLOW SUMMARY
+        // 2. CASH FLOW SUMMARY (High Level)
         doc.setTextColor(0);
-        doc.setFontSize(14);
-        doc.text("Cash Flow Summary", 15, y);
+        doc.setFontSize(12);
+        doc.text("1. Cash Flow Summary", 15, y);
         doc.setDrawColor(...SAFARICOM_GREEN);
         doc.line(15, y + 2, 70, y + 2);
-        y += 10;
+        y += 6;
 
         const summaryData = [
+            ["Opening Balance (B/F)", `KES ${(report.morning_balance || 0).toLocaleString()}`],
             ["Total Cash Collected (In)", `KES ${summary.totalIn.toLocaleString()}`],
-            ["Total Cash Disbursed (Out)", `KES ${summary.totalOut.toLocaleString()}`],
+            ["Total Cash Disbursed (Out)", `(KES ${summary.totalOut.toLocaleString()})`],
             ["Net Cash at Hand", `KES ${summary.netCash.toLocaleString()}`],
             ["Banked Amount (Treasury)", `KES ${summary.banked.toLocaleString()}`]
         ];
@@ -496,21 +496,113 @@ const PdfService = {
             head: [['Description', 'Amount']],
             body: summaryData,
             theme: 'grid',
-            headStyles: { fillColor: [60, 60, 60] },
+            headStyles: { fillColor: DARK_GREY },
+            bodyStyles: { fontSize: 10 },
             columnStyles: {
                 0: { cellWidth: 100 },
                 1: { cellWidth: 60, halign: 'right', fontStyle: 'bold' }
             }
         });
 
+        y = doc.lastAutoTable.finalY + 15;
+
+        // 3. DETAILED BREAKDOWNS (Side by Side)
+        const leftX = 15;
+        const rightX = PageWidth / 2 + 5;
+        const tableWidth = (PageWidth - 40) / 2;
+
+        doc.text("2. Collection Details (Cash In)", leftX, y);
+        doc.text("3. Disbursement Details (Cash Out)", rightX, y);
+        y += 5;
+
+        // Cash In Data
+        // We assume 'summary' object has these details passed from frontend calculatedTotals
+        // If not, we use placeholders or expect the caller (DailyCashReport.jsx) to pass a rich summary object.
+        // Let's assume standard structure:
+        const cashInData = [
+            ["Savings Deposits", summary.totalSavings || 0],
+            ["Loan Repayments (Principal)", summary.loanPrincipal || 0],
+            ["Loan Interest", summary.loanInterest || 0],
+            ["Insurance / STLs", summary.totalStl || 0], // Collapsed for brevity or specific field
+            ["Welfare", summary.totalWelfare || 0],
+            ["Project Fund", summary.totalProject || 0],
+            ["Fines & Penalities", summary.totalFines || 0]
+        ].map(r => [r[0], `KES ${r[1].toLocaleString()}`]);
+
+        // Cash Out Data
+        const cashOutData = [
+            ["Loans Issued", summary.totalLoansIssued || 0],
+            ["Member Withdrawals", summary.totalWithdrawals || 0],
+            ["Expenses / Other", 0]
+        ].map(r => [r[0], `KES ${r[1].toLocaleString()}`]);
+
+        // Draw Side-by-Side Tables manually or using autoTable with specific margins
+        autoTable(doc, {
+            startY: y,
+            head: [['Type', 'Amount']],
+            body: cashInData,
+            theme: 'striped',
+            margin: { left: leftX, right: PageWidth - (leftX + tableWidth) },
+            tableWidth: tableWidth,
+            headStyles: { fillColor: [40, 167, 69] }, // Green
+            columnStyles: { 1: { halign: 'right' } }
+        });
+
+        const finalY1 = doc.lastAutoTable.finalY;
+
+        autoTable(doc, {
+            startY: y,
+            head: [['Type', 'Amount']],
+            body: cashOutData,
+            theme: 'striped',
+            margin: { left: rightX, right: 15 },
+            tableWidth: tableWidth,
+            headStyles: { fillColor: [220, 53, 69] }, // Red
+            columnStyles: { 1: { halign: 'right' } }
+        });
+
+        const finalY2 = doc.lastAutoTable.finalY;
+        y = Math.max(finalY1, finalY2) + 15;
+
+        // 4. MANUAL DENOMINATION SECTION (For physical verification)
+        doc.text("4. Treasury Cash Count (Manual Entry)", 15, y);
+        y += 5;
+
+        const denoms = [
+            ['1000', '', ''],
+            ['500', '', ''],
+            ['200', '', ''],
+            ['100', '', ''],
+            ['50', '', ''],
+            ['Coins', '', '']
+        ];
+
+        autoTable(doc, {
+            startY: y,
+            head: [['Note/Coin', 'Count', 'Total Value']],
+            body: denoms,
+            theme: 'grid',
+            tableWidth: tableWidth, // Use half width
+            headStyles: { fillColor: [100, 100, 100] },
+            bodyStyles: { lineColor: [200, 200, 200], lineWidth: 0.1 }
+        });
+
+        // Add Disclaimer/Notes space on the right
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text("Notes / Observations:", rightX, y + 10);
+        doc.rect(rightX, y + 15, tableWidth, 40);
+
         y = doc.lastAutoTable.finalY + 20;
 
-        // 3. DENOMINATION BREAKDOWN (If available)
-        // ... (Skipping for now as strict denoms aren't in frontend state yet)
+        // 5. SIGNATURES
+        if (y + 40 > doc.internal.pageSize.height) {
+            doc.addPage();
+            y = 40;
+        }
 
-        // 4. SIGNATURES
         doc.setFontSize(10);
-        doc.setTextColor(100);
+        doc.setTextColor(0);
         doc.text("Authorized Signatures:", 15, y);
         y += 5;
         doc.setDrawColor(200);
@@ -527,7 +619,6 @@ const PdfService = {
 
         y += boxHeight + 5;
         doc.setFontSize(8);
-        doc.setTextColor(0);
         doc.text("Treasurer", 45, y, { align: 'center' });
         doc.text("Secretary", 105, y, { align: 'center' });
         doc.text("Chairperson", 165, y, { align: 'center' });
@@ -540,6 +631,42 @@ const PdfService = {
 
         addFooter();
         doc.save(`Daily_Closing_Slip_${report.date}.pdf`);
+    },
+
+    /**
+     * GENERATE CONTACT LIST (Officials)
+     */
+    generateContactList(title, contacts) {
+        const { doc, addFooter } = this.initDoc("Contact Directory", title);
+
+        const headers = [["Name", "Role", "Group", "Phone Number"]];
+        const data = contacts.map(c => [
+            c.name,
+            c.role,
+            c.groupName,
+            c.phone
+        ]);
+
+        autoTable(doc, {
+            startY: 60,
+            head: headers,
+            body: data,
+            theme: 'grid',
+            headStyles: { fillColor: [67, 176, 42] }, // SAFARICOM_GREEN matches usage in file
+            styles: { fontSize: 10, cellPadding: 3 },
+            columnStyles: {
+                0: { cellWidth: 50, fontStyle: 'bold' },
+                1: { cellWidth: 40 },
+                2: { cellWidth: 50 },
+                3: { cellWidth: 'auto', fontStyle: 'bold' }
+            },
+            alternateRowStyles: {
+                fillColor: [245, 245, 245]
+            }
+        });
+
+        addFooter();
+        doc.save(`${title.replace(/\s+/g, '_')}_Contacts.pdf`);
     }
 };
 

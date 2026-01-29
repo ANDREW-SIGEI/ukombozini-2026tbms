@@ -1,11 +1,9 @@
 import React, { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { FaScaleBalanced, FaCircleCheck, FaTriangleExclamation, FaChartLine, FaUsers, FaArrowRight } from 'react-icons/fa6';
 import { useTransactions } from '../context/TransactionContext';
-import { mockGroups } from '../data/mockData';
-import { Link } from 'react-router-dom';
-
 const Reconciliation = () => {
-    const { sessions } = useTransactions();
+    const { sessions, groups } = useTransactions();
 
     // 1. DATA AGGREGATION ENGINE (Director Level)
     const systemOverview = useMemo(() => {
@@ -14,28 +12,28 @@ const Reconciliation = () => {
         let criticalFlags = 0;
 
         // Map groups to their latest status
-        const groupStatusMap = mockGroups.map(group => {
+        const groupStatusMap = groups.map(group => {
             // Find latest session for this group
-            // In a real app, filtering by month/year would be here
-            const groupSessions = sessions.filter(s => s.groupId === group.id);
-            const latestSession = groupSessions[groupSessions.length - 1]; // Simple last-in approach
+            const groupSessions = sessions.filter(s => s.groupId === group.id || s.group_id === group.id);
+            const latestSession = groupSessions[0]; // Assuming sessions are sorted DESC by date in context
 
             if (latestSession) {
-                totalCashCollected += (latestSession.totals?.total_cash_in || 0);
+                totalCashCollected += (latestSession.totals?.total_cash_in || latestSession.total_contributions || 0);
                 totalSessionsPosted++;
 
                 // CHECK FOR SYSTEM STOPPERS (Negative Balances)
-                if (latestSession.closingBalance < 0) {
+                const bal = latestSession.closingBalance || latestSession.closing_balance || 0;
+                if (bal < 0) {
                     criticalFlags++;
                 }
 
                 return {
                     ...group,
-                    status: 'POSTED',
-                    lastUpdate: latestSession.date,
-                    cashIn: latestSession.totals?.total_cash_in || 0,
-                    closingBalance: latestSession.closingBalance || 0,
-                    hasError: (latestSession.closingBalance || 0) < 0
+                    status: latestSession.status || 'POSTED',
+                    lastUpdate: latestSession.date || latestSession.created_at,
+                    cashIn: latestSession.totals?.total_cash_in || latestSession.total_contributions || 0,
+                    closingBalance: bal,
+                    hasError: bal < 0
                 };
             }
 
@@ -44,7 +42,7 @@ const Reconciliation = () => {
                 status: 'PENDING',
                 lastUpdate: '-',
                 cashIn: 0,
-                closingBalance: group.openingBalance || 0, // Fallback to opening
+                closingBalance: group.openingBalance || 0,
                 hasError: false
             };
         });
@@ -55,7 +53,7 @@ const Reconciliation = () => {
             criticalFlags,
             groupRows: groupStatusMap
         };
-    }, [sessions]);
+    }, [sessions, groups]);
 
     return (
         <div className="space-y-8 max-w-7xl mx-auto pb-20 p-6">
@@ -66,7 +64,7 @@ const Reconciliation = () => {
                         <FaScaleBalanced className="text-safaricom-green" />
                         Director Reconciliation Board
                     </h2>
-                    <p className="text-gray-500 font-medium mt-1">System-Wide Financial Health • January 2026</p>
+                    <p className="text-gray-500 font-medium mt-1">System-Wide Financial Health • {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
                 </div>
                 <div className="mt-4 md:mt-0 px-6 py-2 bg-gray-900 text-white rounded-full font-bold text-sm tracking-wide shadow-lg">
                     LIVE SYSTEM DATA
@@ -92,7 +90,7 @@ const Reconciliation = () => {
                     <div>
                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Groups Posted</p>
                         <p className="text-2xl font-black text-gray-900">
-                            {systemOverview.totalSessionsPosted} <span className="text-gray-400 text-lg font-medium">/ {mockGroups.length}</span>
+                            {systemOverview.totalSessionsPosted} <span className="text-gray-400 text-lg font-medium">/ {groups.length}</span>
                         </p>
                     </div>
                 </div>
@@ -159,7 +157,7 @@ const Reconciliation = () => {
                                         )}
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        <Link to="/group-monthly" className="text-safaricom-green hover:text-black font-bold text-sm flex items-center justify-center gap-1 group">
+                                        <Link to={`/groups/${group.id}/ledger`} className="text-safaricom-green hover:text-black font-bold text-sm flex items-center justify-center gap-1 group">
                                             Audit <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
                                         </Link>
                                     </td>

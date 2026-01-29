@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { toast } from 'react-toastify';
+
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -36,34 +38,82 @@ ChartJS.register(
 
 const Dashboard = () => {
     const [highPotentialCount, setHighPotentialCount] = useState(0);
+    const [isAuditorMode, setIsAuditorMode] = useState(false);
+    const [auditDate, setAuditDate] = useState(new Date().toISOString().split('T')[0]);
+    const [snapshot, setSnapshot] = useState(null);
+    const [groupRisks, setGroupRisks] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [systemSettings, setSystemSettings] = useState([]);
+    const [isSystemFrozen, setIsSystemFrozen] = useState(false);
+    const [realStats, setRealStats] = useState(null);
 
     useEffect(() => {
-        const fetchOpportunities = async () => {
+        const fetchDashboardData = async () => {
+            setIsLoading(true);
             try {
+                // Fetch Groups and their Risks
+                const groups = await api.getGroups();
+                const riskPromises = groups.map(g => api.getRiskScore('GROUP', g.id));
+                const risks = await Promise.all(riskPromises);
+                setGroupRisks(groups.map((g, i) => ({ ...g, risk: risks[i] })));
+
                 const members = await api.getMembers();
                 const hp = members.filter(m => (m.current_savings > 2000) && (!m.project_savings_total || m.project_savings_total === 0)).length;
                 setHighPotentialCount(hp);
+
+                // Check System Freeze
+                const settings = await api.getSystemSettings();
+                setSystemSettings(settings);
+                const freezeSetting = settings.find(s => s.key === 'system_freeze');
+                setIsSystemFrozen(freezeSetting?.value === 'true');
+
+                // Fetch Real Dashboard Stats
+                const ds = await api.getDashboardStats();
+                if (ds) setRealStats(ds);
             } catch (err) {
                 console.error("Dashboard Intelligence failed", err);
+            } finally {
+                setIsLoading(false);
             }
         };
-        fetchOpportunities();
+        fetchDashboardData();
     }, []);
+
+    const handleEnterAuditorMode = async () => {
+        if (!auditDate) return;
+        setIsLoading(true);
+        try {
+            const data = await api.getAuditSnapshot(auditDate);
+            setSnapshot(data);
+            setIsAuditorMode(true);
+            toast.success(`Entered Auditor Mode: Snapshot for ${auditDate}`);
+        } catch (err) {
+            console.error("Snapshot failed", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleExitAuditorMode = () => {
+        setIsAuditorMode(false);
+        setSnapshot(null);
+        toast.info("Exited Auditor Mode");
+    };
 
     // 1. Cash In / Out (Monthly) - Bar/Line Chart
     const cashFlowData = {
-        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+        labels: realStats?.cashFlowData?.map(d => d.month) || ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
         datasets: [
             {
                 label: 'Cash In',
-                data: [120000, 190000, 150000, 250000, 220000, 300000],
+                data: realStats?.cashFlowData?.map(d => d.cash_in) || [120000, 190000, 150000, 250000, 220000, 300000],
                 backgroundColor: 'rgba(0, 133, 36, 0.7)', // Safaricom Dark Green
                 borderColor: '#008524',
                 borderWidth: 1,
             },
             {
                 label: 'Cash Out',
-                data: [100000, 150000, 120000, 200000, 180000, 250000],
+                data: realStats?.cashFlowData?.map(d => d.cash_out) || [100000, 150000, 120000, 200000, 180000, 250000],
                 backgroundColor: 'rgba(239, 68, 68, 0.7)', // Red
                 borderColor: '#ef4444',
                 borderWidth: 1,
@@ -73,13 +123,14 @@ const Dashboard = () => {
 
     // 2. Loan Status - Pie Chart
     const loanStatusData = {
-        labels: ['Active', 'Pending', 'Fully Paid'],
+        labels: realStats?.loanStatusData?.map(d => d.status) || ['Active', 'Pending', 'Fully Paid'],
         datasets: [{
-            data: [45, 12, 85],
+            data: realStats?.loanStatusData?.map(d => d.count) || [45, 12, 85],
             backgroundColor: [
                 '#EAB308', // Yellow (Active)
-                '#EF4444', // Red (Pending)
-                '#008524', // Safaricom Green (Paid)
+                '#EF4444', // Red (Pending/Defaulted)
+                '#008524', // Safaricom Green (Paid/Completed)
+                '#3B82F6', // Blue (Others)
             ],
             hoverOffset: 4
         }]
@@ -87,23 +138,36 @@ const Dashboard = () => {
 
     // 3. Contribution Breakdown - Bar Chart
     const contributionData = {
-        labels: ['Group A', 'Group B', 'Womens Group', 'Youth Group', 'Elderly Group'],
+        labels: realStats?.contributionBreakdown?.map(d => d.group_name) || ['Group A', 'Group B', 'Womens Group'],
         datasets: [{
             label: 'Total Contributions (KES)',
-            data: [450000, 320000, 580000, 210000, 150000],
+            data: realStats?.contributionBreakdown?.map(d => d.total) || [450000, 320000, 580000],
             backgroundColor: 'rgba(59, 130, 246, 0.7)', // Blue
         }]
     };
 
     // 4. Dividends Paid vs Pending - Doughnut Chart
     const dividendData = {
-        labels: ['Paid', 'Pending'],
+        labels: ['Distributed', 'Available'],
         datasets: [{
-            data: [1200000, 350000],
+            data: [realStats?.totalDividends || 0, 350000], // available is hypothetical
             backgroundColor: [
                 '#8B5CF6', // Purple (Paid)
                 '#C084FC', // Light Purple (Pending)
             ],
+        }]
+    };
+
+    // 5. Liquidity Matrix (NEW)
+    const liquidityMatrixData = {
+        labels: ['Group Contributions', 'Company Top-Up'],
+        datasets: [{
+            data: [
+                realStats?.liquidityMatrix?.groupCapital || 1,
+                realStats?.liquidityMatrix?.companyTopUp || 0
+            ],
+            backgroundColor: ['#008524', '#3B82F6'],
+            borderWidth: 0,
         }]
     };
 
@@ -126,20 +190,86 @@ const Dashboard = () => {
 
     // Stats Cards Data
     const stats = [
-        { title: 'Total Members', value: '142', icon: <FaUsers />, color: 'bg-green-500', trend: '+12 this month', link: '/members' },
-        { title: 'Active Loans', value: '38', icon: <FaMoneyBillWave />, color: 'bg-yellow-500', trend: 'KES 1.2M value', link: '/loans' },
-        { title: 'Total Contributions', value: 'KES 2.4M', icon: <FaPiggyBank />, color: 'bg-blue-500', trend: '+15% vs last month', link: '/contributions' },
-        { title: 'Pending Repayments', value: '14', icon: <FaTriangleExclamation />, color: 'bg-red-500', trend: '5 overdue', link: '/loans' },
-        { title: 'Total Dividends', value: 'KES 850K', icon: <FaGift />, color: 'bg-purple-500', trend: 'Calculated Dec 2025', link: '/dividends' },
-        { title: 'Cash In / Out', value: 'KES +450K', icon: <FaRightLeft />, color: 'bg-emerald-600', trend: 'Net cash flow', link: '/reconciliation' },
+        { title: 'Total Members', value: realStats?.totalMembers || '0', icon: <FaUsers />, color: 'bg-green-500', trend: 'Active portfolio', link: '/members' },
+        { title: 'Active Loans', value: realStats?.activeLoans || '0', icon: <FaMoneyBillWave />, color: 'bg-yellow-500', trend: 'Issued capital', link: '/loans' },
+        { title: 'Total Contributions', value: `KES ${(realStats?.totalContributions || 0).toLocaleString()}`, icon: <FaPiggyBank />, color: 'bg-blue-500', trend: 'Member savings', link: '/contributions' },
+        { title: 'Pending Repayments', value: realStats?.pendingRepayments || '0', icon: <FaTriangleExclamation />, color: 'bg-red-500', trend: 'Overdue loans', link: '/loans' },
+        { title: 'Total Dividends', value: `KES ${(realStats?.totalDividends || 0).toLocaleString()}`, icon: <FaGift />, color: 'bg-purple-500', trend: 'Distributed profit', link: '/dividends' },
+        { title: 'Cash In / Out', value: `KES ${(realStats?.netCashFlow || 0).toLocaleString()}`, icon: <FaRightLeft />, color: 'bg-emerald-600', trend: 'Net cash flow', link: '/reconciliation' },
     ];
 
     return (
-        <div className="space-y-6 pb-10">
-            <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-gray-800">Dashboard Overview</h2>
-                <div className="text-sm text-gray-500 font-medium">Last updated: {new Date().toLocaleDateString()}</div>
+        <div className="p-4 md:p-8 space-y-8 bg-gray-50 min-h-screen">
+            {/* Phase 3: SYSTEM LOCKDOWN BANNER */}
+            {isSystemFrozen && (
+                <div className="bg-red-600 text-white p-4 rounded-xl shadow-lg flex items-center gap-4 animate-pulse">
+                    <FaTriangleExclamation className="text-3xl" />
+                    <div>
+                        <h2 className="font-bold text-lg">SYSTEM LOCKDOWN ACTIVE</h2>
+                        <p className="text-sm opacity-90">All financial transactions are suspended by the Director. Emergency protocols ONLY.</p>
+                    </div>
+                </div>
+            )}
+            <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <div>
+                    <h2 className="text-2xl font-black text-gray-800 tracking-tight">DASHBOARD OVERVIEW</h2>
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Real-time Financial Intelligence</p>
+                </div>
+                <div className="flex items-center gap-4">
+                    {!isAuditorMode ? (
+                        <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-lg border border-gray-200">
+                            <FaCalendarDays className="text-gray-400 ml-2" />
+                            <input
+                                type="date"
+                                value={auditDate}
+                                onChange={(e) => setAuditDate(e.target.value)}
+                                className="bg-transparent text-xs font-bold text-gray-700 outline-none"
+                            />
+                            <button
+                                onClick={handleEnterAuditorMode}
+                                className="bg-gray-800 text-white px-3 py-1.5 rounded-md text-[10px] font-black uppercase hover:bg-black transition-colors"
+                            >
+                                <FaClockRotateLeft className="inline mr-1" /> Auditor Mode
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-4">
+                            <div className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-3 animate-pulse">
+                                <FaTriangleExclamation />
+                                <span className="text-xs font-black uppercase">Auditor Mode Active: {auditDate}</span>
+                            </div>
+                            <button
+                                onClick={handleExitAuditorMode}
+                                className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase hover:bg-red-700 transition-colors"
+                            >
+                                Exit
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {isAuditorMode && (
+                <div className="bg-purple-50 border-2 border-purple-200 p-6 rounded-2xl shadow-inner relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-2 opacity-10">
+                        <FaClockRotateLeft size={100} />
+                    </div>
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div>
+                            <p className="text-[10px] font-black text-purple-800 uppercase tracking-widest mb-1">Snapshot Savings</p>
+                            <p className="text-3xl font-black text-purple-900">KES {snapshot?.total_savings?.toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black text-purple-800 uppercase tracking-widest mb-1">Snapshot Active Loans</p>
+                            <p className="text-3xl font-black text-purple-900">KES {snapshot?.total_loans?.toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black text-purple-800 uppercase tracking-widest mb-1">Audited Members</p>
+                            <p className="text-3xl font-black text-purple-900">{snapshot?.member_details?.length || 0}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Critical Alerts Banner */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -167,44 +297,35 @@ const Dashboard = () => {
                     </div>
                 )}
 
-                {/* Partnership Risk Dashboard */}
-                <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded-lg h-full">
+                {/* Fraud & Risk Heatmap */}
+                <div className="bg-gray-900 border-l-4 border-red-500 p-4 rounded-lg h-full text-white">
                     <div className="flex items-start gap-3">
-                        <FaHandshake className="text-orange-600 text-xl mt-1" />
+                        <FaChartLine className="text-red-500 text-xl mt-1" />
                         <div className="flex-1">
-                            <h3 className="font-bold text-orange-900 mb-2 uppercase text-xs tracking-wider">🤝 Partnership Health (High Risk)</h3>
-                            <div className="space-y-2">
-                                <div className="bg-white/80 backdrop-blur-sm p-3 rounded border border-orange-100 flex justify-between items-center shadow-sm">
-                                    <div>
-                                        <p className="font-bold text-gray-800 text-sm">Sunrise Farmers Society</p>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                <div className="bg-red-500 h-full w-[38%]"></div>
-                                            </div>
-                                            <span className="text-[10px] font-bold text-red-600 uppercase">Score: 38/100 (Risky)</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-[10px] text-orange-700 font-bold">Low Commitment</p>
-                                        <p className="text-[9px] text-gray-500">Last Repay: 45 days ago</p>
-                                    </div>
-                                </div>
+                            <h3 className="font-bold text-white mb-2 uppercase text-xs tracking-wider">🔥 FRAUD & RISK HEATMAP</h3>
+                            <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                                {groupRisks.map((g, idx) => {
+                                    const score = g.risk?.score || 100;
+                                    const color = score < 40 ? 'bg-red-500' : score < 70 ? 'bg-orange-500' : 'bg-green-500';
+                                    const textColor = score < 40 ? 'text-red-400' : score < 70 ? 'text-orange-400' : 'text-green-400';
 
-                                <div className="bg-white/80 backdrop-blur-sm p-3 rounded border border-orange-100 flex justify-between items-center shadow-sm">
-                                    <div>
-                                        <p className="font-bold text-gray-800 text-sm">Amani Women Group</p>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                <div className="bg-orange-500 h-full w-[52%]"></div>
+                                    return (
+                                        <div key={idx} className="bg-white/5 p-3 rounded border border-white/10 flex justify-between items-center">
+                                            <div>
+                                                <p className="font-bold text-sm">{g.group_name}</p>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                                        <div className={`${color} h-full`} style={{ width: `${score}%` }}></div>
+                                                    </div>
+                                                    <span className={`text-[10px] font-black uppercase ${textColor}`}>Score: {score}/100</span>
+                                                </div>
                                             </div>
-                                            <span className="text-[10px] font-bold text-orange-600 uppercase">Score: 52/100 (Fair)</span>
+                                            <div className="text-right">
+                                                <Link to={`/groups/${g.id}`} className="text-[9px] font-bold text-blue-400 hover:underline">AUDIT GROUP</Link>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-[10px] text-orange-700 font-bold">Lien Threshold Met</p>
-                                        <p className="text-[9px] text-gray-500">Next Meeting: Tomorrow</p>
-                                    </div>
-                                </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
@@ -306,11 +427,36 @@ const Dashboard = () => {
                     </div>
                 </div>
 
-                {/* 4. Dividends Paid vs Pending */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Dividends Status</h3>
-                    <div className="h-64">
-                        <Doughnut options={commonOptions} data={dividendData} />
+                {/* 4. Liquidity Matrix (NEW) */}
+                <div className="bg-gray-900 rounded-xl shadow-lg p-6 text-white border-b-4 border-safaricom-green">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h3 className="text-lg font-bold">Liquidity Matrix</h3>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Group vs Company Capital</p>
+                        </div>
+                        <FaHandshake className="text-2xl text-safaricom-green" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="h-48">
+                            <Doughnut
+                                options={{
+                                    ...commonOptions,
+                                    cutout: '70%',
+                                    plugins: { legend: { display: false } }
+                                }}
+                                data={liquidityMatrixData}
+                            />
+                        </div>
+                        <div className="flex flex-col justify-center gap-4">
+                            <div className="border-l-2 border-safaricom-green pl-3">
+                                <p className="text-[10px] text-gray-400 font-black uppercase">Group Capital</p>
+                                <p className="text-xl font-black">KES {(realStats?.liquidityMatrix?.groupCapital || 0).toLocaleString()}</p>
+                            </div>
+                            <div className="border-l-2 border-blue-500 pl-3">
+                                <p className="text-[10px] text-gray-400 font-black uppercase">Company Top-Up</p>
+                                <p className="text-xl font-black">KES {(realStats?.liquidityMatrix?.companyTopUp || 0).toLocaleString()}</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

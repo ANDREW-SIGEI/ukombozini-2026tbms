@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaBuildingColumns, FaChartLine, FaMoneyBillWave, FaScaleBalanced, FaFilePdf, FaArrowRight } from 'react-icons/fa6';
+import { FaBuildingColumns, FaChartLine, FaMoneyBillWave, FaScaleBalanced, FaFilePdf, FaArrowRight, FaShieldHalved } from 'react-icons/fa6';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { toast } from 'react-toastify';
@@ -170,6 +170,33 @@ const FinancialReports = () => {
                             <p className="text-xs text-gray-500 mt-1">Individual Account Statement</p>
                         </button>
                     </div>
+                </div>
+
+                {/* RISK EXPOSURE & AUDIT */}
+                <div className="bg-red-50 p-8 rounded-2xl border border-red-100 shadow-sm relative overflow-hidden">
+                    <div className="absolute -right-4 -bottom-4 opacity-10">
+                        <FaShieldHalved size={150} className="text-red-600" />
+                    </div>
+                    <h3 className="text-xl font-bold text-red-900 mb-2 flex items-center gap-2">
+                        <FaShieldHalved />
+                        Risk & Governance Audit
+                    </h3>
+                    <p className="text-red-700 text-sm mb-6 font-medium">Identify potential fraud, portfolio at risk, and administrative freezes.</p>
+
+                    <div className="space-y-3 mb-8">
+                        <div className="flex justify-between items-center text-sm font-bold border-b border-red-200 pb-2">
+                            <span className="text-red-800">Portfolio at Risk (PAR)</span>
+                            <span className="text-red-900">KES 450,000 (Estimate)</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm font-bold border-b border-red-200 pb-2">
+                            <span className="text-red-800">High Risk Groups</span>
+                            <span className="text-red-900">2 Groups Flagged</span>
+                        </div>
+                    </div>
+
+                    <Link to="/governance-hub" className="block w-full text-center bg-red-600 hover:bg-red-700 text-white font-black py-4 rounded-xl transition-all shadow-lg shadow-red-200 uppercase tracking-widest text-xs">
+                        OPEN GOVERNANCE CONTROL CENTER
+                    </Link>
                 </div>
             </div>
         </div>

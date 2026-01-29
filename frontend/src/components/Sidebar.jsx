@@ -50,17 +50,23 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 { path: '/loan-advisory', name: 'Loan Calculator', icon: <FaCalculator /> },
                 { path: '/contribution-compliance', name: 'Compliance', icon: <FaChartLine /> },
                 { path: '/loan-repayment-tracking', name: 'Repayment Track', icon: <FaClipboardList /> },
-                ...(isPowerUser ? [{ path: '/sms-reports', name: 'SMS Reports', icon: <FaCommentSms /> }] : []),
+                ...(isPowerUser ? [
+                    { path: '/risk-command-center', name: 'Risk Command', icon: <FaShieldHalved /> },
+                    { path: '/sms-reports', name: 'SMS Reports', icon: <FaCommentSms /> }
+                ] : []),
             ]
         },
         {
             title: "System",
             items: [
                 ...(isPowerUser ? [
-                    { path: '/officers', name: 'Officers', icon: <FaUserTie /> },
-                    { path: '/admin', name: 'Admin Panel', icon: <FaShieldHalved /> },
+                    { path: '/officers', name: 'System Staff', icon: <FaUserTie /> },
+                    { path: '/officials-directory', name: 'Officials Directory', icon: <FaClipboardList /> },
+                    { path: '/governance-hub', name: 'Governance Hub', icon: <FaShieldHalved /> },
+                    { path: '/auditor-mode', name: 'Auditor Mode', icon: <FaFileLines /> },
+                    { path: '/admin', name: 'Admin Panel', icon: <FaGear /> },
                 ] : []),
-                { path: '/notifications', name: 'Notifications', icon: <FaBell /> },
+                { path: '/messaging-hub', name: 'Messaging Hub', icon: <FaCommentSms /> },
             ]
         }
     ];

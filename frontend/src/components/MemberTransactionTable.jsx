@@ -1,7 +1,25 @@
 import { useState, useMemo } from "react";
+import { toast } from 'react-toastify';
 
 const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) => {
     const [editingRow, setEditingRow] = useState(null);
+
+    const handleCellEdit = (memberId, field, value) => {
+        const numValue = parseFloat(value) || 0;
+
+        if (field === 'project') {
+            const member = members.find(m => m.id === memberId);
+            const currentBalance = member.project_balance || 0;
+            const remaining = 2000 - currentBalance;
+
+            if (numValue > remaining) {
+                toast.warn(`Project limit exceeded! Max allowed for ${member.name}: KES ${remaining.toLocaleString()}`);
+                return; // Block update
+            }
+        }
+
+        onUpdateTransaction(memberId, field, numValue);
+    };
 
     // Calculate totals for each member
     const memberTotals = useMemo(() => {
@@ -17,6 +35,7 @@ const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) =
                 (transaction.project || 0) +
                 (transaction.fines || 0)
             );
+            const totalOut = (transaction.withdrawals || 0) + (transaction.loans_issued || 0);
             const stlCf = (transaction.stl_repayment || 0) + (transaction.loan_interest || 0) + (transaction.loan_principal || 0);
             const ltlCf = transaction.ltl_repayment || 0;
 
@@ -24,6 +43,7 @@ const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) =
                 ...member,
                 ...transaction,
                 totalPaid,
+                totalOut,
                 stlCf,
                 ltlCf
             };
@@ -38,20 +58,21 @@ const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) =
             totalLtl: acc.totalLtl + member.ltlCf,
             totalWelfare: acc.totalWelfare + (member.welfare || 0),
             totalFines: acc.totalFines + (member.fines || 0),
-            totalCashIn: acc.totalCashIn + member.totalPaid
+            totalCashIn: acc.totalCashIn + member.totalPaid,
+            totalWithdrawals: acc.totalWithdrawals + (member.withdrawals || 0),
+            totalLoansIssued: acc.totalLoansIssued + (member.loans_issued || 0)
         }), {
             totalSavings: 0,
             totalStl: 0,
             totalLtl: 0,
             totalWelfare: 0,
             totalFines: 0,
-            totalCashIn: 0
+            totalCashIn: 0,
+            totalWithdrawals: 0,
+            totalLoansIssued: 0
         });
     }, [memberTotals]);
 
-    const handleCellEdit = (memberId, field, value) => {
-        onUpdateTransaction(memberId, field, parseFloat(value) || 0);
-    };
 
     const EditableCell = ({ value, memberId, field, isEditable = true }) => {
         const [isEditing, setIsEditing] = useState(false);
@@ -112,41 +133,35 @@ const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) =
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Name
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                STL
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                LTL
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
                                 Savings
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Total Repaid
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
                                 Principal
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
                                 Interest
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
                                 Welfare
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
                                 Project
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-green-50">
                                 Fines
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Balance
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-red-50">
+                                Withdrawals
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-red-50">
+                                Loans Issued
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                STL C/F
+                                Total In
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                LTL C/F
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider text-red-600">
+                                Total Out
                             </th>
                         </tr>
                     </thead>
@@ -159,125 +174,105 @@ const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) =
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                     {member.name}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {/* STL balance - would come from member data */}
-                                    0
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {/* LTL balance - would come from member data */}
-                                    0
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-green-50/20">
                                     <EditableCell
                                         value={member.savings_amount}
                                         memberId={member.id}
                                         field="savings_amount"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <EditableCell
-                                        value={member.stl_repayment + member.ltl_repayment}
-                                        memberId={member.id}
-                                        field="total_repaid"
-                                        isEditable={false}
-                                    />
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-green-50/20">
                                     <EditableCell
                                         value={member.loan_principal}
                                         memberId={member.id}
                                         field="loan_principal"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-green-50/20">
                                     <EditableCell
                                         value={member.loan_interest}
                                         memberId={member.id}
                                         field="loan_interest"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-green-50/20">
                                     <EditableCell
                                         value={member.welfare}
                                         memberId={member.id}
                                         field="welfare"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-green-50/20">
                                     <EditableCell
                                         value={member.project}
                                         memberId={member.id}
                                         field="project"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-green-50/20">
                                     <EditableCell
                                         value={member.fines}
                                         memberId={member.id}
                                         field="fines"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {/* Member balance - would come from member data */}
-                                    0
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-red-50/20">
                                     <EditableCell
-                                        value={member.stlCf}
+                                        value={member.withdrawals}
                                         memberId={member.id}
-                                        field="stl_cf"
-                                        isEditable={false}
+                                        field="withdrawals"
                                     />
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap bg-red-50/20">
                                     <EditableCell
-                                        value={member.ltlCf}
+                                        value={member.loans_issued}
                                         memberId={member.id}
-                                        field="ltl_cf"
-                                        isEditable={false}
+                                        field="loans_issued"
                                     />
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-green-600">
+                                    {member.totalPaid.toLocaleString()}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-red-600">
+                                    {member.totalOut.toLocaleString()}
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                     <tfoot className="bg-gray-50">
                         <tr>
-                            <td colSpan="4" className="px-6 py-4 text-sm font-medium text-gray-900">
+                            <td colSpan="2" className="px-6 py-4 text-sm font-black text-gray-900 uppercase">
                                 GROUP TOTALS
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                                 {groupTotals.totalSavings.toLocaleString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {(groupTotals.totalStl + groupTotals.totalLtl).toLocaleString()}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {/* Principal total */}
                                 {memberTotals.reduce((sum, m) => sum + (m.loan_principal || 0), 0).toLocaleString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {/* Interest total */}
                                 {memberTotals.reduce((sum, m) => sum + (m.loan_interest || 0), 0).toLocaleString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                                 {groupTotals.totalWelfare.toLocaleString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {/* Project total */}
                                 {memberTotals.reduce((sum, m) => sum + (m.project || 0), 0).toLocaleString()}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                                 {groupTotals.totalFines.toLocaleString()}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {/* Balance total */}
-                                0
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-red-600">
+                                {groupTotals.totalWithdrawals.toLocaleString()}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {groupTotals.totalStl.toLocaleString()}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-red-600">
+                                {groupTotals.totalLoansIssued.toLocaleString()}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                {groupTotals.totalLtl.toLocaleString()}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-black text-green-700">
+                                {groupTotals.totalCashIn.toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-black text-red-700">
+                                {(groupTotals.totalWithdrawals + groupTotals.totalLoansIssued).toLocaleString()}
                             </td>
                         </tr>
                     </tfoot>
@@ -287,27 +282,27 @@ const MemberTransactionTable = ({ members, sessionData, onUpdateTransaction }) =
             {/* Summary Cards */}
             <div className="px-6 py-4 bg-gray-50 border-t">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-white p-3 rounded shadow-sm">
-                        <div className="text-xs text-gray-500 uppercase">Total Cash In</div>
-                        <div className="text-lg font-bold text-green-600">
+                    <div className="bg-white p-3 rounded shadow-sm border-l-4 border-green-500">
+                        <div className="text-xs text-gray-500 uppercase font-black">Total Cash In</div>
+                        <div className="text-lg font-black text-green-600">
                             KES {groupTotals.totalCashIn.toLocaleString()}
                         </div>
                     </div>
-                    <div className="bg-white p-3 rounded shadow-sm">
-                        <div className="text-xs text-gray-500 uppercase">Total STL</div>
-                        <div className="text-lg font-bold text-blue-600">
-                            KES {groupTotals.totalStl.toLocaleString()}
+                    <div className="bg-white p-3 rounded shadow-sm border-l-4 border-red-500">
+                        <div className="text-xs text-gray-500 uppercase font-black">Total Cash Out</div>
+                        <div className="text-lg font-black text-red-600">
+                            KES {(groupTotals.totalWithdrawals + groupTotals.totalLoansIssued).toLocaleString()}
                         </div>
                     </div>
-                    <div className="bg-white p-3 rounded shadow-sm">
-                        <div className="text-xs text-gray-500 uppercase">Total LTL</div>
-                        <div className="text-lg font-bold text-blue-600">
-                            KES {groupTotals.totalLtl.toLocaleString()}
+                    <div className="bg-white p-3 rounded shadow-sm border-l-4 border-blue-500">
+                        <div className="text-xs text-gray-500 uppercase font-black">Net Session Cash</div>
+                        <div className="text-lg font-black text-blue-600">
+                            KES {(groupTotals.totalCashIn - (groupTotals.totalWithdrawals + groupTotals.totalLoansIssued)).toLocaleString()}
                         </div>
                     </div>
-                    <div className="bg-white p-3 rounded shadow-sm">
-                        <div className="text-xs text-gray-500 uppercase">Total Welfare</div>
-                        <div className="text-lg font-bold text-purple-600">
+                    <div className="bg-white p-3 rounded shadow-sm border-l-4 border-purple-500">
+                        <div className="text-xs text-gray-500 uppercase font-black">Welfare Collection</div>
+                        <div className="text-lg font-black text-purple-600">
                             KES {groupTotals.totalWelfare.toLocaleString()}
                         </div>
                     </div>

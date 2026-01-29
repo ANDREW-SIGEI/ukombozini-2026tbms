@@ -36,6 +36,166 @@ const handleApiError = (error) => {
 
 export const api = {
     // ========================================
+    // PHASE 2: AUDIT & GOVERNANCE
+    // ========================================
+
+    async getAuditSnapshot(date, groupId = null) {
+        try {
+            const response = await axiosInstance.get('/audit/snapshot', { params: { date, groupId } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async toggleFreeze(targetType, targetId, action, reason) {
+        try {
+            const response = await axiosInstance.post('/governance/freeze', { targetType, targetId, action, reason });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGovernanceStatus() {
+        try {
+            const response = await axiosInstance.get('/governance/status');
+            return response.data;
+        } catch (error) {
+            console.error('getGovernanceStatus error:', error);
+            // Default safe state
+            return { system_lockdown: false };
+        }
+    },
+
+    async getAuditLogs() {
+        try {
+            const response = await axiosInstance.get('/governance/audit-logs');
+            return response.data;
+        } catch (error) {
+            console.error('getAuditLogs error:', error);
+            return [];
+        }
+    },
+
+    async getRiskOverview() {
+        try {
+            const response = await axiosInstance.get('/risk/overview');
+            return response.data;
+        } catch (error) {
+            console.error('getRiskOverview error:', error);
+            return [];
+        }
+    },
+    async requestReversal(transactionId, reason) {
+        try {
+            const response = await axiosInstance.post('/reversals/request', { transaction_id: transactionId, reason });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async approveReversal(requestId) {
+        try {
+            const response = await axiosInstance.post('/reversals/approve', { request_id: requestId });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async getReversalRequests() {
+        try {
+            const response = await axiosInstance.get('/reversals/requests'); // Wait, I need to add this endpoint to server.js
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getFreezeLogs() {
+        try {
+            const response = await axiosInstance.get('/governance/freeze-logs');
+            return response.data;
+        } catch (error) {
+            console.error('getFreezeLogs error:', error);
+            return [];
+        }
+    },
+
+    async getRiskScore(scope, id) {
+        try {
+            const response = await axiosInstance.get(`/risk/${scope.toLowerCase()}/${id}`);
+            return response.data;
+        } catch (error) {
+            console.error(`getRiskScore for ${scope} error:`, error);
+            return null;
+        }
+    },
+
+    async getSystemSettings() {
+        try {
+            const response = await axiosInstance.get('/admin/system-settings');
+            return response.data;
+        } catch (error) {
+            console.error('getSystemSettings error:', error);
+            return [];
+        }
+    },
+
+    async getDashboardStats() {
+        try {
+            const response = await axiosInstance.get('/dashboard/stats');
+            return response.data;
+        } catch (error) {
+            console.error('getDashboardStats error:', error);
+            return null;
+        }
+    },
+
+    // ========================================
+    // DAILY CASH REPORTS (New)
+    // ========================================
+    async getDailyReports(params) {
+        try {
+            const response = await axiosInstance.get('/daily-reports', { params });
+            return response.data;
+        } catch (error) {
+            console.error('getDailyReports error:', error);
+            return [];
+        }
+    },
+
+    async getDailyReport(id) {
+        try {
+            const response = await axiosInstance.get(`/daily-reports/${id}`);
+            return response.data;
+        } catch (error) {
+            console.error('getDailyReport error:', error);
+            return null;
+        }
+    },
+
+    async saveDailyReport(data) {
+        try {
+            const response = await axiosInstance.post('/daily-reports', data);
+            return response.data;
+        } catch (error) {
+            console.error('saveDailyReport error:', error);
+            throw error;
+        }
+    },
+
+    async submitDailyReport(id) {
+        try {
+            const response = await axiosInstance.patch(`/daily-reports/${id}/submit`);
+            return response.data;
+        } catch (error) {
+            console.error('submitDailyReport error:', error);
+            throw error;
+        }
+    },
+
+    // ========================================
     // MEETING SUMMARY (New)
     // ========================================
 
@@ -307,19 +467,24 @@ export const api = {
      */
     async postRepayment(repaymentData) {
         try {
-            const response = await axiosInstance.post('/transactions', { ...repaymentData, type: 'loan_repayment' });
+            const payload = {
+                ...repaymentData,
+                sessionId: repaymentData.meetingId || repaymentData.sessionId
+            };
+            const response = await axiosInstance.post('/sessions/repayment', payload);
             return response.data;
         } catch (error) {
             handleApiError(error);
         }
     },
 
-    /**
-     * Post a withdrawal (Supabase Integrated)
-     */
     async postWithdrawal(withdrawalData) {
         try {
-            const response = await axiosInstance.post('/transactions', { ...withdrawalData, type: 'withdrawal' });
+            const payload = {
+                ...withdrawalData,
+                sessionId: withdrawalData.meetingId || withdrawalData.sessionId
+            };
+            const response = await axiosInstance.post('/withdrawals', payload);
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -365,6 +530,15 @@ export const api = {
         try {
             const url = memberId ? `/loans?memberId=${memberId}` : '/loans';
             const response = await axiosInstance.get(url);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getLoanSchedule(loanId) {
+        try {
+            const response = await axiosInstance.get(`/loans/${loanId}/schedule`);
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -1011,11 +1185,12 @@ export const api = {
     // PROJECT SAVINGS MODULE
     // ========================================
 
-    async registerProject(memberId, projectType) {
+    async registerProject(memberId, projectType, groupId) {
         try {
             const response = await axiosInstance.post('/projects/register', {
                 member_id: memberId,
-                project_type: projectType
+                project_type: projectType,
+                groupId: groupId
             });
             return response.data;
         } catch (error) {
@@ -1023,12 +1198,13 @@ export const api = {
         }
     },
 
-    async postProjectSaving(registrationId, amount, date) {
+    async postProjectSaving(registrationId, amount, date, groupId) {
         try {
             const response = await axiosInstance.post('/projects/save', {
                 registration_id: registrationId,
                 amount,
-                date
+                date,
+                groupId: groupId
             });
             return response.data;
         } catch (error) {
@@ -1055,6 +1231,15 @@ export const api = {
                 education_pool: 0,
                 agriculture_pool: 0
             };
+        }
+    },
+
+    async postProjectPayout(registrationId) {
+        try {
+            const response = await axiosInstance.post('/projects/payout', { registration_id: registrationId });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
         }
     },
 
@@ -1086,6 +1271,47 @@ export const api = {
         } catch (error) {
             console.error('getProjectGroupMatrix error:', error);
             return [];
+        }
+    },
+
+    // ========================================
+    // GOVERNANCE & MESSAGING (New)
+    // ========================================
+
+    async getOfficials() {
+        try {
+            const response = await axiosInstance.get('/officials');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async sendBulkNotification(data) {
+        try {
+            const response = await axiosInstance.post('/notifications/bulk', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getOfficerPerformance() {
+        try {
+            const response = await axiosInstance.get('/reports/officer-performance');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+            return [];
+        }
+    },
+
+    async getNotificationLogs(limit = 100) {
+        try {
+            const response = await axiosInstance.get('/notifications/logs', { params: { limit } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
         }
     }
 };
