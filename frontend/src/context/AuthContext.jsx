@@ -15,7 +15,8 @@ const PERMISSIONS = {
     admin: ['all'],
     director: ['all'],
     supervisor: ['view', 'approve'],
-    field_officer: ['view', 'create']
+    field_officer: ['view', 'create'],
+    auditor: ['view']
 };
 
 export const AuthProvider = ({ children }) => {
@@ -52,11 +53,13 @@ export const AuthProvider = ({ children }) => {
         return user.role === roleName.toLowerCase();
     };
 
-    const canEdit = () => hasRole('director') || hasRole('admin');
-    const isDirector = () => hasRole('director');
-    const isAdmin = () => hasRole('admin');
-    const isSupervisor = () => hasRole('supervisor') || hasRole('director');
-    const isFieldOfficer = () => hasRole('field_officer');
+    const isDirector = hasRole('director');
+    const isAdmin = hasRole('admin');
+    const isSupervisor = hasRole('supervisor') || isDirector;
+    const isFieldOfficer = hasRole('field_officer');
+    const isAuditor = hasRole('auditor');
+    const isReadOnly = isAuditor || (!isDirector && !isAdmin);
+    const canEdit = (isDirector || isAdmin) && !isAuditor;
 
     const login = async (email, password) => {
         const data = await api.login(email, password);
@@ -93,6 +96,8 @@ export const AuthProvider = ({ children }) => {
         isAdmin,
         isSupervisor,
         isFieldOfficer,
+        isAuditor,
+        isReadOnly,
     };
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

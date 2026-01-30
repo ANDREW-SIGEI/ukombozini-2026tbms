@@ -3,7 +3,8 @@ import {
     FaGear, FaUsers, FaUserTie, FaChartLine, FaDatabase,
     FaFileExport, FaShieldHalved, FaPlus, FaPenToSquare, FaTrash,
     FaSpinner, FaCircleCheck, FaCalendarDays, FaMoneyBillWave,
-    FaLocationDot, FaEnvelope, FaPhone, FaFloppyDisk, FaClockRotateLeft, FaUserPlus
+    FaLocationDot, FaEnvelope, FaPhone, FaFloppyDisk, FaClockRotateLeft, FaUserPlus,
+    FaXmark, FaHandHoldingDollar
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
@@ -29,7 +30,17 @@ const AdminPanel = () => {
         group_name: '',
         meeting_day: 'Monday',
         meeting_frequency: 'WEEKLY',
-        location: ''
+        location: '',
+        chairperson: '',
+        chairperson_phone: '',
+        secretary: '',
+        secretary_phone: '',
+        treasurer: '',
+        treasurer_phone: '',
+        minMonthlySaving: 500,
+        loanMultiplier: 3,
+        dividendPolicy: 0.75,
+        financial_year: new Date().getFullYear()
     });
 
     // Officers State
@@ -113,23 +124,68 @@ const AdminPanel = () => {
         }
     };
 
-    // ========================================
-    // GROUPS MANAGEMENT FUNCTIONS
-    // ========================================
+    const handleEditGroup = (group) => {
+        setEditingGroup(group);
+        setNewGroup({
+            group_name: group.group_name || group.name,
+            meeting_day: group.meeting_day || group.meetingDay || 'Monday',
+            meeting_frequency: (group.meeting_frequency || group.meetingFrequency || 'WEEKLY').toUpperCase(),
+            location: group.location || '',
+            chairperson: group.chairperson || '',
+            chairperson_phone: group.chairperson_phone || '',
+            secretary: group.secretary || '',
+            secretary_phone: group.secretary_phone || '',
+            treasurer: group.treasurer || '',
+            treasurer_phone: group.treasurer_phone || '',
+            minMonthlySaving: group.minMonthlySaving || 500,
+            loanMultiplier: group.loanMultiplier || 3,
+            dividendPolicy: group.dividendPolicy || 0.75,
+            financial_year: group.financial_year || new Date().getFullYear()
+        });
+        setShowGroupModal(true);
+    };
+
     const handleCreateGroup = async (e) => {
         e.preventDefault();
+        setLoading(true);
         try {
-            await api.createGroup({
-                ...newGroup,
-                registration_date: new Date().toISOString().split('T')[0]
-            });
-            toast.success(`✅ ${newGroup.group_name} created successfully!`);
+            if (editingGroup) {
+                await api.updateGroup(editingGroup.id, {
+                    ...newGroup,
+                    id: editingGroup.id
+                });
+                toast.success(`✅ ${newGroup.group_name} updated successfully!`);
+            } else {
+                await api.createGroup({
+                    ...newGroup,
+                    registration_date: new Date().toISOString().split('T')[0]
+                });
+                toast.success(`✅ ${newGroup.group_name} created successfully!`);
+            }
             setShowGroupModal(false);
-            setNewGroup({ group_name: '', meeting_day: 'Monday', meeting_frequency: 'WEEKLY', location: '', chairperson: '', secretary: '', treasurer: '' });
+            setEditingGroup(null);
+            setNewGroup({
+                group_name: '',
+                meeting_day: 'Monday',
+                meeting_frequency: 'WEEKLY',
+                location: '',
+                chairperson: '',
+                chairperson_phone: '',
+                secretary: '',
+                secretary_phone: '',
+                treasurer: '',
+                treasurer_phone: '',
+                minMonthlySaving: 500,
+                loanMultiplier: 3,
+                dividendPolicy: 0.75,
+                financial_year: new Date().getFullYear()
+            });
             fetchSystemData();
         } catch (error) {
             console.error(error);
-            toast.error("Failed to create group");
+            toast.error(editingGroup ? "Failed to update group" : "Failed to create group");
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -433,40 +489,49 @@ const AdminPanel = () => {
                                 </button>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                                 {groups.map(group => (
                                     <div
                                         key={group.id}
-                                        className="bg-white border-2 border-gray-100 rounded-xl p-4 hover:border-safaricom-green/30 transition-all"
+                                        className="bg-white border-2 border-gray-100 rounded-xl p-4 hover:border-safaricom-green/30 transition-all flex flex-col justify-between"
                                     >
-                                        <div className="flex justify-between items-start mb-3">
-                                            <div>
-                                                <h4 className="font-black text-gray-800">{group.group_name}</h4>
-                                                <p className="text-xs text-gray-500">
-                                                    {new Date(group.created_at || group.registration_date).toLocaleDateString()}
+                                        <div>
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className="overflow-hidden">
+                                                    <h4 className="font-black text-gray-800 truncate">{group.group_name || group.name}</h4>
+                                                    <p className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">
+                                                        Registered: {new Date(group.created_at || group.registration_date || group.registrationDate).toLocaleDateString()}
+                                                    </p>
+                                                </div>
+                                                <FaCircleCheck className={group.is_frozen || group.status === 'frozen' ? "text-red-500" : "text-green-500"} />
+                                            </div>
+                                            <div className="space-y-1 text-xs text-gray-600 mb-4">
+                                                <p className="flex items-center gap-2">
+                                                    <FaCalendarDays className="text-gray-400 shrink-0" />
+                                                    <span className="truncate">{group.meeting_day || group.meetingDay} ({group.meeting_frequency || group.meetingFrequency})</span>
+                                                </p>
+                                                {group.location && (
+                                                    <p className="flex items-center gap-2">
+                                                        <FaLocationDot className="text-gray-400 shrink-0" />
+                                                        <span className="truncate">{group.location}</span>
+                                                    </p>
+                                                )}
+                                                <p className="flex items-center gap-2 text-[10px] bg-gray-50 p-1 rounded">
+                                                    <FaUserTie className="text-safaricom-green" />
+                                                    <span className="truncate font-semibold">{group.chairperson || 'No Chair'}</span>
                                                 </p>
                                             </div>
-                                            <FaCircleCheck className="text-green-500" />
-                                        </div>
-                                        <div className="space-y-1 text-sm text-gray-600 mb-4">
-                                            <p className="flex items-center gap-2">
-                                                <FaCalendarDays className="text-gray-400" />
-                                                {group.meeting_day} ({group.meeting_frequency})
-                                            </p>
-                                            {group.location && (
-                                                <p className="flex items-center gap-2">
-                                                    <FaLocationDot className="text-gray-400" />
-                                                    {group.location}
-                                                </p>
-                                            )}
                                         </div>
                                         <div className="flex gap-2">
-                                            <button className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-bold text-sm">
-                                                <FaPenToSquare className="inline mr-1" /> Edit
+                                            <button
+                                                onClick={() => handleEditGroup(group)}
+                                                className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-bold text-xs flex items-center justify-center gap-1"
+                                            >
+                                                <FaPenToSquare /> Edit
                                             </button>
                                             <button
-                                                onClick={() => handleDeleteGroup(group.id, group.group_name)}
-                                                className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-bold text-sm"
+                                                onClick={() => handleDeleteGroup(group.id, group.group_name || group.name)}
+                                                className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-bold text-xs"
                                             >
                                                 <FaTrash />
                                             </button>
@@ -688,64 +753,137 @@ const AdminPanel = () => {
                 </div>
             </div>
 
-            {/* CREATE GROUP MODAL */}
             {showGroupModal && (
                 <Modal
-                    title="Register New Group"
-                    onClose={() => setShowGroupModal(false)}
+                    title={editingGroup ? `Edit Group: ${editingGroup.group_name || editingGroup.name}` : "Register New Group"}
+                    onClose={() => {
+                        setShowGroupModal(false);
+                        setEditingGroup(null);
+                    }}
                     onSubmit={handleCreateGroup}
+                    maxWidth="max-w-4xl"
+                    loading={loading}
                 >
-                    <div className="space-y-4">
-                        <InputField
-                            label="Group Name *"
-                            value={newGroup.group_name}
-                            onChange={(e) => setNewGroup({ ...newGroup, group_name: e.target.value })}
-                            placeholder="e.g., Ukombozi Group A"
-                            required
-                        />
-                        <SelectField
-                            label="Meeting Day *"
-                            value={newGroup.meeting_day}
-                            onChange={(e) => setNewGroup({ ...newGroup, meeting_day: e.target.value })}
-                            options={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']}
-                        />
-                        <SelectField
-                            label="Meeting Frequency *"
-                            value={newGroup.meeting_frequency}
-                            onChange={(e) => setNewGroup({ ...newGroup, meeting_frequency: e.target.value })}
-                            options={[
-                                { value: 'WEEKLY', label: 'Weekly' },
-                                { value: 'BIWEEKLY', label: 'Bi-Weekly' },
-                                { value: 'MONTHLY', label: 'Monthly' }
-                            ]}
-                        />
-                        <InputField
-                            label="Location (Optional)"
-                            value={newGroup.location}
-                            onChange={(e) => setNewGroup({ ...newGroup, location: e.target.value })}
-                            placeholder="e.g., Community Hall, Nairobi"
-                        />
-                        <div className="pt-2 border-t border-gray-100">
-                            <p className="text-xs font-bold text-gray-400 uppercase mb-2">Group Officials</p>
-                            <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Basic Info */}
+                        <div className="space-y-4">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Basic Information</h4>
+                            <InputField
+                                label="Group Name *"
+                                value={newGroup.group_name}
+                                onChange={(e) => setNewGroup({ ...newGroup, group_name: e.target.value })}
+                                placeholder="e.g., Ukombozi Group A"
+                                required
+                            />
+                            <div className="grid grid-cols-2 gap-4">
+                                <SelectField
+                                    label="Meeting Day *"
+                                    value={newGroup.meeting_day}
+                                    onChange={(e) => setNewGroup({ ...newGroup, meeting_day: e.target.value })}
+                                    options={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']}
+                                />
+                                <SelectField
+                                    label="Frequency *"
+                                    value={newGroup.meeting_frequency}
+                                    onChange={(e) => setNewGroup({ ...newGroup, meeting_frequency: e.target.value })}
+                                    options={[
+                                        { value: 'WEEKLY', label: 'Weekly' },
+                                        { value: 'BIWEEKLY', label: 'Bi-Weekly' },
+                                        { value: 'MONTHLY', label: 'Monthly' }
+                                    ]}
+                                />
+                            </div>
+                            <InputField
+                                label="Location (Optional)"
+                                value={newGroup.location}
+                                onChange={(e) => setNewGroup({ ...newGroup, location: e.target.value })}
+                                placeholder="e.g., Community Hall, Nairobi"
+                            />
+
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2 pt-4">Financial Policies</h4>
+                            <div className="grid grid-cols-2 gap-4">
                                 <InputField
-                                    label="Chairperson"
-                                    value={newGroup.chairperson || ''}
-                                    onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
-                                    placeholder="Full Name"
+                                    label="Min Monthly Saving"
+                                    type="number"
+                                    value={newGroup.minMonthlySaving}
+                                    onChange={(e) => setNewGroup({ ...newGroup, minMonthlySaving: e.target.value })}
                                 />
                                 <InputField
-                                    label="Secretary"
-                                    value={newGroup.secretary || ''}
-                                    onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
-                                    placeholder="Full Name"
+                                    label="Loan Multiplier"
+                                    type="number"
+                                    value={newGroup.loanMultiplier}
+                                    onChange={(e) => setNewGroup({ ...newGroup, loanMultiplier: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <InputField
+                                    label="Div Policy (75% = 0.75)"
+                                    type="number"
+                                    step="0.01"
+                                    value={newGroup.dividendPolicy}
+                                    onChange={(e) => setNewGroup({ ...newGroup, dividendPolicy: e.target.value })}
                                 />
                                 <InputField
-                                    label="Treasurer"
-                                    value={newGroup.treasurer || ''}
-                                    onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
-                                    placeholder="Full Name"
+                                    label="Financial Year"
+                                    type="number"
+                                    value={newGroup.financial_year}
+                                    onChange={(e) => setNewGroup({ ...newGroup, financial_year: e.target.value })}
                                 />
+                            </div>
+                        </div>
+
+                        {/* Governance Info */}
+                        <div className="space-y-4 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Group Officials (Governance)</h4>
+                            <div className="space-y-4">
+                                <div>
+                                    <InputField
+                                        label="Chairperson Name *"
+                                        value={newGroup.chairperson}
+                                        onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                    <InputField
+                                        label="Chair Phone *"
+                                        value={newGroup.chairperson_phone}
+                                        onChange={(e) => setNewGroup({ ...newGroup, chairperson_phone: e.target.value })}
+                                        placeholder="07..."
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <InputField
+                                        label="Secretary Name *"
+                                        value={newGroup.secretary}
+                                        onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                    <InputField
+                                        label="Sec Phone *"
+                                        value={newGroup.secretary_phone}
+                                        onChange={(e) => setNewGroup({ ...newGroup, secretary_phone: e.target.value })}
+                                        placeholder="07..."
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <InputField
+                                        label="Treasurer Name *"
+                                        value={newGroup.treasurer}
+                                        onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                    <InputField
+                                        label="Treas Phone *"
+                                        value={newGroup.treasurer_phone}
+                                        onChange={(e) => setNewGroup({ ...newGroup, treasurer_phone: e.target.value })}
+                                        placeholder="07..."
+                                        required
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -758,6 +896,7 @@ const AdminPanel = () => {
                     title="Add New Officer"
                     onClose={() => setShowOfficerModal(false)}
                     onSubmit={handleCreateOfficer}
+                    loading={loading}
                 >
                     <div className="space-y-4">
                         <InputField
@@ -802,6 +941,7 @@ const AdminPanel = () => {
                     title={newProduct.id ? "Edit Loan Product" : "Create Loan Product"}
                     onClose={() => setShowProductModal(false)}
                     onSubmit={handleCreateProduct}
+                    loading={loading}
                 >
                     <div className="space-y-4">
                         <InputField
@@ -891,16 +1031,16 @@ const LoanProductCard = ({ product, onEdit, onDelete }) => (
             <p><span className="font-bold text-gray-600">Rate:</span> {product.interest_rate}%</p>
             <p><span className="font-bold text-gray-600">Term:</span> {product.duration_months} month(s)</p>
         </div>
-        <div className="flex gap-2 mt-4">
+        <div className="flex gap-2 mt-auto pt-4">
             <button
                 onClick={onEdit}
-                className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm"
+                className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-xs flex items-center justify-center gap-1"
             >
-                <FaPenToSquare className="inline mr-1" /> Edit
+                <FaPenToSquare /> Edit
             </button>
             <button
                 onClick={onDelete}
-                className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-bold text-sm"
+                className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-bold text-xs"
             >
                 <FaTrash />
             </button>
@@ -936,28 +1076,43 @@ const AuditLogRow = ({ time, user, action, details }) => (
     </tr>
 );
 
-const Modal = ({ title, onClose, onSubmit, children }) => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-black text-gray-800">{title}</h3>
-                <button onClick={onClose} className="text-gray-400 hover:text-red-500 text-xl">×</button>
+const Modal = ({ title, onClose, onSubmit, children, maxWidth = 'max-w-md', loading = false }) => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+        <div className={`bg-white rounded-[2.5rem] shadow-2xl ${maxWidth} w-full p-8 animate-in fade-in zoom-in duration-300 my-8 relative`}>
+            {/* Close Button Icon */}
+            <button
+                onClick={onClose}
+                className="absolute right-6 top-6 p-2 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all active:scale-95"
+                title="Close Modal"
+            >
+                <FaXmark size={24} />
+            </button>
+
+            <div className="mb-8">
+                <h3 className="text-2xl font-black text-gray-800 tracking-tight">{title}</h3>
+                <div className="w-12 h-1 bg-safaricom-green mt-2 rounded-full"></div>
             </div>
+
             <form onSubmit={onSubmit}>
-                {children}
-                <div className="flex gap-3 mt-6">
+                <div className="max-h-[65vh] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-gray-200">
+                    {children}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 mt-8 pt-6 border-t border-gray-100">
                     <button
                         type="button"
                         onClick={onClose}
-                        className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                        className="flex-1 px-6 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-gray-200 transition-all active:scale-95"
                     >
                         Cancel
                     </button>
                     <button
                         type="submit"
-                        className="flex-1 px-4 py-3 bg-safaricom-green text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md flex items-center justify-center gap-2"
+                        className="flex-1 px-6 py-4 bg-safaricom-green text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-green-700 transition-all shadow-lg shadow-green-100 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={loading}
                     >
-                        <FaFloppyDisk /> Save
+                        {loading ? <FaSpinner className="animate-spin" /> : <FaFloppyDisk />}
+                        {loading ? 'Saving...' : 'Save Changes'}
                     </button>
                 </div>
             </form>

@@ -40,6 +40,8 @@ const LoanAdvisory = () => {
     // ==========================================
     // CORE SYSTEM DATA
     // ==========================================
+    const [groups, setGroups] = useState([]);
+    const [selectedGroupId, setSelectedGroupId] = useState('');
     const [members, setMembers] = useState([]);
     const [selectedMemberId, setSelectedMemberId] = useState('');
     const [loanProducts, setLoanProducts] = useState([
@@ -162,12 +164,14 @@ const LoanAdvisory = () => {
     const initPage = async () => {
         setLoading(true);
         try {
-            const [membersData, productsData] = await Promise.all([
+            const [membersData, productsData, groupsData] = await Promise.all([
                 api.getMembers(),
-                api.getLoanProducts()
+                api.getLoanProducts(),
+                api.getGroups()
             ]);
             setMembers(membersData || []);
             setLoanProducts(productsData || []);
+            setGroups(groupsData || []);
         } catch (error) {
             console.error("Initialization failed", error);
             toast.error("Failed to load system data");
@@ -270,21 +274,46 @@ const LoanAdvisory = () => {
             {/* Member Selection & Eligibility */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                 <div className="flex flex-col md:flex-row items-center gap-6">
-                    <div className="w-full md:w-1/3">
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Select Member to Advise</label>
+                    <div className="w-full md:w-1/4">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">1. Select Group</label>
+                        <select
+                            value={selectedGroupId}
+                            onChange={(e) => {
+                                setSelectedGroupId(e.target.value);
+                                setSelectedMemberId('');
+                            }}
+                            className="w-full bg-gray-50 border-2 border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-safaricom-green focus:border-safaricom-green block p-3 font-bold outline-none transition-all"
+                        >
+                            <option value="">-- Choose Group --</option>
+                            {groups
+                                .filter(g => g.status === 'active' && g.is_frozen === 0)
+                                .map(g => (
+                                    <option key={g.id} value={g.id}>{g.name}</option>
+                                ))}
+                        </select>
+                        {groups.length === 0 && (
+                            <p className="text-[10px] text-red-600 font-bold mt-1 uppercase tracking-tighter">❌ No groups found - create one in Group Management</p>
+                        )}
+                    </div>
+
+                    <div className="w-full md:w-1/4">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">2. Select Member</label>
                         <select
                             value={selectedMemberId}
                             onChange={(e) => setSelectedMemberId(e.target.value)}
-                            className="w-full bg-gray-50 border-2 border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-safaricom-green focus:border-safaricom-green block p-3 font-bold outline-none transition-all"
+                            disabled={!selectedGroupId}
+                            className={`w-full border-2 text-sm rounded-xl focus:ring-safaricom-green focus:border-safaricom-green block p-3 font-bold outline-none transition-all ${!selectedGroupId ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
                         >
-                            <option value="">-- Choose Member --</option>
-                            {members.map(m => (
-                                <option key={m.id} value={m.id}>{m.name} ({m.groupName || 'Group A'})</option>
-                            ))}
+                            <option value="">{selectedGroupId ? '-- Choose Member --' : 'Select Group First'}</option>
+                            {members
+                                .filter(m => (!selectedGroupId || m.group_id === parseInt(selectedGroupId)) && m.status === 'active')
+                                .map(m => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
                         </select>
                     </div>
 
-                    <div className="w-full md:w-2/3">
+                    <div className="w-full md:w-2/4">
                         {selectedMember ? (
                             <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100 flex items-center gap-4">
                                 <div className="p-3 bg-white rounded-full shadow-sm">

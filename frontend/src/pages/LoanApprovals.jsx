@@ -16,13 +16,11 @@ import {
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import LoanAdvisoryPanel from '../components/LoanAdvisoryPanel';
 
-import { useAuth } from '../context/AuthContext';
-
-
 const LoanApprovals = () => {
-    const { user } = useAuth();
+    const { user, isAuditor } = useAuth();
     const location = useLocation();
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -61,11 +59,13 @@ const LoanApprovals = () => {
     useEffect(() => {
         const params = new URLSearchParams(location.search);
         const memberId = params.get('memberId');
-        if (memberId) {
+        if (memberId && !isAuditor) {
             setShowCreateModal(true);
             setFormData(prev => ({ ...prev, memberId: memberId }));
+        } else if (memberId && isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Cannot start new application.");
         }
-    }, [location]);
+    }, [location, isAuditor]);
 
     const fetchApplications = async () => {
         setLoading(true);
@@ -96,6 +96,8 @@ const LoanApprovals = () => {
     // Filter Logic
     const filteredApplications = applications.filter(app => {
         if (filterStatus === 'ALL') return true;
+        // Map PENDING to APPLIED if needed for legacy or just show both
+        if (filterStatus === 'APPLIED') return app.status === 'APPLIED' || app.status === 'PENDING';
         return app.status === filterStatus;
     });
 
@@ -149,15 +151,9 @@ const LoanApprovals = () => {
         e.preventDefault();
         setProcessing(true);
         try {
-            const selectedMember = members.find(m => m.id === parseInt(formData.memberId));
-            if (!selectedMember) {
-                toast.error("Invalid Member Selected");
-                return;
-            }
-
             const payload = {
-                memberId: selectedMember.id,
-                groupId: selectedMember.group_id,
+                memberId: parseInt(formData.memberId),
+                groupId: parseInt(formData.groupId),
                 loanType: formData.loanType,
                 amount: parseFloat(formData.amount),
                 duration: parseInt(formData.duration),
@@ -251,7 +247,7 @@ const LoanApprovals = () => {
             {/* Filters */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 overflow-x-auto">
                 <div className="flex flex-nowrap gap-2">
-                    {['ALL', 'PENDING', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'APPROVED', 'REJECTED'].map(status => (
+                    {['ALL', 'APPLIED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'APPROVED', 'REJECTED'].map(status => (
                         <button
                             key={status}
                             onClick={() => setFilterStatus(status)}
@@ -260,7 +256,7 @@ const LoanApprovals = () => {
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                         >
-                            {status.replace('_', ' ')}
+                            {status === 'APPLIED' ? 'NEW APPLICATIONS' : status.replace('_', ' ')}
                         </button>
                     ))}
                 </div>
@@ -330,7 +326,7 @@ const LoanApprovals = () => {
                                                 >
                                                     <FaEye />
                                                 </button>
-                                                {canApprove(app) && (
+                                                {canApprove(app) && !isAuditor && (
                                                     <button
                                                         onClick={() => { setSelectedApplication(app); setActionType('APPROVE'); setShowApprovalModal(true); }}
                                                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
@@ -359,18 +355,46 @@ const LoanApprovals = () => {
                         </div>
                         <form onSubmit={handleCreateSubmit} className="space-y-4">
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Member</label>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Select Group <span className="text-red-500">*</span></label>
                                 <select
-                                    className="w-full p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="w-full p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-safaricom-green outline-none font-bold"
+                                    value={formData.groupId}
+                                    onChange={e => {
+                                        setFormData({ ...formData, groupId: e.target.value, memberId: '' });
+                                    }}
+                                    required
+                                >
+                                    <option value="">-- Choose Group --</option>
+                                    {groups
+                                        .filter(g => g.status === 'active' && g.is_frozen === 0)
+                                        .map(g => (
+                                            <option key={g.id} value={g.id}>{g.name}</option>
+                                        ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">Select Member <span className="text-red-500">*</span></label>
+                                <select
+                                    className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none font-bold ${!formData.groupId ? 'bg-gray-100 cursor-not-allowed' : 'bg-gray-50'}`}
                                     value={formData.memberId}
                                     onChange={e => setFormData({ ...formData, memberId: e.target.value })}
                                     required
+                                    disabled={!formData.groupId}
                                 >
-                                    <option value="">Select Member...</option>
-                                    {members.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name} - {m.group_name || 'No Group'}</option>
-                                    ))}
+                                    <option value="">{formData.groupId ? '-- Choose Member --' : 'Select Group First'}</option>
+                                    {members
+                                        .filter(m => (!formData.groupId || m.group_id === parseInt(formData.groupId)) && m.status === 'active')
+                                        .map(m => (
+                                            <option key={m.id} value={m.id}>{m.name}</option>
+                                        ))}
                                 </select>
+                                {!formData.groupId && groups.length > 0 && (
+                                    <p className="text-[10px] text-orange-600 font-bold mt-1">⚠️ You must select a group to see its members.</p>
+                                )}
+                                {groups.length === 0 && (
+                                    <p className="text-[10px] text-red-600 font-bold mt-1">❌ No groups found. Please create a group first.</p>
+                                )}
                             </div>
 
                             {/* LOAN ADVISORY PANEL BUTTON */}
@@ -466,10 +490,10 @@ const LoanApprovals = () => {
                             </div>
                             <button
                                 type="submit"
-                                disabled={processing}
-                                className="w-full py-3 bg-safaricom-green text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                                disabled={processing || isAuditor}
+                                className={`w-full py-3 text-white font-bold rounded-lg transition-colors disabled:opacity-50 ${isAuditor ? 'bg-gray-400 cursor-not-allowed' : 'bg-safaricom-green hover:bg-green-700'}`}
                             >
-                                {processing ? 'Submitting...' : 'Submit Application'}
+                                {isAuditor ? 'Blocked in Auditor Mode' : processing ? 'Submitting...' : 'Submit Application'}
                             </button>
                         </form>
                     </div>

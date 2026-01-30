@@ -84,7 +84,17 @@ export const api = {
             return response.data;
         } catch (error) {
             console.error('getRiskOverview error:', error);
-            return [];
+            return { groups: [], stats: {} };
+        }
+    },
+
+    async getRiskDashboard() {
+        try {
+            const response = await axiosInstance.get('/risk/dashboard');
+            return response.data;
+        } catch (error) {
+            console.error('getRiskDashboard error:', error);
+            return { scores: [], alerts: [], heatmap: [] };
         }
     },
     async requestReversal(transactionId, reason) {

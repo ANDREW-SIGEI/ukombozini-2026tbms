@@ -11,8 +11,10 @@ import { toast } from 'react-toastify';
 import ExcelService from '../services/excelService';
 import PdfService from '../services/pdfService';
 import LoanScheduleModal from '../components/LoanScheduleModal';
+import { useAuth } from '../context/AuthContext';
 
 const Loans = () => {
+    const { isAuditor } = useAuth();
     const navigate = useNavigate();
     const [loans, setLoans] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -160,8 +162,14 @@ const Loans = () => {
                         <FaFilePdf className="text-lg" /> PDF
                     </button>
                     <button
-                        onClick={() => navigate('/loan-approvals')}
-                        className="flex items-center gap-2 bg-safaricom-green text-white px-5 py-2 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md"
+                        onClick={() => {
+                            if (isAuditor) {
+                                toast.warning("🛡️ Auditor Mode: New applications are blocked.");
+                                return;
+                            }
+                            navigate('/loan-approvals');
+                        }}
+                        className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-colors shadow-md ${isAuditor ? 'bg-gray-400 cursor-not-allowed' : 'bg-safaricom-green text-white hover:bg-green-700'}`}
                     >
                         <FaPlus /> New Application
                     </button>
@@ -175,8 +183,14 @@ const Loans = () => {
                     <p className="text-blue-100 text-sm">Use the Loan Advisory Panel to calculate repayment schedules and verify eligibility.</p>
                 </div>
                 <button
-                    onClick={() => navigate('/loan-advisory')}
-                    className="bg-white text-blue-600 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 transition-all shadow-sm"
+                    onClick={() => {
+                        if (isAuditor) {
+                            toast.warning("🛡️ Auditor Mode: Advisory planning is restricted.");
+                            return;
+                        }
+                        navigate('/loan-advisory');
+                    }}
+                    className={`px-5 py-2 rounded-lg font-bold transition-all shadow-sm ${isAuditor ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white text-blue-600 hover:bg-blue-50'}`}
                 >
                     Go to Advisory Panel
                 </button>

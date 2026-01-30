@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { FaTimes, FaPiggyBank, FaSearch, FaCheckCircle, FaExchangeAlt, FaShieldAlt, FaInfoCircle, FaWallet, FaUsers, FaLock, FaBan, FaExclamationTriangle, FaCalendarAlt, FaMoneyBillWave } from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import { mockMembers, mockLoans } from '../data/mockData';
-import SMSService from '../services/SMSService';
-import offlineManager from '../services/OfflineManager';
 import api from '../services/api';
 
 // 🔐 CONTRIBUTION TYPE RULES ENGINE
@@ -64,7 +61,7 @@ const CONTRIBUTION_RULES = {
     }
 };
 
-const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName, member: initialMember, activeMeeting, onSuccess }) => {
+const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName, members = [], member: initialMember, activeMeeting, onSuccess }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedMember, setSelectedMember] = useState(initialMember || null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -76,13 +73,13 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
     const [showConfirmation, setShowConfirmation] = useState(false);
 
     // Meeting status check
-    const hasMeeting = activeMeeting && activeMeeting.status === 'OPEN';
+    const hasMeeting = activeMeeting && activeMeeting.status === 'ACTIVE';
     const meetingDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
     // Filter members by group context
     const membersInGroup = useMemo(() => {
-        return mockMembers.filter(m => m.groupId === selectedGroupId);
-    }, [selectedGroupId]);
+        return members.filter(m => m.group_id === selectedGroupId || m.groupId === selectedGroupId);
+    }, [selectedGroupId, members]);
 
     // Live search for member dropdown
     const filteredMembers = useMemo(() => {
@@ -114,11 +111,10 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
         }
     }, [initialMember, type]);
 
-    // Check for active loans
+    // Check for active loans (Simplified for now - can be expanded with real API)
     useEffect(() => {
         if (selectedMember) {
-            const activeLoan = mockLoans.find(l => l.memberName === selectedMember.name && l.status === 'Active');
-            setLoanDetails(activeLoan || null);
+            setLoanDetails(null); // Will be populated by real summary API if needed
         }
     }, [selectedMember]);
 
@@ -181,36 +177,10 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
 
             if (navigator.onLine) {
                 // ONLINE MODE: Post directly to server
-                // Send SMS notification
-                const smsResult = await SMSService.sendContributionSMS(
-                    selectedMember,
-                    numAmount,
-                    newSavingsBalance,
-                    activeMeeting.session_number,
-                    selectedGroupName
-                );
-
-                if (smsResult.success) {
-                    toast.success(`✅ Contribution posted & SMS sent to ${selectedMember.name}!`, {
-                        autoClose: 4000
-                    });
-                } else {
-                    toast.warning(`⚠️ Contribution posted but SMS failed. Please notify member manually.`, {
-                        autoClose: 5000
-                    });
-                }
-
-                // Call API here (assuming api.postContribution exists and works)
-                await api.postContribution(allocation); // Ensure API call is made
-
+                // Success message handled by parent via onSuccess
             } else {
                 // OFFLINE MODE: Save locally
-                await offlineManager.saveOfflineTransaction({
-                    type: 'contribution',
-                    data: allocation
-                });
-                // Offline notification is handled by offlineManager, but we can add UI feedback here too if needed
-                toast.info(`💾 Saved Offline: Will sync when connection restores.`);
+                toast.info(`💾 Offline mode not active for this transaction type.`);
             }
 
             // Common success handler
@@ -296,12 +266,12 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
                                 <div>
                                     <div className="font-black text-sm">🟢 Active Meeting</div>
                                     <div className="text-[10px] opacity-90">
-                                        {selectedGroupName} • Meeting #{activeMeeting.session_number} • {meetingDate} • Status: OPEN
+                                        {selectedGroupName} • Meeting #{activeMeeting.session_number} • {meetingDate} • Status: {activeMeeting.status}
                                     </div>
                                 </div>
                             </div>
-                            <div className="text-xs font-black bg-white/20 px-3 py-1 rounded-full">
-                                POSTING ENABLED
+                            <div className="text-xs font-black bg-white/20 px-3 py-1 rounded-full uppercase">
+                                Posting Enabled
                             </div>
                         </div>
                     </div>
@@ -314,7 +284,7 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
                             <div>
                                 <div className="font-black text-sm">🔴 No Active Meeting</div>
                                 <div className="text-[10px] opacity-90">
-                                    Posting disabled - Please create or open a meeting first
+                                    Posting disabled - Please select an active session first
                                 </div>
                             </div>
                         </div>
@@ -508,7 +478,6 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
                                     Amount (KES) *
                                 </label>
                                 <div className="relative">
-                                    <FaMoneyBillWave className="absolute left-1/2 -translate-x-1/2 top-0 text-gray-300" size={40} />
                                     <input
                                         required
                                         type="number"

@@ -11,10 +11,10 @@ import {
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
     const location = useLocation();
-    const { user, logout } = useAuth();
+    const { user, logout, isAuditor } = useAuth();
 
     const role = user?.role?.toLowerCase() || '';
-    const isPowerUser = role === 'admin' || role === 'director';
+    const isPowerUser = role === 'admin' || role === 'director' || role === 'auditor';
 
     const sections = [
         {
@@ -101,6 +101,19 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                         </div>
                         <FaCircleUser className="text-white/40 group-hover:text-white transition-colors" />
                     </NavLink>
+
+                    {/* Auditor Mode Banner */}
+                    {isAuditor && (
+                        <div className="mt-4 p-3 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center gap-3 animate-pulse">
+                            <div className="w-8 h-8 rounded-lg bg-orange-500 text-white flex items-center justify-center">
+                                <FaShieldHalved size={14} />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-orange-200">System Status</p>
+                                <p className="text-sm font-bold text-white uppercase">Auditor Mode</p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

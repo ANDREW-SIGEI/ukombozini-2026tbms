@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FaPlus, FaSearch, FaPiggyBank, FaUserClock, FaCheckCircle, FaLock, FaUnlock } from 'react-icons/fa';
+import { useAuth } from '../context/AuthContext';
 import ContributionModal from '../components/ContributionModal';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import { FaPlus, FaSearch, FaPiggyBank, FaUserClock, FaCheckCircle, FaLock, FaUnlock, FaShieldAlt } from 'react-icons/fa';
 
 const Step = ({ number, label, active, completed }) => (
     <div className="flex items-center gap-2">
@@ -18,17 +19,20 @@ const Step = ({ number, label, active, completed }) => (
 );
 
 const Contributions = () => {
+    const { isAuditor } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
     const [groupSearchTerm, setGroupSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [selectedGroupId, setSelectedGroupId] = useState('');
     const [selectedMember, setSelectedMember] = useState(null);
     const [loading, setLoading] = useState(true);
 
     const [groups, setGroups] = useState([]);
     const [members, setMembers] = useState([]);
-    const [activeMeeting, setActiveMeeting] = useState(null);
+    const [activeMeetings, setActiveMeetings] = useState([]);
+    const [selectedMeetingId, setSelectedMeetingId] = useState('');
 
+    const activeMeeting = activeMeetings.find(m => m.id === parseInt(selectedMeetingId));
+    const selectedGroupId = activeMeeting ? activeMeeting.groupId : '';
     const selectedGroup = groups.find(g => g.id === parseInt(selectedGroupId));
 
     useEffect(() => {
@@ -37,31 +41,25 @@ const Contributions = () => {
 
     useEffect(() => {
         if (selectedGroupId) {
-            fetchActiveMeeting(selectedGroupId);
-        } else {
-            setActiveMeeting(null);
+            // No need to fetch active meeting individually anymore, we pick from the list
         }
     }, [selectedGroupId]);
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [groupsData, membersData] = await Promise.all([
+            const [groupsData, membersData, sessionsData] = await Promise.all([
                 api.getGroups(),
-                api.getMembers()
+                api.getMembers(),
+                api.getMeetingSessions()
             ]);
 
-            const enrichedGroups = await Promise.all((groupsData || []).map(async (group) => {
-                const activeMeeting = await api.getActiveMeeting(group.id);
-                return {
-                    ...group,
-                    hasActiveMeeting: !!activeMeeting,
-                    activeMeeting: activeMeeting
-                };
-            }));
-
-            setGroups(enrichedGroups);
+            setGroups(groupsData || []);
             setMembers(membersData || []);
+
+            // Only show ACTIVE sessions for the professional flow
+            const openSessions = (sessionsData || []).filter(s => s.status === 'ACTIVE');
+            setActiveMeetings(openSessions);
         } catch (error) {
             console.error(error);
             toast.error('Failed to load data');
@@ -70,15 +68,6 @@ const Contributions = () => {
         }
     };
 
-    const fetchActiveMeeting = async (groupId) => {
-        try {
-            const meeting = await api.getActiveMeeting(groupId);
-            setActiveMeeting(meeting);
-        } catch (error) {
-            console.error(error);
-            setActiveMeeting(null);
-        }
-    };
 
     const filteredGroups = useMemo(() => {
         return groups.filter(g =>
@@ -102,8 +91,12 @@ const Contributions = () => {
     }, [selectedGroupId, searchTerm, activeMeeting, members]);
 
     const handlePostClick = (member) => {
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Data mutation is blocked.");
+            return;
+        }
         if (!activeMeeting) {
-            toast.error("No active meeting open for this group!");
+            toast.error("No active meeting selected!");
             return;
         }
         setSelectedMember(member);
@@ -119,115 +112,80 @@ const Contributions = () => {
                         <h2 className="text-2xl font-black text-gray-800 tracking-tight">Post Contributions</h2>
                         <p className="text-sm text-gray-500 font-medium">Record member deposits securely within active meetings.</p>
                     </div>
-                    {selectedGroupId && (
+                    {selectedMeetingId && (
                         <button
-                            onClick={() => setSelectedGroupId('')}
+                            onClick={() => setSelectedMeetingId('')}
                             className="text-xs font-bold text-safaricom-green hover:underline flex items-center gap-1"
                         >
-                            ← Change Group
+                            ← Exit Session
                         </button>
                     )}
                 </div>
 
                 <div className="flex items-center justify-center max-w-2xl mx-auto w-full mb-4">
-                    <Step number="1" label="Select Group" active={!selectedGroupId} completed={!!selectedGroupId} />
-                    <div className={`h-1 w-12 mx-2 rounded-full ${selectedGroupId ? 'bg-safaricom-green' : 'bg-gray-200'}`} />
-                    <Step number="2" label="Post Deposits" active={!!selectedGroupId && !!activeMeeting} completed={false} />
+                    <Step number="1" label="Select Meeting" active={!selectedMeetingId} completed={!!selectedMeetingId} />
+                    <div className={`h-1 w-12 mx-2 rounded-full ${selectedMeetingId ? 'bg-safaricom-green' : 'bg-gray-200'}`} />
+                    <Step number="2" label="Post Deposits" active={!!selectedMeetingId} completed={false} />
                     <div className={`h-1 w-12 mx-2 rounded-full bg-gray-200`} />
                     <Step number="3" label="Finalize" active={false} completed={false} />
                 </div>
             </div>
 
-            {/* 2. Group Dashboard Selection */}
-            {!selectedGroupId ? (
+            {/* 2. Active Meeting Selection (REPLACES Group Selection) */}
+            {!selectedMeetingId ? (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-                    {/* Group Search Bar */}
-                    <div className="max-w-xl mx-auto relative group">
-                        <FaSearch className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-safaricom-green transition-colors" />
-                        <input
-                            type="text"
-                            placeholder="Search group by name or location..."
-                            className="w-full pl-14 pr-6 py-4 bg-white border-2 border-gray-100 rounded-2xl shadow-sm focus:outline-none focus:border-safaricom-green/50 focus:ring-4 focus:ring-green-500/5 font-bold text-gray-700 transition-all"
-                            value={groupSearchTerm}
-                            onChange={(e) => setGroupSearchTerm(e.target.value)}
-                        />
-                        {groupSearchTerm && (
-                            <button
-                                onClick={() => setGroupSearchTerm('')}
-                                className="absolute right-5 top-1/2 -translate-y-1/2 text-xs font-black text-gray-300 hover:text-red-500 transition-colors"
-                            >
-                                CLEAR
-                            </button>
-                        )}
-                    </div>
+                    {activeMeetings.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {activeMeetings.map(meeting => {
+                                const group = groups.find(g => g.id === meeting.groupId);
+                                return (
+                                    <div
+                                        key={meeting.id}
+                                        onClick={() => setSelectedMeetingId(meeting.id.toString())}
+                                        className="group relative bg-white border-2 border-green-100 rounded-3xl p-6 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all cursor-pointer overflow-hidden"
+                                    >
+                                        <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full blur-2xl bg-safaricom-green/5" />
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredGroups.map(group => (
-                            <div
-                                key={group.id}
-                                onClick={() => setSelectedGroupId(group.id.toString())}
-                                className={`group relative bg-white border rounded-3xl p-6 shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all cursor-pointer overflow-hidden ${group.hasActiveMeeting ? 'border-green-100' : 'border-gray-100'
-                                    }`}
-                            >
-                                <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full blur-2xl transition-colors ${group.hasActiveMeeting ? 'bg-safaricom-green/5' : 'bg-gray-100'
-                                    }`} />
-
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className={`p-3 rounded-2xl ${group.hasActiveMeeting ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
-                                        <FaPiggyBank size={24} />
-                                    </div>
-                                    <div className="flex flex-col items-end">
-                                        {group.hasActiveMeeting ? (
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div className="p-3 rounded-2xl bg-green-100 text-green-600">
+                                                <FaPiggyBank size={24} />
+                                            </div>
                                             <span className="flex items-center gap-1.5 px-3 py-1 bg-green-500 text-white text-[10px] font-black uppercase rounded-full shadow-sm">
                                                 <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
                                                 Active Session
                                             </span>
-                                        ) : (
-                                            <span className="px-3 py-1 bg-gray-100 text-gray-400 text-[10px] font-black uppercase rounded-full">
-                                                Closed
-                                            </span>
-                                        )}
+                                        </div>
+
+                                        <h3 className="text-xl font-black text-gray-800 mb-1">{group?.name || 'Unknown Group'}</h3>
+                                        <p className="text-xs text-gray-500 mb-2 font-bold uppercase tracking-tight">
+                                            Session: {meeting.session_number}
+                                        </p>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+                                            📅 {new Date(meeting.meeting_date).toLocaleDateString()}
+                                        </p>
+
+                                        <button className="w-full mt-6 py-3 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-green-200 group-hover:from-green-600 group-hover:to-green-700 transition-all">
+                                            Open Ledger
+                                        </button>
                                     </div>
-                                </div>
-
-                                <h3 className="text-xl font-black text-gray-800 mb-1">{group.group_name}</h3>
-                                <p className="text-xs text-gray-500 mb-4 flex items-center gap-1">
-                                    <FaUserClock /> {group.meeting_day} • {group.meeting_frequency}
-                                </p>
-                                {group.location && (
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
-                                        📍 {group.location}
-                                    </p>
-                                )}
-
-                                {group.hasActiveMeeting ? (
-                                    <button className="w-full mt-6 py-3 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-green-200 group-hover:from-green-600 group-hover:to-green-700 transition-all">
-                                        Open Ledger
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            window.location.href = `/meetings?groupId=${group.id}`;
-                                        }}
-                                        className="w-full mt-6 py-3 border-2 border-gray-100 text-gray-400 rounded-2xl font-black text-sm hover:border-safaricom-green hover:text-safaricom-green transition-all bg-gray-50/50"
-                                    >
-                                        Open New Meeting
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-
-                    {filteredGroups.length === 0 && (
-                        <div className="py-20 text-center space-y-4">
-                            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto">
-                                <FaSearch size={32} className="text-gray-200" />
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="py-20 text-center space-y-6 bg-white rounded-3xl border-2 border-gray-50 shadow-sm max-w-2xl mx-auto">
+                            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto text-gray-300">
+                                <FaLock size={32} />
                             </div>
                             <div>
-                                <h3 className="text-lg font-black text-gray-400">No groups found</h3>
-                                <p className="text-sm text-gray-500">Try searching with a different name or location.</p>
+                                <h3 className="text-xl font-black text-gray-800">No Open Meetings</h3>
+                                <p className="text-sm text-gray-500 max-w-xs mx-auto mt-2">Open a meeting session in the Meeting Management module to start recording contributions.</p>
                             </div>
+                            <button
+                                onClick={() => window.location.href = '/meetings'}
+                                className="px-8 py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase hover:bg-black transition-all shadow-xl active:scale-95"
+                            >
+                                Open Meeting Session
+                            </button>
                         </div>
                     )}
                 </div>
@@ -352,7 +310,8 @@ const Contributions = () => {
                             setSelectedMember(null);
                         }}
                         selectedGroupId={parseInt(selectedGroupId)}
-                        selectedGroupName={selectedGroup?.group_name}
+                        selectedGroupName={selectedGroup?.name || selectedGroup?.group_name}
+                        members={members}
                         member={selectedMember}
                         activeMeeting={activeMeeting}
                         onSuccess={async (contributionData) => {
@@ -365,16 +324,12 @@ const Contributions = () => {
                                     amount: contributionData.amount,
                                     paymentMethod: contributionData.paymentMethod,
                                     meetingReference: contributionData.meetingReference,
-                                    officerId: contributionData.officerId || 1,
-                                    affectsSavings: contributionData.contributionRule.affectsSavings,
-                                    affectsLoanEligibility: contributionData.contributionRule.affectsLoanEligibility,
-                                    affectsCash: contributionData.contributionRule.affectsCash
+                                    officerId: contributionData.officerId || 1
                                 });
                                 toast.success("✅ Recorded successfully!");
                                 fetchData();
                             } catch (error) {
                                 console.error(error);
-                                toast.error("Failed to record contribution");
                                 throw error;
                             }
                         }}

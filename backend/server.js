@@ -127,6 +127,46 @@ db.serialize(() => {
 // ==========================================
 // AUTH MIDDLEWARE
 // ==========================================
+/**
+ * 🔐 AUDITOR MODE: Mutation Blocker
+ * Prevents any non-GET request from proceeding if the user is an Auditor.
+ */
+const enforceAuditorLimits = (req, res, next) => {
+    if (req.user && req.user.role && req.user.role.toLowerCase() === 'auditor') {
+        if (req.method !== 'GET') {
+            return res.status(403).json({
+                error: 'AUDITOR MODE ACTIVE',
+                message: 'Your account is restricted to Read-Only access. Financial and administrative changes are blocked.'
+            });
+        }
+    }
+    next();
+};
+
+/**
+ * 🕵️ AUDITOR MODE: Read Logging
+ * Logs all successful read operations to a dedicated audit table.
+ */
+const logReadView = (req, res, next) => {
+    if (req.method === 'GET' && req.user && req.user.role && req.user.role.toLowerCase() === 'auditor') {
+        const endpoint = req.originalUrl || req.url;
+        const userId = req.user.id;
+        const officerName = req.user.name || 'Auditor';
+
+        const parts = endpoint.split('/');
+        const module = parts[2] || 'general';
+
+        db.run(`INSERT INTO audit_read_logs (user_id, officer_name, module, endpoint, details) 
+                VALUES (?, ?, ?, ?, ?)`,
+            [userId, officerName, module.toUpperCase(), endpoint, JSON.stringify(req.query)],
+            (err) => {
+                if (err) console.error("Read Audit Log Error:", err);
+            }
+        );
+    }
+    next();
+};
+
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -136,7 +176,11 @@ const authenticateToken = (req, res, next) => {
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ error: 'Invalid or expired token' });
         req.user = user;
-        next();
+
+        // 🔐 Apply Auditor Mode Guardrails
+        enforceAuditorLimits(req, res, () => {
+            logReadView(req, res, next);
+        });
     });
 };
 
@@ -225,69 +269,8 @@ const checkFreeze = (scope) => {
 // ==========================================
 // GOVERNANCE ROUTES
 // ==========================================
-app.post('/api/governance/freeze', authenticateToken, isAdmin, (req, res) => {
-    const { targetType, targetId, action, reason } = req.body; // action: 'FREEZE' | 'UNFREEZE'
-    const value = action === 'FREEZE' ? 1 : 0;
-    const officerStatus = action === 'FREEZE' ? 'frozen' : 'active';
-    const systemValue = action === 'FREEZE' ? 'true' : 'false';
-
-    let sql = "";
-    let params = [];
-
-    if (targetType === 'GROUP') {
-        sql = "UPDATE groups SET is_frozen = ?, freeze_status = ?, freeze_reason = ? WHERE id = ?";
-        params = [value, action === 'FREEZE' ? 'frozen' : 'active', reason, targetId];
-    } else if (targetType === 'OFFICER') {
-        sql = "UPDATE officers SET status = ?, freeze_status = ?, freeze_reason = ? WHERE id = ?";
-        params = [officerStatus, action === 'FREEZE' ? 'frozen' : 'active', reason, targetId];
-    } else if (targetType === 'SYSTEM') {
-        sql = "UPDATE system_settings SET value = ? WHERE key = 'SYSTEM_LOCKDOWN'";
-        params = [systemValue];
-    } else {
-        return res.status(400).json({ error: "Invalid Target" });
-    }
-
-    db.run(sql, params, function (err) {
-        if (err) {
-            // If columns missing (e.g. freeze_status), fallback to simple update
-            if (err.message.includes("no such column")) {
-                if (targetType === 'GROUP') db.run("UPDATE groups SET is_frozen = ? WHERE id = ?", [value, targetId]);
-                if (targetType === 'OFFICER') db.run("UPDATE officers SET status = ? WHERE id = ?", [officerStatus, targetId]);
-                // Log warning but succeed
-                return res.json({ success: true, message: `${targetType} ${action} Successful (Legacy Mode)` });
-            }
-            return res.status(500).json({ error: err.message });
-        }
-
-        // Audit Log
-        db.run("INSERT INTO audit_logs (action, performed_by, target_type, target_id, details) VALUES (?, ?, ?, ?, ?)",
-            [action, req.user.id, targetType, targetId || 0, reason || 'Manual Action'],
-            async (err) => {
-                // SMS TRIGGER (Finance <-> Messaging Binding)
-                if (!err) {
-                    const smsType = action === 'FREEZE' ? 'ACCOUNT_FROZEN' : 'ACCOUNT_UNFROZEN';
-                    const msg = action === 'FREEZE'
-                        ? `UKOMBOZI ALERT: Your account has been FROZEN. Reason: ${reason}. Contact Admin.`
-                        : `UKOMBOZI: Your account has been UNFROZEN. You may resume operations.`;
-
-                    if (targetType === 'OFFICER') {
-                        await logAndSendSMS(targetId, msg, smsType, null, 'officers');
-                    } else if (targetType === 'GROUP') {
-                        // For groups, we might want to notify key officials, but complex 1-to-many here.
-                        // Can be handled by Bulk Notification separately or loop here.
-                        // Ideally: System sends msg to Treasurer.
-                        db.get("SELECT member_id FROM group_officials WHERE group_id = ? AND role = 'Treasurer'", [targetId], async (err, row) => {
-                            if (row) {
-                                await logAndSendSMS(row.member_id, msg, smsType);
-                            }
-                        });
-                    }
-                }
-                res.json({ success: true, message: `${targetType} ${action} Successful` });
-            }
-        );
-    });
-});
+// 🕵️ AUDITOR MODE: Read Logging
+// Redundant freeze route removed - consolidated at line 576.
 
 app.get('/api/governance/status', authenticateToken, (req, res) => {
     db.all("SELECT * FROM system_settings", (err, settings) => {
@@ -314,50 +297,57 @@ app.get('/api/governance/audit-logs', authenticateToken, isAdmin, (req, res) => 
 });
 
 // ==========================================
+// RISK COMMAND CENTER API
+// ==========================================
+
+// Get Risk Dashboard Stats
+app.get('/api/risk/dashboard', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const [scores, alerts] = await Promise.all([
+            new Promise((resolve) => {
+                db.all("SELECT * FROM risk_scores ORDER BY calculated_at DESC LIMIT 50", (err, rows) => resolve(rows || []));
+            }),
+            new Promise((resolve) => {
+                db.all("SELECT * FROM risk_alerts WHERE is_resolved = 0 ORDER BY created_at DESC LIMIT 50", (err, rows) => resolve(rows || []));
+            })
+        ]);
+
+        // Get current risk heatmap (latest score for each group)
+        const heatmap = await new Promise((resolve) => {
+            db.all(`
+                SELECT g.name, rs.score, rs.metrics_snapshot, g.id as group_id, g.is_frozen
+                FROM groups g
+                JOIN risk_scores rs ON g.id = rs.target_id
+                WHERE rs.scope = 'GROUP' AND rs.id IN (SELECT MAX(id) FROM risk_scores GROUP BY target_id)
+            `, (err, rows) => resolve(rows || []));
+        });
+
+        // Calculate Aggregate Stats
+        const stats = {
+            total_savings: 0,
+            total_loans: 0,
+            total_liquidity: 0,
+            system_at_risk: 0
+        };
+
+        heatmap.forEach(h => {
+            const metrics = JSON.parse(h.metrics_snapshot || '{}').stats || {};
+            stats.total_savings += (metrics.total_savings || 0);
+            stats.total_loans += (metrics.total_debt || 0);
+            if (h.score >= 70) stats.system_at_risk++;
+        });
+        stats.total_liquidity = stats.total_savings - stats.total_loans;
+
+        res.json({ scores, alerts, heatmap, stats });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==========================================
 // AUDITOR MODE (SNAPSHOT ENGINE)
 // ==========================================
-app.get('/api/audit/snapshot', authenticateToken, isAdmin, (req, res) => {
-    const { date, groupId } = req.query;
-    if (!date) return res.status(400).json({ error: "Date is required" });
-
-    // Reconstruction Logic: Sum transactions up to date
-    let groupFilter = "";
-    let params = [date];
-    if (groupId) {
-        groupFilter = "AND m.group_id = ?";
-        params.push(groupId);
-    }
-
-    const sql = `
-        SELECT 
-            m.id, m.name, m.phone,
-            g.name as group_name,
-            -- Savings: running total
-            COALESCE(SUM(CASE WHEN t.type = 'SAVINGS' THEN t.amount ELSE 0 END), 0) as historical_savings,
-            
-            -- Project: running total
-            COALESCE(SUM(CASE WHEN t.type = 'PROJECT' THEN t.amount ELSE 0 END), 0) as historical_project,
-            
-            -- Loan Balance: Disbursed - Repaid
-            (COALESCE(SUM(CASE WHEN t.type = 'LOAN_DISBURSEMENT' THEN t.amount ELSE 0 END), 0) 
-            - COALESCE(SUM(CASE WHEN t.type = 'LOAN_REPAYMENT' THEN t.amount ELSE 0 END), 0)) as historical_loan_balance,
-
-            -- Welfare: running total
-            COALESCE(SUM(CASE WHEN t.type = 'WELFARE' THEN t.amount ELSE 0 END), 0) as historical_welfare
-
-        FROM members m
-        JOIN groups g ON m.group_id = g.id
-        LEFT JOIN transactions t ON m.id = t.member_id AND date(t.date) <= date(?)
-        WHERE 1=1 ${groupFilter}
-        GROUP BY m.id
-        ORDER BY g.name, m.name
-    `;
-
-    db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
+// Redundant snapshot route removed - consolidated at line 562.
 
 // ==========================================
 // SERVER HEALTH DASHBOARD (Visual)
@@ -431,27 +421,12 @@ app.get('/', (req, res) => {
 // ADMIN API
 // ==========================================
 
-// Get Audit Logs (Paginated)
-app.get('/api/admin/audit-logs', (req, res) => {
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = parseInt(req.query.offset) || 0;
+// Redundant audit-logs route removed - consolidated at line 348 (governance).
 
-    db.all("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ? OFFSET ?", [limit, offset], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// Get All Settings
-app.get('/api/admin/settings', (req, res) => {
-    db.all("SELECT * FROM settings", [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
+// Redundant settings route removed - consolidated at line 677.
 
 // Save Setting
-app.post('/api/admin/settings', (req, res) => {
+app.post('/api/admin/settings', authenticateToken, isAdmin, (req, res) => {
     const { key, value, description } = req.body;
     const stmt = db.prepare("INSERT OR REPLACE INTO settings (key, value, description, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)");
     stmt.run(key, value, description, function (err) {
@@ -862,7 +837,7 @@ app.delete('/api/admin/loan-products/:id', authenticateToken, isAdmin, (req, res
 });
 
 // Backup Database
-app.get('/api/admin/backup', (req, res) => {
+app.get('/api/admin/backup', authenticateToken, isAdmin, (req, res) => {
     const dbFile = path.join(__dirname, 'ukombozi.sqlite');
     console.log('Backup request received. Checking file:', dbFile);
     if (fs.existsSync(dbFile)) {
@@ -874,7 +849,7 @@ app.get('/api/admin/backup', (req, res) => {
 });
 
 // CSV Export Utility
-app.get('/api/admin/export/:table', (req, res) => {
+app.get('/api/admin/export/:table', authenticateToken, isAdmin, (req, res) => {
     const { table } = req.params;
     const allowedTables = ['members', 'groups', 'transactions', 'loans', 'audit_logs', 'loan_products', 'meeting_sessions'];
 
@@ -927,7 +902,7 @@ app.get('/api/groups', (req, res) => {
 });
 
 // Create new group
-app.post('/api/groups', (req, res) => {
+app.post('/api/groups', authenticateToken, isAdmin, (req, res) => {
     const {
         name, group_name, location, meetingDay, meeting_day, chairperson, secretary, treasurer,
         chairperson_phone, secretary_phone, treasurer_phone,
@@ -1057,7 +1032,7 @@ app.get('/api/groups/:id/active-session', (req, res) => {
 });
 
 // Update Group Details
-app.put('/api/groups/:id', (req, res) => {
+app.put('/api/groups/:id', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { id } = req.params;
     const {
         name, group_name, location, meeting_day, meeting_frequency,
@@ -1087,6 +1062,7 @@ app.put('/api/groups/:id', (req, res) => {
             stlInterestRate = COALESCE(?, stlInterestRate),
             ltlInterestRate = COALESCE(?, ltlInterestRate),
             financial_year = COALESCE(?, financial_year),
+            dividendPolicy = COALESCE(?, dividendPolicy),
             status = COALESCE(?, status)
         WHERE id = ?
     `;
@@ -1096,7 +1072,7 @@ app.put('/api/groups/:id', (req, res) => {
         chairperson, secretary, treasurer,
         chairperson_id, secretary_id, treasurer_id,
         minMonthlySaving, loanMultiplier, stlInterestRate, ltlInterestRate,
-        financial_year, status, id
+        financial_year, req.body.dividendPolicy || null, status, id
     ], function (err) {
         if (err) return res.status(500).json({ error: err.message });
         if (this.changes === 0) return res.status(404).json({ error: "Group not found" });
@@ -1215,7 +1191,7 @@ app.get('/api/members/:id', authenticateToken, (req, res) => {
 });
 
 // Create new member (WITH OPENING BALANCE RULES)
-app.post('/api/members', authenticateToken, (req, res) => {
+app.post('/api/members', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const {
         name, full_name, phone, groupId, group_id,
         opening_balance_savings = 0,
@@ -1288,7 +1264,7 @@ app.post('/api/members', authenticateToken, (req, res) => {
 });
 
 // Update Member Profile
-app.put('/api/members/:id', (req, res) => {
+app.put('/api/members/:id', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { id } = req.params;
     const { name, phone, groupId, status, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship } = req.body;
 
@@ -1440,7 +1416,7 @@ app.get('/api/daily-reports/:id', authenticateToken, (req, res) => {
 });
 
 // Save or Update Daily Report
-app.post('/api/daily-reports', authenticateToken, (req, res) => {
+app.post('/api/daily-reports', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const {
         id, officer_id, group_id, session_id, report_date,
         morning_balance, total_cash_in, total_cash_out,
@@ -1598,7 +1574,7 @@ const processTransactions = (reportId, groupId, date, transactions, res) => {
 };
 
 // Submit Daily Report (Finalize)
-app.patch('/api/daily-reports/:id/submit', authenticateToken, (req, res) => {
+app.patch('/api/daily-reports/:id/submit', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { id } = req.params;
     db.run("UPDATE daily_cash_reports SET status = 'submitted' WHERE id = ? AND status = 'draft'", [id], function (err) {
         if (err) return res.status(500).json({ error: err.message });
@@ -1613,18 +1589,23 @@ app.patch('/api/daily-reports/:id/submit', authenticateToken, (req, res) => {
 // ==========================================
 
 // Create/Record a Transaction (Generic Hub)
-app.post('/api/transactions', (req, res) => {
+app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (req, res) => {
     const {
         type, transaction_type,
         memberId, sessionId,
         amount, description,
-        // For Loans
-        loanId, loanType, breakdown,
-        // For others
-        paymentMethod
+        loanId, loanType, breakdown
     } = req.body;
 
     const finalType = type || transaction_type;
+
+    // 🛡️ RISK GUARD: Anti-Fraud Duplicate Check
+    if (sessionId) {
+        const isDuplicate = await RiskService.checkDuplicateTransaction(sessionId, memberId, amount, finalType);
+        if (isDuplicate) {
+            return res.status(429).json({ error: "DUPLICATE TRANSACTION: An identical record exists for this session." });
+        }
+    }
 
     if (!memberId || !amount) {
         return res.status(400).json({ error: "Member ID and Amount are required." });
@@ -1746,7 +1727,7 @@ app.post('/api/transactions', (req, res) => {
 });
 
 // Start Session (Create)
-app.post('/api/sessions', (req, res) => {
+app.post('/api/sessions', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { groupId, officerId, date, startTime, endTime } = req.body;
     const stmt = db.prepare(`
         INSERT INTO meeting_sessions (groupId, officerId, date, startTime, endTime, status) 
@@ -1770,7 +1751,7 @@ app.post('/api/sessions', (req, res) => {
 });
 
 // Close Session (Update to PENDING_APPROVAL)
-app.patch('/api/sessions/:id/close', (req, res) => {
+app.patch('/api/sessions/:id/close', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { id } = req.params;
     const { totals } = req.body; // Expect JSON object
 
@@ -1788,7 +1769,7 @@ app.patch('/api/sessions/:id/close', (req, res) => {
 });
 
 // Post/Approve Session (Update to POSTED + Save Transactions)
-app.post('/api/sessions/:id/post', (req, res) => {
+app.post('/api/sessions/:id/post', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const sessionId = req.params.id;
     const { transactions, metadata } = req.body; // metadata contains ukomboziRepayment and groupId
 
@@ -1853,6 +1834,11 @@ app.post('/api/sessions/:id/post', (req, res) => {
                             logAudit(`Company Repayment: ${repayAmt}`, 'partnership', { groupId: metadata.groupId, sessionId, amount: repayAmt });
                         }
                     );
+                }
+
+                // 5. Trigger Real-Time Risk Evaluation
+                if (metadata && metadata.groupId) {
+                    RiskService.evaluateGroupRisk(metadata.groupId).catch(e => console.error("Post-Session Risk Error:", e));
                 }
 
                 res.json({ success: true, status: 'POSTED', transactionCount: transactions.length });
@@ -2447,31 +2433,54 @@ app.post('/api/loan-applications', authenticateToken, checkFreeze('OFFICER'), (r
         guarantor1_id, guarantor2_id
     } = req.body;
 
-    const appNumber = `APP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+    if (!memberId || !groupId) {
+        return res.status(400).json({ error: "Member and Group are mandatory for loan applications." });
+    }
 
-    const stmt = db.prepare(`
-        INSERT INTO loan_applications (
-            application_number, member_id, group_id, loan_type, amount_requested, 
-            duration_months, purpose, monthly_installment, interest_portion, 
-            principal_portion, shares_contribution, officer_id, guarantor1_id, guarantor2_id, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
-    `);
-
-    stmt.run(
-        appNumber, memberId, groupId, loanType, amount,
-        duration, purpose, monthly_installment, interest_portion,
-        principal_portion, shares_contribution, officerId, guarantor1_id || null, guarantor2_id || null,
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            logAudit(`Submit Loan App: ${appNumber}`, 'transaction', { id: this.lastID, memberId, amount });
-            res.json({ id: this.lastID, application_number: appNumber, success: true });
+    // Step 1: Authoritative Selection Validation
+    db.get("SELECT status, is_frozen FROM groups WHERE id = ?", [groupId], (err, group) => {
+        if (err || !group) return res.status(400).json({ error: "Selected Group does not exist or is unavailable." });
+        if (group.status !== 'active' || group.is_frozen === 1) {
+            return res.status(403).json({ error: "Action Blocked: The selected group is currently INACTIVE or FROZEN." });
         }
-    );
-    stmt.finalize();
+
+        db.get("SELECT status, group_id FROM members WHERE id = ?", [memberId], (err, member) => {
+            if (err || !member) return res.status(400).json({ error: "Selected Member does not exist." });
+            if (member.status !== 'active') {
+                return res.status(403).json({ error: "Action Blocked: The selected member is currently INACTIVE." });
+            }
+            if (member.group_id !== parseInt(groupId)) {
+                return res.status(403).json({ error: "Data Integrity Violation: Member does not belong to the selected group." });
+            }
+
+            // Step 2: Atomic Creation
+            const appNumber = `APP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+            const stmt = db.prepare(`
+                INSERT INTO loan_applications (
+                    application_number, member_id, group_id, loan_type, amount_requested, 
+                    duration_months, purpose, monthly_installment, interest_portion, 
+                    principal_portion, shares_contribution, officer_id, guarantor1_id, guarantor2_id, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED')
+            `);
+
+            stmt.run(
+                appNumber, memberId, groupId, loanType, amount,
+                duration, purpose, monthly_installment, interest_portion,
+                principal_portion, shares_contribution, officerId, guarantor1_id || null, guarantor2_id || null,
+                function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    logAudit(`Submit Loan App: ${appNumber}`, 'transaction', { id: this.lastID, memberId, amount });
+                    res.json({ id: this.lastID, application_number: appNumber, success: true, status: 'APPLIED' });
+                }
+            );
+            stmt.finalize();
+        });
+    });
 });
 
 // Update loan application status
-app.patch('/api/loan-applications/:id/status', authenticateToken, (req, res) => {
+app.patch('/api/loan-applications/:id/status', authenticateToken, isAdmin, (req, res) => {
     const { id } = req.params;
     const { status, comments } = req.body;
     const officerId = req.user.id; // Enforce logged-in user
@@ -2738,7 +2747,7 @@ app.get('/api/dividends/runs', (req, res) => {
 });
 
 // Preview Dividend Run
-app.post('/api/dividends/preview', async (req, res) => {
+app.post('/api/dividends/preview', authenticateToken, isAdmin, async (req, res) => {
     const { year, groupId, expenses } = req.body;
 
     if (!year || !groupId) {
@@ -2755,7 +2764,7 @@ app.post('/api/dividends/preview', async (req, res) => {
 });
 
 // Post Dividend Run (Commit)
-app.post('/api/dividends/post', (req, res) => {
+app.post('/api/dividends/post', authenticateToken, isAdmin, (req, res) => {
     const { runData } = req.body;
     // runData is the object returned by 'preview' with confirm flag
 
@@ -2852,7 +2861,7 @@ app.post('/api/dividends/post', (req, res) => {
 });
 
 // Create Run
-app.post('/api/dividends/runs', (req, res) => {
+app.post('/api/dividends/runs', authenticateToken, isAdmin, (req, res) => {
     const data = req.body;
     const stmt = db.prepare(`
         INSERT INTO dividend_runs (
@@ -2895,7 +2904,7 @@ app.post('/api/dividends/runs', (req, res) => {
 });
 
 // Calculate Run (Mock Logic for Demo)
-app.post('/api/dividends/:id/calculate', (req, res) => {
+app.post('/api/dividends/:id/calculate', authenticateToken, isAdmin, (req, res) => {
     const runId = req.params.id;
     // Update status to CALCULATED
     db.run("UPDATE dividend_runs SET status = 'CALCULATED', dividend_rate = 0.12, total_payout = 150000 WHERE id = ?", [runId], function (err) {
@@ -2905,7 +2914,7 @@ app.post('/api/dividends/:id/calculate', (req, res) => {
 });
 
 // Approve Run
-app.post('/api/dividends/:id/approve', (req, res) => {
+app.post('/api/dividends/:id/approve', authenticateToken, isAdmin, (req, res) => {
     const runId = req.params.id;
     db.run("UPDATE dividend_runs SET status = 'APPROVED' WHERE id = ?", [runId], function (err) {
         if (err) return res.status(500).json({ error: err.message });
@@ -2922,57 +2931,72 @@ app.get('/api/dividends/:id/allocations', (req, res) => {
     ]);
 });
 
-// Post Dividend Run (Payouts)
-app.post('/api/dividends/post', (req, res) => {
-    const { runId } = req.body; // Expect runId, irrelevant if logic handles array, but let's stick to update status
-    db.run("UPDATE dividend_runs SET status = 'POSTED' WHERE id = ?", [runId], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, message: "Dividends posted" });
-    });
-});
+// Redundant mock dividend post removed.
 
 // Contributions Endpoint (Local)
 // Contributions Endpoint (Local) - STRICT SESSION ENFORCEMENT
 app.post('/api/contributions', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { memberId, amount, type, sessionId } = req.body;
 
-    if (!sessionId) {
-        return res.status(400).json({ error: "Session Integrity Violation: Contribution must be linked to an active Session." });
+    if (!sessionId || !memberId || !amount) {
+        return res.status(400).json({ error: "Missing required fields: sessionId, memberId, and amount are mandatory." });
     }
 
-    db.serialize(() => {
-        db.run("BEGIN TRANSACTION");
+    // Step 1: Validate Session & Get Group Context
+    db.get("SELECT status, groupId FROM meeting_sessions WHERE id = ?", [sessionId], (err, session) => {
+        if (err || !session) return res.status(400).json({ error: "Session Integrity Violation: Meeting session does not exist." });
+        if (session.status !== 'ACTIVE') {
+            return res.status(403).json({ error: "Action Blocked: Cannot post to a CLOSED or INACTIVE meeting session." });
+        }
 
-        const stmt = db.prepare(`
-            INSERT INTO transactions (
-                sessionId, memberId, savings_amount, transaction_type, description, created_at, uploaded, status
-            ) VALUES (?, ?, ?, 'Contribution', ?, ?, 1, 'PENDING')
-        `);
+        const groupId = session.groupId;
 
-        stmt.run(sessionId, memberId, amount, `${type} Contribution`, new Date().toISOString(), async function (err) {
-            if (err) {
-                db.run("ROLLBACK");
-                return res.status(500).json({ error: err.message });
+        // Step 2: Validate Group Status
+        db.get("SELECT status, is_frozen FROM groups WHERE id = ?", [groupId], (err, group) => {
+            if (err || !group) return res.status(400).json({ error: "Group context lost or unavailable." });
+            if (group.status !== 'active' || group.is_frozen === 1) {
+                return res.status(403).json({ error: "Action Blocked: The group for this session is currently INACTIVE or FROZEN." });
             }
 
-            const transId = this.lastID;
-
-            // Update Savings
-            db.run("UPDATE members SET current_savings = current_savings + ? WHERE id = ?", [amount, memberId], async (updErr) => {
-                if (updErr) {
-                    db.run("ROLLBACK");
-                    return res.status(500).json({ error: updErr.message });
+            // Step 3: Validate Member & Relationship
+            db.get("SELECT status, group_id, name FROM members WHERE id = ?", [memberId], (err, member) => {
+                if (err || !member) return res.status(400).json({ error: "Selected Member does not exist." });
+                if (member.status !== 'active') {
+                    return res.status(403).json({ error: "Action Blocked: The selected member is currently INACTIVE." });
+                }
+                if (member.group_id !== groupId) {
+                    return res.status(403).json({ error: "Relationship Violation: Member does not belong to the meeting's group." });
                 }
 
-                db.run("COMMIT");
+                // Step 4: Atomic Record Creation (No direct balance updates as per Spec Step 8)
+                const stmt = db.prepare(`
+                    INSERT INTO transactions (
+                        sessionId, memberId, memberName, savings_amount, transaction_type, description, created_at, uploaded, status
+                    ) VALUES (?, ?, ?, ?, 'Contribution', ?, ?, 1, 'COMPLETED')
+                `);
 
-                const smsMsg = `UKOMBOZI: Contribution of KES ${Number(amount).toLocaleString()} confirmed. Type: ${type}. Ref: ${transId}.`;
-                await logAndSendSMS(memberId, smsMsg, 'CONTRIBUTION', transId);
+                const timestamp = new Date().toISOString();
+                const description = `${type} Contribution`;
 
-                res.json({ id: transId, status: 'Completed', message: 'Contribution recorded and SMS sent' });
+                stmt.run(sessionId, memberId, member.name, amount, description, timestamp, async function (err) {
+                    if (err) return res.status(500).json({ error: err.message });
+
+                    const transId = this.lastID;
+                    logAudit(`Contribution: ${transId}`, 'transaction', { memberId, amount, sessionId });
+
+                    // Optional but recommended Audit/Log for Traceability (Step 5)
+                    const smsMsg = `UKOMBOZI: Contribution of KES ${Number(amount).toLocaleString()} confirmed. Type: ${type}. Ref: ${transId}.`;
+                    try {
+                        await logAndSendSMS(memberId, smsMsg, 'CONTRIBUTION', transId);
+                    } catch (smsErr) {
+                        console.error("SMS notification failed but contribution was recorded:", smsErr);
+                    }
+
+                    res.json({ id: transId, status: 'Completed', message: 'Contribution recorded atomically' });
+                });
+                stmt.finalize();
             });
         });
-        stmt.finalize();
     });
 });
 
@@ -3124,7 +3148,7 @@ app.get('/api/reports/loan-tracking', (req, res) => {
     });
 });
 
-app.get('/api/reports/loan-repayment-pdf', async (req, res) => {
+app.get('/api/reports/loan-repayment-pdf', authenticateToken, async (req, res) => {
     const { month, groupId, type } = req.query;
     try {
         const buffer = await reportService.generateLoanRepaymentReport(month, groupId, type);
@@ -3136,7 +3160,7 @@ app.get('/api/reports/loan-repayment-pdf', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-app.post('/api/officers', (req, res) => {
+app.post('/api/officers', authenticateToken, isAdmin, (req, res) => {
     const { id, name, role, phone, email, status, password_hash, password } = req.body;
     const final_password_hash = password_hash || password || null;
 
@@ -3169,7 +3193,7 @@ app.post('/api/officers', (req, res) => {
 });
 
 // Reset Officer Password
-app.post('/api/officers/:id/reset-password', (req, res) => {
+app.post('/api/officers/:id/reset-password', authenticateToken, isAdmin, (req, res) => {
     const { id } = req.params;
     const { password_hash } = req.body;
 
@@ -3185,7 +3209,7 @@ app.post('/api/officers/:id/reset-password', (req, res) => {
 });
 
 // Allocate Groups to Officer
-app.post('/api/officers/:id/groups', (req, res) => {
+app.post('/api/officers/:id/groups', authenticateToken, isAdmin, (req, res) => {
     const officerId = req.params.id;
     const { groupIds } = req.body; // Array of group IDs
 
@@ -3217,7 +3241,7 @@ app.delete('/api/officers/:id', authenticateToken, isAdmin, (req, res) => {
 // ==========================================
 
 // Meeting Minutes PDF
-app.get('/api/reports/meeting/:sessionId', async (req, res) => {
+app.get('/api/reports/meeting/:sessionId', authenticateToken, async (req, res) => {
     try {
         const { sessionId } = req.params;
         const pdfBuffer = await reportService.generateMeetingMinutes(sessionId);
@@ -3233,7 +3257,7 @@ app.get('/api/reports/meeting/:sessionId', async (req, res) => {
 });
 
 // Member Statement PDF
-app.get('/api/reports/member/:memberId', async (req, res) => {
+app.get('/api/reports/member/:memberId', authenticateToken, async (req, res) => {
     try {
         const { memberId } = req.params;
         const { startDate, endDate } = req.query;
@@ -3249,7 +3273,7 @@ app.get('/api/reports/member/:memberId', async (req, res) => {
 });
 
 // Dividend Report PDF
-app.get('/api/reports/dividends/:runId', async (req, res) => {
+app.get('/api/reports/dividends/:runId', authenticateToken, async (req, res) => {
     try {
         const { runId } = req.params;
         const pdfBuffer = await reportService.generateDividendReport(runId);
@@ -3264,7 +3288,7 @@ app.get('/api/reports/dividends/:runId', async (req, res) => {
     }
 });
 
-app.get('/api/reports/compliance', async (req, res) => {
+app.get('/api/reports/compliance', authenticateToken, async (req, res) => {
     try {
         const { month, groupId } = req.query;
         const pdfBuffer = await reportService.generateContributionComplianceReport(month, groupId);
@@ -3278,7 +3302,7 @@ app.get('/api/reports/compliance', async (req, res) => {
     }
 });
 
-app.get('/api/reports/loan-repayments', async (req, res) => {
+app.get('/api/reports/loan-repayments', authenticateToken, async (req, res) => {
     try {
         const { month, groupId, type } = req.query;
         const pdfBuffer = await reportService.generateLoanRepaymentReport(month, groupId, type);
@@ -3297,7 +3321,7 @@ app.get('/api/reports/loan-repayments', async (req, res) => {
 // ==========================================
 
 // 1. Balance Sheet (Snapshot)
-app.get('/api/reports/financial/balance-sheet', (req, res) => {
+app.get('/api/reports/financial/balance-sheet', authenticateToken, isAdmin, (req, res) => {
     const date = req.query.date || new Date().toISOString();
 
     const query = `
@@ -3341,7 +3365,7 @@ app.get('/api/reports/financial/balance-sheet', (req, res) => {
 });
 
 // 2. Income Statement (Period)
-app.get('/api/reports/financial/income-statement', (req, res) => {
+app.get('/api/reports/financial/income-statement', authenticateToken, isAdmin, (req, res) => {
     const { startDate, endDate } = req.query;
     // Defaults to current year if not specified
     const start = startDate || `${new Date().getFullYear()}-01-01`;
@@ -3418,7 +3442,7 @@ app.get('/api/reports/financial/daily-cash-flow', (req, res) => {
 // ==========================================
 
 // 1. Company Top-Up (Investment)
-app.post('/api/partnership/top-up', (req, res) => {
+app.post('/api/partnership/top-up', authenticateToken, isAdmin, (req, res) => {
     const { groupId, amount, notes } = req.body;
     db.run(
         "INSERT INTO company_investments (group_id, amount, notes) VALUES (?, ?, ?)",
@@ -3432,7 +3456,7 @@ app.post('/api/partnership/top-up', (req, res) => {
 });
 
 // 2. Group Commitment Deposit
-app.post('/api/partnership/commitment-deposit', (req, res) => {
+app.post('/api/partnership/commitment-deposit', authenticateToken, isAdmin, (req, res) => {
     const { groupId, amount, notes } = req.body;
     db.run(
         "INSERT INTO group_commitments (group_id, amount, notes) VALUES (?, ?, ?)",
@@ -3446,7 +3470,7 @@ app.post('/api/partnership/commitment-deposit', (req, res) => {
 });
 
 // 3. Issue Product (Asset Financing)
-app.post('/api/partnership/issue-product', (req, res) => {
+app.post('/api/partnership/issue-product', authenticateToken, isAdmin, (req, res) => {
     const { memberId, productName, totalValue, commitmentPaid, monthlyInstallment } = req.body;
     const financedAmount = totalValue - commitmentPaid;
 
@@ -3495,7 +3519,7 @@ app.get('/api/partnership/exposure/:groupId', (req, res) => {
 });
 
 // 5. Apply Commitment Offset (Auto-Offset Logic)
-app.post('/api/partnership/apply-offset', (req, res) => {
+app.post('/api/partnership/apply-offset', authenticateToken, isAdmin, (req, res) => {
     const { memberId, amount, notes } = req.body;
 
     // 1. Get Member's Group
@@ -3935,405 +3959,6 @@ app.get('/api/projects/group-stats/:groupId', authenticateToken, (req, res) => {
             participation_rate: stats.total_members > 0 ? (stats.members_in_projects / stats.total_members * 100) : 0,
             loan_utilization: totalTablePool > 0 ? (stats.total_active_loans / totalTablePool * 100) : 0
         });
-    });
-});
-
-/**
- * Get Project Matrix for all members in a Group
- */
-app.get('/api/projects/group-matrix/:groupId', authenticateToken, (req, res) => {
-    const { groupId } = req.params;
-    const query = `
-        SELECT 
-            m.id, 
-            m.name,
-            m.current_savings as normal_savings,
-            COALESCE(SUM(CASE WHEN pr.project_type = 'EDUCATION' THEN ps.amount ELSE 0 END), 0) as edu_saved,
-            COALESCE(SUM(CASE WHEN pr.project_type = 'AGRICULTURE' THEN ps.amount ELSE 0 END), 0) as agri_saved,
-            COUNT(DISTINCT pr.id) as registered_projects
-        FROM members m
-        LEFT JOIN project_registrations pr ON m.id = pr.member_id
-        LEFT JOIN project_savings ps ON pr.id = ps.registration_id
-        WHERE m.group_id = ?
-        GROUP BY m.id
-    `;
-    db.all(query, [groupId], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-/**
- * Get Project Status for a specific Member
- */
-app.get('/api/projects/member-status/:memberId', authenticateToken, (req, res) => {
-    const { memberId } = req.params;
-
-    const query = `
-        SELECT 
-            pr.id as registration_id,
-            pr.project_type,
-            COALESCE(SUM(ps.amount), 0) as total_saved,
-            (COALESCE(SUM(ps.amount), 0) * 1.5) as projected_payout
-        FROM project_registrations pr
-        LEFT JOIN project_savings ps ON pr.id = ps.registration_id
-        WHERE pr.member_id = ?
-        GROUP BY pr.id
-    `;
-
-    db.all(query, [memberId], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-/**
- * Get Member Day Limit (Relationship Alignment)
- * Returns how much table savings the member made on a specific date
- * and how much project savings they have already consumed.
- */
-app.get('/api/projects/member-day-limit/:memberId/:date', authenticateToken, (req, res) => {
-    const { memberId, date: reqDate } = req.params;
-    const targetDate = reqDate || new Date().toISOString().split('T')[0];
-
-    const query = `
-        SELECT 
-            (SELECT COALESCE(SUM(savings_amount), 0) FROM transactions WHERE memberId = ? AND date(created_at) = date(?)) as daily_limit,
-            (SELECT COALESCE(SUM(ps.amount), 0) FROM project_savings ps JOIN project_registrations pr ON ps.registration_id = pr.id WHERE pr.member_id = ? AND date(ps.date) = date(?)) as already_saved
-    `;
-
-    db.get(query, [memberId, targetDate, memberId, targetDate], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const limit = row.daily_limit || 0;
-        const saved = row.already_saved || 0;
-
-        res.json({
-            daily_limit: limit,
-            already_saved: saved,
-            remaining_limit: Math.max(0, limit - saved)
-        });
-    });
-});
-
-// ==========================================
-// GOVERNANCE & MESSAGING HUB API
-// ==========================================
-
-/**
- * GET RISK OVERVIEW (HEATMAP DATA)
- * Calculus:
- * - Base Risk: 0
- * - Liquidity Risk: +40 if Loans > Savings
- * - Leverage Risk: +20 if Loans > 80% of Savings
- * - Reporting Risk: +20 if last report > 7 days ago (and active loans exist)
- * - Governance Risk: +50 if Frozen
- */
-app.get('/api/risk/overview', authenticateToken, (req, res) => {
-    const query = `
-        SELECT 
-            g.id, g.name, g.is_frozen,
-            (SELECT COALESCE(SUM(current_savings), 0) FROM members WHERE group_id = g.id) as total_savings,
-            (SELECT COALESCE(SUM(active_loan_balance), 0) FROM members WHERE group_id = g.id) as total_loans,
-            (SELECT created_at FROM meeting_sessions WHERE group_id = g.id ORDER BY created_at DESC LIMIT 1) as last_meeting
-        FROM groups g
-    `;
-
-    db.all(query, [], (err, groups) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const heatmap = groups.map(group => {
-            let riskScore = 0;
-            let riskFactors = [];
-
-            // 1. Governance Risk
-            if (group.is_frozen === 1) {
-                riskScore += 50;
-                riskFactors.push("Group Frozen by Director");
-            }
-
-            // 2. Liquidity Risk (Insolvent?)
-            if (group.total_loans > group.total_savings) {
-                riskScore += 40;
-                riskFactors.push("Insolvent: Loans exceed Assets");
-            } else if (group.total_loans > (group.total_savings * 0.8)) {
-                // 3. High Leverage
-                riskScore += 20;
-                riskFactors.push("High Leverage (>80% utilization)");
-            }
-
-            // 4. Reporting Risk (Dormancy)
-            if (group.last_meeting) {
-                const lastDate = new Date(group.last_meeting);
-                const daysSince = (new Date() - lastDate) / (1000 * 60 * 60 * 24);
-                if (daysSince > 14) {
-                    riskScore += 20;
-                    riskFactors.push(`Dormant: No meeting in ${Math.floor(daysSince)} days`);
-                }
-            } else {
-                // No meetings ever?
-                if (group.total_savings > 0 || group.total_loans > 0) {
-                    riskScore += 10;
-                    riskFactors.push("No meeting history");
-                }
-            }
-
-            // Cap at 100
-            riskScore = Math.min(100, riskScore);
-
-            return {
-                id: group.id,
-                name: group.name,
-                metrics: {
-                    savings: group.total_savings,
-                    loans: group.total_loans,
-                    utilization: group.total_savings > 0 ? ((group.total_loans / group.total_savings) * 100).toFixed(1) : 0
-                },
-                riskScore,
-                riskLabel: riskScore >= 60 ? 'HIGH' : riskScore >= 30 ? 'MEDIUM' : 'LOW',
-                riskFactors
-            };
-        });
-
-        // Sort by Risk (High to Low)
-        heatmap.sort((a, b) => b.riskScore - a.riskScore);
-
-        res.json(heatmap);
-    });
-});
-
-/**
- * Get all Group Officials across all groups
- */
-app.get('/api/officials', authenticateToken, (req, res) => {
-    const query = `
-        SELECT 
-            go.*, 
-            m.name as member_name, 
-            m.phone as member_phone, 
-            g.name as group_name
-        FROM group_officials go
-        JOIN members m ON go.member_id = m.id
-        JOIN groups g ON go.group_id = g.id
-        ORDER BY g.name, go.role
-    `;
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-/**
- * Send Bulk Notifications (SMS/In-app) to targeted audiences
- */
-app.post('/api/notifications/bulk', authenticateToken, isAdmin, (req, res) => {
-    const { target, targetIds, message, method } = req.body;
-
-    if (!message) return res.status(400).json({ error: 'Message body is required.' });
-
-    let memberQuery = ``;
-    let queryParams = [];
-
-    if (target === 'ROLES') {
-        // targetIds contains roles like 'Chairman', 'Secretary', 'Treasurer'
-        memberQuery = `
-            SELECT m.id, m.name, m.phone 
-            FROM members m
-            JOIN group_officials go ON m.id = go.member_id
-            WHERE go.status = 'active' AND go.role IN (${targetIds.map(() => '?').join(',')})
-        `;
-        queryParams = targetIds;
-    } else if (target === 'OFFICERS') {
-        memberQuery = `SELECT id, name, phone FROM officers WHERE role IN (${targetIds.map(() => '?').join(',')})`;
-        queryParams = targetIds;
-    } else if (target === 'GROUPS') {
-        memberQuery = `SELECT id, name, phone FROM members WHERE group_id IN (${targetIds.map(() => '?').join(',')})`;
-        queryParams = targetIds;
-    } else {
-        return res.status(400).json({ error: 'Invalid target type.' });
-    }
-
-    db.all(memberQuery, queryParams, (err, members) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!members || members.length === 0) return res.status(404).json({ error: 'No recipients found for the selected criteria.' });
-
-        const results = { sent: 0, failed: 0, total: members.length };
-
-        members.forEach(member => {
-            if (method === 'SMS' || method === 'BOTH') {
-                if (member.phone) {
-                    logAndSendSMS(member.id, message, 'BULK_NOTIFICATION');
-                    results.sent++;
-                } else {
-                    results.failed++;
-                }
-            }
-        });
-
-        logAudit(`Bulk Message Sent`, 'notification', {
-            target,
-            targetCount: members.length,
-            method,
-            message: message.substring(0, 50) + '...'
-        }, req.user.id, req.user.name);
-
-        res.json({
-            success: true,
-            message: `Bulk transmission initiated to ${members.length} recipients.`,
-            results
-        });
-    });
-});
-
-/**
- * Get SMS Logs (Notification History)
- */
-app.get('/api/notifications/logs', authenticateToken, (req, res) => {
-    const limit = parseInt(req.query.limit) || 100;
-    const query = `
-        SELECT s.*, m.name as recipient_name 
-        FROM sms_logs s
-        LEFT JOIN members m ON s.member_id = m.id
-        ORDER BY s.created_at DESC
-        LIMIT ?
-    `;
-    db.all(query, [limit], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// ==========================================
-// GOVERNANCE & RISK API
-// ==========================================
-
-// Get Risk Overview & Dashboard Stats
-app.get('/api/risk/overview', authenticateToken, (req, res) => {
-    const query = `
-        SELECT 
-            g.id, g.name, g.freeze_status,
-            COALESCE(SUM(m.current_savings), 0) as total_savings,
-            COALESCE(SUM(m.active_loan_balance), 0) as total_loans,
-            (SELECT COUNT(*) FROM members WHERE group_id = g.id) as member_count
-        FROM groups g
-        LEFT JOIN members m ON g.id = m.group_id
-        GROUP BY g.id
-    `;
-
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const groups = rows.map(g => {
-            const ratio = g.total_savings > 0 ? (g.total_loans / g.total_savings) : 0;
-            // Risk score formula: Simplified for now
-            // Higher ratio = higher risk. Max score 100.
-            let riskScore = Math.min(Math.round(ratio * 100), 100);
-            if (g.freeze_status === 'frozen') riskScore = Math.min(riskScore + 20, 100);
-
-            return {
-                ...g,
-                risk_score: riskScore,
-                liquidity: g.total_savings - g.total_loans
-            };
-        });
-
-        const totalSavings = groups.reduce((sum, g) => sum + g.total_savings, 0);
-        const totalLoans = groups.reduce((sum, g) => sum + g.total_loans, 0);
-
-        res.json({
-            groups,
-            stats: {
-                total_liquidity: totalSavings - totalLoans,
-                total_savings: totalSavings,
-                total_loans: totalLoans,
-                system_at_risk: groups.filter(g => g.risk_score > 70).length
-            }
-        });
-    });
-});
-
-// Update Governance Freeze Status
-app.post('/api/governance/freeze', authenticateToken, (req, res) => {
-    const { targetType, targetId, action, reason } = req.body;
-    const performedBy = req.user.id;
-
-    db.serialize(() => {
-        db.run("BEGIN TRANSACTION");
-
-        let updateQuery = "";
-        let params = [];
-
-        if (targetType === 'SYSTEM') {
-            updateQuery = "UPDATE system_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'system_freeze'";
-            params = [action === 'FREEZE' ? 'true' : 'false'];
-        } else if (targetType === 'GROUP') {
-            updateQuery = "UPDATE groups SET freeze_status = ?, freeze_reason = ? WHERE id = ?";
-            params = [action === 'FREEZE' ? 'frozen' : 'unfrozen', reason, targetId];
-        } else if (targetType === 'OFFICER') {
-            updateQuery = "UPDATE officers SET status = ? WHERE id = ?";
-            params = [action === 'FREEZE' ? 'inactive' : 'active', targetId];
-        }
-
-        db.run(updateQuery, params, function (err) {
-            if (err) {
-                db.run("ROLLBACK");
-                return res.status(500).json({ error: err.message });
-            }
-
-            // Log the freeze action
-            db.run(`
-                INSERT INTO freeze_logs (scope, target_id, action, reason, performed_by)
-                VALUES (?, ?, ?, ?, ?)
-            `, [targetType, targetId, action, reason, performedBy], (logErr) => {
-                if (logErr) {
-                    db.run("ROLLBACK");
-                    return res.status(500).json({ error: logErr.message });
-                }
-
-                db.run("COMMIT");
-                logAudit(`${action} ${targetType}: ID ${targetId}`, 'governance', { reason }, performedBy, req.user.name);
-                res.json({ success: true, message: `${targetType} ${action.toLowerCase()}d successfully.` });
-            });
-        });
-    });
-});
-
-// Get Governance Status
-app.get('/api/governance/status', authenticateToken, (req, res) => {
-    db.get("SELECT value FROM system_settings WHERE key = 'system_freeze'", (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ system_lockdown: row?.value === 'true' });
-    });
-});
-
-// Get Governance Audit Logs
-app.get('/api/governance/audit-logs', authenticateToken, (req, res) => {
-    const query = `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100`;
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// Get Freeze Logs
-app.get('/api/governance/freeze-logs', authenticateToken, (req, res) => {
-    const query = `
-        SELECT f.*, o.name as officer_name 
-        FROM freeze_logs f
-        LEFT JOIN officers o ON f.performed_by = o.id
-        ORDER BY f.performed_at DESC
-    `;
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// Get System Settings
-app.get('/api/admin/system-settings', authenticateToken, (req, res) => {
-    db.all("SELECT * FROM system_settings", (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
     });
 });
 

@@ -18,7 +18,7 @@ const RELATIONSHIP_OPTIONS = [
 ];
 
 const Members = () => {
-    const { user } = useAuth();
+    const { user, isAuditor } = useAuth();
     const navigate = useNavigate();
     const { activeSession } = useTransactions();
     const [searchTerm, setSearchTerm] = useState('');
@@ -165,8 +165,11 @@ const Members = () => {
     };
 
     const handleAddMember = async (e) => {
-        // ... existing implementation ...
         e.preventDefault();
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Record creation is blocked.");
+            return;
+        }
 
         if (!validatePhone(newMember.phone)) {
             toast.error('Please enter a valid Kenyan phone number (e.g., 0712345678)');
@@ -209,6 +212,10 @@ const Members = () => {
     };
 
     const handleDeleteMember = async (id, name) => {
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Record deletion is blocked.");
+            return;
+        }
         if (window.confirm(`Are you sure you want to delete member ${name}? This action cannot be undone if they have no financial history.`)) {
             try {
                 const response = await api.deleteMember(id);
@@ -238,6 +245,10 @@ const Members = () => {
 
     const handleEditMember = async (e) => {
         e.preventDefault();
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Record modification is blocked.");
+            return;
+        }
         try {
             await api.updateMember(editFormData.id, {
                 name: editFormData.name,
@@ -276,6 +287,10 @@ const Members = () => {
 
 
     const openRepaymentModal = async (member) => {
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
+            return;
+        }
         setSelectedMember(member);
         setRepaymentAmount('');
         setMemberLoans([]);
@@ -370,6 +385,10 @@ const Members = () => {
     };
 
     const openDepositModal = (member) => {
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
+            return;
+        }
         setSelectedMember(member);
         setDepositAmount('');
         setShowDepositModal(true);
@@ -399,8 +418,19 @@ const Members = () => {
         }
     };
 
+    const openWithdrawModal = (member) => {
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
+            return;
+        }
+        setSelectedMember(member);
+        setWithdrawAmount('');
+        setShowWithdrawModal(true);
+    };
+
     const handleWithdrawal = async (e) => {
         e.preventDefault();
+        if (isAuditor) return;
         if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) return;
 
         setIsProcessing(true);
@@ -436,8 +466,14 @@ const Members = () => {
                     </p>
                 </div>
                 <button
-                    onClick={() => setShowAddModal(true)}
-                    className="flex items-center gap-2 bg-safaricom-green text-white px-5 py-2 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md"
+                    onClick={() => {
+                        if (isAuditor) {
+                            toast.warning("🛡️ Auditor Mode: Record creation is blocked.");
+                            return;
+                        }
+                        setShowAddModal(true);
+                    }}
+                    className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-colors shadow-md ${isAuditor ? 'bg-gray-400 cursor-not-allowed' : 'bg-safaricom-green text-white hover:bg-green-700'}`}
                 >
                     <FaUserPlus /> Register New Member
                 </button>

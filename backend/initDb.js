@@ -80,7 +80,7 @@ const init = async () => {
             interest_rate REAL NOT NULL,
             issued_date TEXT NOT NULL,
             due_date TEXT NOT NULL,
-            status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'defaulted', 'written_off')),
+            status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cleared', 'defaulted', 'written_off')),
             issued_by INTEGER,
             guarantor1_id INTEGER,
             guarantor2_id INTEGER,
@@ -244,7 +244,7 @@ const init = async () => {
                                 amount_requested REAL NOT NULL,
                                 duration_months INTEGER NOT NULL,
                                 purpose TEXT,
-                                status TEXT DEFAULT 'PENDING' CHECK(status IN('PENDING', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'ADMIN_REJECTED', 'APPROVED', 'REJECTED', 'DISBURSED', 'CANCELLED', 'OFFICER_SUBMITTED', 'DIRECTOR_REVIEW')),
+                                status TEXT DEFAULT 'APPLIED' CHECK(status IN('APPLIED', 'PENDING', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'ADMIN_REJECTED', 'APPROVED', 'REJECTED', 'DISBURSED', 'CANCELLED', 'OFFICER_SUBMITTED', 'DIRECTOR_REVIEW')),
                                 monthly_installment REAL,
                                 interest_portion REAL,
                                 principal_portion REAL,
@@ -264,7 +264,7 @@ const init = async () => {
         await run(`CREATE TABLE IF NOT EXISTS officers(
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 name TEXT NOT NULL,
-                                role TEXT NOT NULL CHECK(role IN('Field Officer', 'Director', 'Admin')),
+                                role TEXT NOT NULL CHECK(role IN('Field Officer', 'Director', 'Admin', 'Auditor')),
                                 phone TEXT,
                                 email TEXT UNIQUE,
                                 password_hash TEXT,
@@ -296,6 +296,17 @@ const init = async () => {
             error_message TEXT,
                                 transaction_id INTEGER,
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                            )`);
+
+        // 10b. AUDIT READ LOGS (Auditor Mode Traceability)
+        await run(`CREATE TABLE IF NOT EXISTS audit_read_logs(
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                user_id INTEGER,
+                                officer_name TEXT,
+                                module TEXT,
+                                endpoint TEXT,
+                                details TEXT,
+                                timestamp TEXT DEFAULT CURRENT_TIMESTAMP
                             )`);
 
         // 11. PROJECT SAVINGS MODULE
@@ -396,6 +407,17 @@ const init = async () => {
             score INTEGER NOT NULL, --0 to 100
             metrics_snapshot TEXT, --JSON
             calculated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        await run(`CREATE TABLE IF NOT EXISTS risk_alerts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL, -- 'GROUP', 'MEMBER', 'OFFICER', 'SYSTEM'
+            target_id INTEGER NOT NULL,
+            alert_type TEXT NOT NULL, -- 'NEGATIVE_BALANCE', 'OVERDUE_LOAN', 'LIQUIDITY_BREACH', etc.
+            severity TEXT DEFAULT 'MEDIUM', -- 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
+            message TEXT NOT NULL,
+            is_resolved INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS reversal_requests(

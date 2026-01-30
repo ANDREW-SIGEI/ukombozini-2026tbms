@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     FaUsers, FaPlus, FaMagnifyingGlass, FaPenToSquare, FaTrash,
-    FaSpinner, FaCalendarDays, FaLocationDot, FaCircleCheck, FaBook
+    FaSpinner, FaCalendarDays, FaLocationDot, FaCircleCheck, FaBook,
+    FaXmark, FaFloppyDisk
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 const GroupsManagement = () => {
-    const { user } = useAuth();
+    const { user, isAuditor } = useAuth();
     const navigate = useNavigate();
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -204,8 +205,14 @@ const GroupsManagement = () => {
                     </p>
                 </div>
                 <button
-                    onClick={() => setShowAddModal(true)}
-                    className="flex items-center gap-2 bg-safaricom-green text-white px-5 py-2 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md"
+                    onClick={() => {
+                        if (isAuditor) {
+                            toast.warning("🛡️ Auditor Mode: Record creation is blocked.");
+                            return;
+                        }
+                        setShowAddModal(true);
+                    }}
+                    className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-colors shadow-md ${isAuditor ? 'bg-gray-400 cursor-not-allowed' : 'bg-safaricom-green text-white hover:bg-green-700'}`}
                 >
                     <FaPlus /> Register New Group
                 </button>
@@ -256,7 +263,7 @@ const GroupsManagement = () => {
                                 key={group.id}
                                 className="group relative bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-safaricom-green/30 transition-all duration-300 overflow-hidden"
                             >
-                                {user?.role === 'admin' && (
+                                {user?.role === 'admin' && !isAuditor && (
                                     <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                         <button
                                             onClick={() => handleDeleteGroup(group.id, group.group_name)}
@@ -365,435 +372,344 @@ const GroupsManagement = () => {
                 )}
             </div>
 
-            {/* Add Group Modal */}
+            {/* REGISTER GROUP MODAL */}
             {showAddModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                                <FaPlus className="text-safaricom-green" /> Register New Group
-                            </h3>
-                            <button
-                                onClick={() => setShowAddModal(false)}
-                                className="text-gray-400 hover:text-red-500 text-xl"
-                            >
-                                ×
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleAddGroup} className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                    Group Name *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newGroup.group_name}
-                                    onChange={(e) => setNewGroup({ ...newGroup, group_name: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                    placeholder="e.g., Ukombozi Group A"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                    Meeting Day *
-                                </label>
-                                <select
+                <Modal
+                    title="Register New Group"
+                    onClose={() => setShowAddModal(false)}
+                    onSubmit={handleAddGroup}
+                    maxWidth="max-w-4xl"
+                >
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Basic Info */}
+                        <div className="space-y-4">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Basic Information</h4>
+                            <InputField
+                                label="Group Name *"
+                                value={newGroup.group_name}
+                                onChange={(e) => setNewGroup({ ...newGroup, group_name: e.target.value })}
+                                placeholder="e.g., Ukombozi Group A"
+                                required
+                            />
+                            <div className="grid grid-cols-2 gap-4">
+                                <SelectField
+                                    label="Meeting Day *"
                                     value={newGroup.meeting_day}
                                     onChange={(e) => setNewGroup({ ...newGroup, meeting_day: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                    required
-                                >
-                                    <option value="Monday">Monday</option>
-                                    <option value="Tuesday">Tuesday</option>
-                                    <option value="Wednesday">Wednesday</option>
-                                    <option value="Thursday">Thursday</option>
-                                    <option value="Friday">Friday</option>
-                                    <option value="Saturday">Saturday</option>
-                                    <option value="Sunday">Sunday</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                    Meeting Frequency *
-                                </label>
-                                <select
+                                    options={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']}
+                                />
+                                <SelectField
+                                    label="Frequency *"
                                     value={newGroup.meeting_frequency}
                                     onChange={(e) => setNewGroup({ ...newGroup, meeting_frequency: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                    required
-                                >
-                                    <option value="WEEKLY">Weekly</option>
-                                    <option value="BIWEEKLY">Bi-Weekly</option>
-                                    <option value="MONTHLY">Monthly</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                    Location (Optional)
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newGroup.location}
-                                    onChange={(e) => setNewGroup({ ...newGroup, location: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                    placeholder="e.g., Community Hall, Nairobi"
+                                    options={[
+                                        { value: 'WEEKLY', label: 'Weekly' },
+                                        { value: 'BIWEEKLY', label: 'Bi-Weekly' },
+                                        { value: 'MONTHLY', label: 'Monthly' }
+                                    ]}
                                 />
                             </div>
+                            <InputField
+                                label="Location (Optional)"
+                                value={newGroup.location}
+                                onChange={(e) => setNewGroup({ ...newGroup, location: e.target.value })}
+                                placeholder="e.g., Community Hall, Nairobi"
+                            />
 
-                            {/* Group Officials */}
-                            <div className="pt-4 border-t border-gray-100">
-                                <h4 className="text-sm font-black text-gray-800 mb-3 flex items-center gap-2">
-                                    <FaUsers className="text-safaricom-green" /> Group Officials (Governance)
-                                </h4>
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Chairperson Name *</label>
-                                            <input
-                                                type="text"
-                                                value={newGroup.chairperson || ''}
-                                                onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                                placeholder="Full Name"
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Chair Phone *</label>
-                                            <input
-                                                type="tel"
-                                                value={newGroup.chairperson_phone || ''}
-                                                onChange={(e) => setNewGroup({ ...newGroup, chairperson_phone: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                                placeholder="07..."
-                                                required
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Secretary Name *</label>
-                                            <input
-                                                type="text"
-                                                value={newGroup.secretary || ''}
-                                                onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                                placeholder="Full Name"
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Sec Phone *</label>
-                                            <input
-                                                type="tel"
-                                                value={newGroup.secretary_phone || ''}
-                                                onChange={(e) => setNewGroup({ ...newGroup, secretary_phone: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                                placeholder="07..."
-                                                required
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Treasurer Name *</label>
-                                            <input
-                                                type="text"
-                                                value={newGroup.treasurer || ''}
-                                                onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                                placeholder="Full Name"
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Treas Phone *</label>
-                                            <input
-                                                type="tel"
-                                                value={newGroup.treasurer_phone || ''}
-                                                onChange={(e) => setNewGroup({ ...newGroup, treasurer_phone: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                                placeholder="07..."
-                                                required
-                                            />
-                                        </div>
-                                    </div>
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2 pt-4">Financial Policies</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                                <InputField
+                                    label="Min Monthly Saving"
+                                    type="number"
+                                    value={newGroup.minMonthlySaving}
+                                    onChange={(e) => setNewGroup({ ...newGroup, minMonthlySaving: e.target.value })}
+                                />
+                                <InputField
+                                    label="Loan Multiplier"
+                                    type="number"
+                                    value={newGroup.loanMultiplier}
+                                    onChange={(e) => setNewGroup({ ...newGroup, loanMultiplier: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <InputField
+                                    label="Div Policy (75% = 0.75)"
+                                    type="number"
+                                    step="0.01"
+                                    value={newGroup.dividendPolicy}
+                                    onChange={(e) => setNewGroup({ ...newGroup, dividendPolicy: e.target.value })}
+                                />
+                                <InputField
+                                    label="Financial Year"
+                                    type="number"
+                                    value={newGroup.financial_year}
+                                    onChange={(e) => setNewGroup({ ...newGroup, financial_year: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Governance Info */}
+                        <div className="space-y-4 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Group Officials (Governance)</h4>
+                            <div className="space-y-6">
+                                <div className="space-y-2">
+                                    <InputField
+                                        label="Chairperson Name *"
+                                        value={newGroup.chairperson}
+                                        onChange={(e) => setNewGroup({ ...newGroup, chairperson: e.target.value })}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                    <InputField
+                                        label="Chair Phone *"
+                                        value={newGroup.chairperson_phone}
+                                        onChange={(e) => setNewGroup({ ...newGroup, chairperson_phone: e.target.value })}
+                                        placeholder="07..."
+                                        required
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <InputField
+                                        label="Secretary Name *"
+                                        value={newGroup.secretary}
+                                        onChange={(e) => setNewGroup({ ...newGroup, secretary: e.target.value })}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                    <InputField
+                                        label="Sec Phone *"
+                                        value={newGroup.secretary_phone}
+                                        onChange={(e) => setNewGroup({ ...newGroup, secretary_phone: e.target.value })}
+                                        placeholder="07..."
+                                        required
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <InputField
+                                        label="Treasurer Name *"
+                                        value={newGroup.treasurer}
+                                        onChange={(e) => setNewGroup({ ...newGroup, treasurer: e.target.value })}
+                                        placeholder="Full Name"
+                                        required
+                                    />
+                                    <InputField
+                                        label="Treas Phone *"
+                                        value={newGroup.treasurer_phone}
+                                        onChange={(e) => setNewGroup({ ...newGroup, treasurer_phone: e.target.value })}
+                                        placeholder="07..."
+                                        required
+                                    />
                                 </div>
                             </div>
-
-                            {/* Institutional Policies */}
-                            <div className="pt-4 border-t border-gray-100">
-                                <h4 className="text-sm font-black text-gray-800 mb-3 flex items-center gap-2">
-                                    <FaCircleCheck className="text-safaricom-green" /> Financial Policies
-                                </h4>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Min Monthly Saving</label>
-                                        <input
-                                            type="number"
-                                            value={newGroup.minMonthlySaving}
-                                            onChange={(e) => setNewGroup({ ...newGroup, minMonthlySaving: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Loan Multiplier</label>
-                                        <input
-                                            type="number"
-                                            value={newGroup.loanMultiplier}
-                                            onChange={(e) => setNewGroup({ ...newGroup, loanMultiplier: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Div Policy (75% = 0.75)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            value={newGroup.dividendPolicy}
-                                            onChange={(e) => setNewGroup({ ...newGroup, dividendPolicy: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Financial Year</label>
-                                        <input
-                                            type="number"
-                                            value={newGroup.financial_year}
-                                            onChange={(e) => setNewGroup({ ...newGroup, financial_year: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-safaricom-green text-sm font-bold"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3 pt-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowAddModal(false)}
-                                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="flex-1 px-4 py-3 bg-safaricom-green text-white rounded-xl font-bold hover:bg-green-700 transition-colors shadow-md"
-                                >
-                                    Register Group
-                                </button>
-                            </div>
-                        </form>
+                        </div>
                     </div>
-                </div>
+                </Modal>
             )}
 
-            {showEditModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
-                        {/* Header */}
-                        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-3xl">
-                            <div>
-                                <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                                    <FaPenToSquare className="text-safaricom-green" /> Manage Group
-                                </h3>
-                                <p className="text-xs font-bold text-safaricom-green uppercase tracking-wider mt-1">{editGroup.group_name}</p>
+            {/* EDIT GROUP MODAL */}
+            {showEditModal && selectedGroup && (
+                <Modal
+                    title={`Update ${editGroup.group_name}`}
+                    onClose={() => setShowEditModal(false)}
+                    onSubmit={handleUpdateGroup}
+                    maxWidth="max-w-2xl"
+                >
+                    <div className="space-y-8">
+                        {/* Section 1: Core Logistics */}
+                        <section className="space-y-4">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Meeting Details</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <InputField
+                                    label="Meeting Day"
+                                    value={editGroup.meeting_day}
+                                    onChange={(e) => setEditGroup({ ...editGroup, meeting_day: e.target.value })}
+                                />
+                                <SelectField
+                                    label="Frequency"
+                                    value={editGroup.meeting_frequency}
+                                    onChange={(e) => setEditGroup({ ...editGroup, meeting_frequency: e.target.value })}
+                                    options={[
+                                        { value: 'WEEKLY', label: 'Weekly' },
+                                        { value: 'BIWEEKLY', label: 'Bi-Weekly' },
+                                        { value: 'MONTHLY', label: 'Monthly' }
+                                    ]}
+                                />
                             </div>
-                            <button
-                                onClick={() => setShowEditModal(false)}
-                                className="w-10 h-10 rounded-full bg-white text-gray-400 hover:text-red-500 flex items-center justify-center shadow-sm transition-colors"
-                            >
-                                ×
-                            </button>
-                        </div>
+                            <InputField
+                                label="Location"
+                                value={editGroup.location}
+                                onChange={(e) => setEditGroup({ ...editGroup, location: e.target.value })}
+                            />
+                        </section>
 
-                        <form onSubmit={handleUpdateGroup} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
-                            {/* Basic Info */}
-                            <section className="space-y-4">
-                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                                    <span className="w-8 h-[1px] bg-gray-200"></span> Basic Information
-                                </h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-[10px] font-black text-gray-500 uppercase mb-2 ml-1">Group Name</label>
-                                        <input
-                                            type="text"
-                                            value={editGroup.group_name}
-                                            onChange={(e) => setEditGroup({ ...editGroup, group_name: e.target.value })}
-                                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-safaricom-green/50 outline-none font-bold"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-black text-gray-500 uppercase mb-2 ml-1">Location</label>
-                                        <input
-                                            type="text"
-                                            value={editGroup.location}
-                                            onChange={(e) => setEditGroup({ ...editGroup, location: e.target.value })}
-                                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-safaricom-green/50 outline-none font-bold"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-black text-gray-500 uppercase mb-2 ml-1">Meeting Day</label>
-                                        <select
-                                            value={editGroup.meeting_day}
-                                            onChange={(e) => setEditGroup({ ...editGroup, meeting_day: e.target.value })}
-                                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-safaricom-green/50 outline-none font-bold"
-                                        >
-                                            <option value="Monday">Monday</option>
-                                            <option value="Tuesday">Tuesday</option>
-                                            <option value="Wednesday">Wednesday</option>
-                                            <option value="Thursday">Thursday</option>
-                                            <option value="Friday">Friday</option>
-                                            <option value="Saturday">Saturday</option>
-                                            <option value="Sunday">Sunday</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-black text-gray-500 uppercase mb-2 ml-1">Frequency</label>
-                                        <select
-                                            value={editGroup.meeting_frequency}
-                                            onChange={(e) => setEditGroup({ ...editGroup, meeting_frequency: e.target.value })}
-                                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-safaricom-green/50 outline-none font-bold"
-                                        >
-                                            <option value="WEEKLY">Weekly</option>
-                                            <option value="BIWEEKLY">Bi-Weekly</option>
-                                            <option value="MONTHLY">Monthly</option>
-                                        </select>
-                                    </div>
+                        {/* Section 2: Leadership Assignment */}
+                        <section className="space-y-4">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Leadership (Official Assignment)</h4>
+                            <div className="space-y-4 bg-blue-50/50 p-6 rounded-2xl border border-blue-100">
+                                <div>
+                                    <label className="block text-xs font-bold text-blue-600 uppercase mb-2">Chairperson</label>
+                                    <select
+                                        value={editGroup.chairperson_id}
+                                        onChange={(e) => {
+                                            const member = groupMembers.find(m => m.id.toString() === e.target.value);
+                                            setEditGroup({
+                                                ...editGroup,
+                                                chairperson_id: e.target.value,
+                                                chairperson: member ? member.name : ''
+                                            });
+                                        }}
+                                        className="w-full px-4 py-3 bg-white border-2 border-blue-100 rounded-xl focus:border-blue-500 outline-none font-bold"
+                                    >
+                                        <option value="">Select from members...</option>
+                                        {groupMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    </select>
                                 </div>
-                            </section>
 
-                            {/* Governance */}
-                            <section className="space-y-4">
-                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                                    <span className="w-8 h-[1px] bg-gray-200"></span> Governance / Officials
-                                </h4>
-                                <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 space-y-4">
-                                    <div>
-                                        <label className="block text-[10px] font-black text-blue-600 uppercase mb-2 ml-1 flex items-center justify-between">
-                                            <span>Chairperson</span>
-                                            {editGroup.chairperson_id && <span className="text-[8px] bg-blue-600 text-white px-1.5 py-0.5 rounded">Linked Member</span>}
-                                        </label>
-                                        <select
-                                            value={editGroup.chairperson_id}
-                                            onChange={(e) => {
-                                                const member = groupMembers.find(m => m.id.toString() === e.target.value);
-                                                setEditGroup({
-                                                    ...editGroup,
-                                                    chairperson_id: e.target.value,
-                                                    chairperson: member ? member.name : ''
-                                                });
-                                            }}
-                                            className="w-full px-4 py-3 bg-white border-2 border-blue-100 rounded-xl focus:border-blue-500 outline-none font-bold"
-                                        >
-                                            <option value="">Select from members...</option>
-                                            {groupMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[10px] font-black text-blue-600 uppercase mb-2 ml-1">Secretary</label>
-                                        <select
-                                            value={editGroup.secretary_id}
-                                            onChange={(e) => {
-                                                const member = groupMembers.find(m => m.id.toString() === e.target.value);
-                                                setEditGroup({
-                                                    ...editGroup,
-                                                    secretary_id: e.target.value,
-                                                    secretary: member ? member.name : ''
-                                                });
-                                            }}
-                                            className="w-full px-4 py-3 bg-white border-2 border-blue-100 rounded-xl focus:border-blue-500 outline-none font-bold"
-                                        >
-                                            <option value="">Select from members...</option>
-                                            {groupMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[10px] font-black text-blue-600 uppercase mb-2 ml-1">Treasurer</label>
-                                        <select
-                                            value={editGroup.treasurer_id}
-                                            onChange={(e) => {
-                                                const member = groupMembers.find(m => m.id.toString() === e.target.value);
-                                                setEditGroup({
-                                                    ...editGroup,
-                                                    treasurer_id: e.target.value,
-                                                    treasurer: member ? member.name : ''
-                                                });
-                                            }}
-                                            className="w-full px-4 py-3 bg-white border-2 border-blue-100 rounded-xl focus:border-blue-500 outline-none font-bold"
-                                        >
-                                            <option value="">Select from members...</option>
-                                            {groupMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                        </select>
-                                    </div>
-
-                                    {groupMembers.length === 0 && (
-                                        <div className="p-3 bg-orange-50 border border-orange-100 rounded-lg">
-                                            <p className="text-[10px] font-bold text-orange-700 leading-tight">
-                                                ⚠️ No members found in this group. You must add members in the <b>Members</b> directory before you can assign them as officials.
-                                            </p>
-                                        </div>
-                                    )}
+                                <div>
+                                    <label className="block text-xs font-bold text-blue-600 uppercase mb-2">Secretary</label>
+                                    <select
+                                        value={editGroup.secretary_id}
+                                        onChange={(e) => {
+                                            const member = groupMembers.find(m => m.id.toString() === e.target.value);
+                                            setEditGroup({
+                                                ...editGroup,
+                                                secretary_id: e.target.value,
+                                                secretary: member ? member.name : ''
+                                            });
+                                        }}
+                                        className="w-full px-4 py-3 bg-white border-2 border-blue-100 rounded-xl focus:border-blue-500 outline-none font-bold"
+                                    >
+                                        <option value="">Select from members...</option>
+                                        {groupMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    </select>
                                 </div>
-                            </section>
 
-                            <section className="space-y-4 pb-4">
-                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                                    <span className="w-8 h-[1px] bg-gray-200"></span> Financial Policies
-                                </h4>
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                        <label className="block text-[9px] font-black text-gray-400 uppercase mb-2">Min Monthly Saving</label>
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">KES</span>
-                                            <input
-                                                type="number"
-                                                value={editGroup.minMonthlySaving}
-                                                onChange={(e) => setEditGroup({ ...editGroup, minMonthlySaving: e.target.value })}
-                                                className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-safaricom-green"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                        <label className="block text-[9px] font-black text-gray-400 uppercase mb-2">Loan Multiplier</label>
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">×</span>
-                                            <input
-                                                type="number"
-                                                value={editGroup.loanMultiplier}
-                                                onChange={(e) => setEditGroup({ ...editGroup, loanMultiplier: e.target.value })}
-                                                className="w-full pl-6 pr-4 py-2 bg-white border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-safaricom-green"
-                                            />
-                                        </div>
-                                    </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-blue-600 uppercase mb-2">Treasurer</label>
+                                    <select
+                                        value={editGroup.treasurer_id}
+                                        onChange={(e) => {
+                                            const member = groupMembers.find(m => m.id.toString() === e.target.value);
+                                            setEditGroup({
+                                                ...editGroup,
+                                                treasurer_id: e.target.value,
+                                                treasurer: member ? member.name : ''
+                                            });
+                                        }}
+                                        className="w-full px-4 py-3 bg-white border-2 border-blue-100 rounded-xl focus:border-blue-500 outline-none font-bold"
+                                    >
+                                        <option value="">Select from members...</option>
+                                        {groupMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    </select>
                                 </div>
-                            </section>
-                        </form>
 
-                        {/* Footer */}
-                        <div className="p-6 border-t border-gray-100 bg-gray-50 rounded-b-3xl">
-                            <button
-                                type="submit"
-                                onClick={handleUpdateGroup}
-                                disabled={isUpdating}
-                                className="w-full py-4 bg-safaricom-green text-white rounded-2xl font-black shadow-lg shadow-green-200 hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"
-                            >
-                                {isUpdating ? <FaSpinner className="animate-spin" /> : <FaCircleCheck />}
-                                {isUpdating ? "SAVING CHANGES..." : "CONFIRM & SAVE UPDATES"}
-                            </button>
-                        </div>
+                                {groupMembers.length === 0 && (
+                                    <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl">
+                                        <p className="text-xs font-bold text-orange-700 leading-tight">
+                                            ⚠️ No members found in this group. You must add members in the <b>Members</b> directory before you can assign them as officials.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* Section 3: Financial Policies */}
+                        <section className="space-y-4 pb-4">
+                            <h4 className="text-sm font-black text-safaricom-green uppercase tracking-wider mb-4 border-b pb-2">Financial Policies</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <InputField
+                                    label="Min Monthly Saving (KES)"
+                                    type="number"
+                                    value={editGroup.minMonthlySaving}
+                                    onChange={(e) => setEditGroup({ ...editGroup, minMonthlySaving: e.target.value })}
+                                />
+                                <InputField
+                                    label="Loan Multiplier"
+                                    type="number"
+                                    value={editGroup.loanMultiplier}
+                                    onChange={(e) => setEditGroup({ ...editGroup, loanMultiplier: e.target.value })}
+                                />
+                            </div>
+                        </section>
                     </div>
-                </div>
+                </Modal>
             )}
         </div>
     );
 };
+
+const Modal = ({ title, onClose, onSubmit, children, maxWidth = 'max-w-md' }) => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+        <div className={`bg-white rounded-[2.5rem] shadow-2xl ${maxWidth} w-full p-8 animate-in fade-in zoom-in duration-300 my-8 relative`}>
+            {/* Close Button Icon */}
+            <button
+                onClick={onClose}
+                className="absolute right-6 top-6 p-2 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all active:scale-95"
+                title="Close Modal"
+            >
+                <FaXmark size={24} />
+            </button>
+
+            <div className="mb-8">
+                <h3 className="text-2xl font-black text-gray-800 tracking-tight">{title}</h3>
+                <div className="w-12 h-1 bg-safaricom-green mt-2 rounded-full"></div>
+            </div>
+
+            <form onSubmit={onSubmit}>
+                <div className="max-h-[65vh] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-gray-200">
+                    {children}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 mt-8 pt-6 border-t border-gray-100">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="flex-1 px-6 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-gray-200 transition-all active:scale-95"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        className="flex-1 px-6 py-4 bg-safaricom-green text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-green-700 transition-all shadow-lg shadow-green-100 active:scale-95 flex items-center justify-center gap-2"
+                    >
+                        <FaFloppyDisk /> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+);
+
+const InputField = ({ label, value, onChange, placeholder, type = 'text', required = false, step }) => (
+    <div className="w-full">
+        <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">{label}</label>
+        <input
+            type={type}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            required={required}
+            step={step}
+            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold transition-all"
+        />
+    </div>
+);
+
+const SelectField = ({ label, value, onChange, options, required = false }) => (
+    <div className="w-full">
+        <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 ml-1 tracking-widest">{label}</label>
+        <select
+            value={value}
+            onChange={onChange}
+            required={required}
+            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold transition-all appearance-none"
+        >
+            {Array.isArray(options) && typeof options[0] === 'string'
+                ? options.map(opt => <option key={opt} value={opt}>{opt}</option>)
+                : options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)
+            }
+        </select>
+    </div>
+);
 
 export default GroupsManagement;

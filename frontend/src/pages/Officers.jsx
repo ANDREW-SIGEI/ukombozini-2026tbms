@@ -5,6 +5,7 @@ import {
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const AllocationModal = ({ isOpen, onClose, officer, groups, onSave }) => {
     const [selectedGroups, setSelectedGroups] = useState([]);
@@ -251,6 +252,7 @@ const OfficerForm = ({ isOpen, onClose, onSave, editingOfficer }) => {
 };
 
 const Officers = () => {
+    const { isAuditor } = useAuth();
     const [officers, setOfficers] = useState([]);
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -370,8 +372,15 @@ const Officers = () => {
                             />
                         </div>
                         <button
-                            onClick={() => { setSelectedOfficer(null); setIsFormOpen(true); }}
-                            className="p-4 bg-safaricom-green text-white rounded-2xl shadow-lg shadow-green-100 hover:bg-green-600 transition-all active:scale-95"
+                            onClick={() => {
+                                if (isAuditor) {
+                                    toast.warning("🛡️ Auditor Mode: Staff registry is locked.");
+                                    return;
+                                }
+                                setSelectedOfficer(null);
+                                setIsFormOpen(true);
+                            }}
+                            className={`p-4 rounded-2xl shadow-lg transition-all active:scale-95 ${isAuditor ? 'bg-gray-400 cursor-not-allowed shadow-none' : 'bg-safaricom-green text-white shadow-green-100 hover:bg-green-600'}`}
                             title="Register New Staff"
                         >
                             <FaPlus />
@@ -409,25 +418,29 @@ const Officers = () => {
                                     </div>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={() => handleResetPassword(officer)}
-                                        className="p-2 hover:bg-gray-50 text-gray-400 hover:text-green-600 rounded-xl transition-all"
-                                        title="Reset Password"
-                                    >
-                                        <FaPlus size={14} className="rotate-45" />
-                                    </button>
-                                    <button
-                                        onClick={() => { setSelectedOfficer(officer); setIsFormOpen(true); }}
-                                        className="p-2 hover:bg-gray-50 text-gray-400 hover:text-blue-500 rounded-xl transition-all"
-                                    >
-                                        <FaPenToSquare size={14} />
-                                    </button>
-                                    <button
-                                        onClick={() => handleDeleteOfficer(officer.id)}
-                                        className="p-2 hover:bg-gray-50 text-gray-400 hover:text-red-500 rounded-xl transition-all"
-                                    >
-                                        <FaTrash size={14} />
-                                    </button>
+                                    {!isAuditor && (
+                                        <>
+                                            <button
+                                                onClick={() => handleResetPassword(officer)}
+                                                className="p-2 hover:bg-gray-50 text-gray-400 hover:text-green-600 rounded-xl transition-all"
+                                                title="Reset Password"
+                                            >
+                                                <FaPlus size={14} className="rotate-45" />
+                                            </button>
+                                            <button
+                                                onClick={() => { setSelectedOfficer(officer); setIsFormOpen(true); }}
+                                                className="p-2 hover:bg-gray-50 text-gray-400 hover:text-blue-500 rounded-xl transition-all"
+                                            >
+                                                <FaPenToSquare size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteOfficer(officer.id)}
+                                                className="p-2 hover:bg-gray-50 text-gray-400 hover:text-red-500 rounded-xl transition-all"
+                                            >
+                                                <FaTrash size={14} />
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 
@@ -450,8 +463,15 @@ const Officers = () => {
                                 <div className="flex justify-between items-center mb-3">
                                     <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Active Portfolios</span>
                                     <button
-                                        onClick={() => { setSelectedOfficer(officer); setIsAllocationOpen(true); }}
-                                        className="text-[10px] font-black text-safaricom-green hover:underline cursor-pointer"
+                                        onClick={() => {
+                                            if (isAuditor) {
+                                                toast.warning("🛡️ Auditor Mode: Portfolio management is locked.");
+                                                return;
+                                            }
+                                            setSelectedOfficer(officer);
+                                            setIsAllocationOpen(true);
+                                        }}
+                                        className={`text-[10px] font-black uppercase tracking-widest hover:underline ${isAuditor ? 'text-gray-400 cursor-not-allowed' : 'text-safaricom-green cursor-pointer'}`}
                                     >
                                         + Manage Groups
                                     </button>

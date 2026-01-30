@@ -21,9 +21,10 @@ const RiskCommandCenter = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const risk = await api.getRiskOverview();
+            const data = await api.getRiskDashboard();
+            setRiskData(data); // { heatmap, alerts, scores }
+
             const gov = await api.getGovernanceStatus();
-            if (risk) setRiskData(risk);
             if (gov) setGovernance(gov);
 
             const logs = await api.getAuditLogs();
@@ -53,13 +54,13 @@ const RiskCommandCenter = () => {
 
     const getRiskColor = (score) => {
         if (score < 30) return 'from-emerald-400 to-emerald-600';
-        if (score < 60) return 'from-amber-400 to-amber-600';
+        if (score < 70) return 'from-amber-400 to-amber-600';
         return 'from-red-400 to-red-600';
     };
 
     const getRiskText = (score) => {
         if (score < 30) return 'Stable';
-        if (score < 60) return 'Elevated';
+        if (score < 70) return 'Elevated';
         return 'Critical';
     };
 
@@ -92,7 +93,7 @@ const RiskCommandCenter = () => {
         );
     };
 
-    if (loading && !riskData.groups.length) {
+    if (loading && !riskData?.groups?.length) {
         return (
             <div className="flex flex-col items-center justify-center h-[60vh]">
                 <FaSync className="animate-spin text-4xl text-safaricom-green mb-4" />
@@ -128,7 +129,7 @@ const RiskCommandCenter = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Liquidity Meter */}
-                <AltitudeMeter liquidity={riskData.stats.total_liquidity} totalSavings={riskData.stats.total_savings} />
+                <AltitudeMeter liquidity={riskData?.stats?.total_liquidity} totalSavings={riskData?.stats?.total_savings} />
 
                 {/* Dashboard Stats */}
                 <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -136,7 +137,7 @@ const RiskCommandCenter = () => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Total Active Loans</h3>
-                                <p className="text-3xl font-black text-gray-800">KES {riskData.stats.total_loans?.toLocaleString()}</p>
+                                <p className="text-3xl font-black text-gray-800">KES {riskData?.stats?.total_loans?.toLocaleString()}</p>
                             </div>
                             <div className="p-3 bg-blue-50 text-blue-500 rounded-2xl">
                                 <FaChartLine size={24} />
@@ -144,7 +145,11 @@ const RiskCommandCenter = () => {
                         </div>
                         <div className="mt-4 pt-4 border-t border-gray-50 flex items-center gap-2">
                             <span className="text-xs font-bold text-gray-500">Ratio:</span>
-                            <span className="text-xs font-black text-blue-600">{((riskData.stats.total_loans / riskData.stats.total_savings) * 100).toFixed(1)}% of Capital</span>
+                            <span className="text-xs font-black text-blue-600">
+                                {riskData?.stats?.total_savings > 0
+                                    ? ((riskData.stats.total_loans / riskData.stats.total_savings) * 100).toFixed(1)
+                                    : '0.0'}% of Capital
+                            </span>
                         </div>
                     </div>
 
@@ -152,7 +157,7 @@ const RiskCommandCenter = () => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Groups at Risk</h3>
-                                <p className="text-3xl font-black text-red-600">{riskData.stats.system_at_risk}</p>
+                                <p className="text-3xl font-black text-red-600">{riskData?.stats?.system_at_risk || 0}</p>
                             </div>
                             <div className="p-3 bg-red-50 text-red-500 rounded-2xl">
                                 <FaExclamationTriangle size={24} />
@@ -195,59 +200,65 @@ const RiskCommandCenter = () => {
                 <div className="p-8">
                     {activeTab === 'heatmap' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {riskData.groups.map(group => (
-                                <div key={group.id} className="relative group/card">
-                                    <div className="bg-white rounded-3xl p-6 border-2 border-gray-50 shadow-md hover:shadow-2xl hover:border-blue-100 transition-all duration-300">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className={`p-2 rounded-lg bg-gradient-to-br ${getRiskColor(group.risk_score)} text-white shadow-lg`}>
-                                                <FaUsers size={16} />
-                                            </div>
-                                            <div className="text-right">
-                                                <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-full ${group.freeze_status === 'frozen' ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                    {group.freeze_status === 'frozen' ? 'FROZEN' : 'ACTIVE'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <h3 className="font-black text-gray-800 text-lg truncate mb-1">{group.name}</h3>
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Risk: {getRiskText(group.risk_score)}</p>
+                            {riskData?.heatmap?.map(group => {
+                                const metrics = JSON.parse(group.metrics_snapshot || '{}');
+                                const stats = metrics.stats || {};
+                                const groupLiquidity = stats.total_savings - stats.total_debt;
 
-                                        <div className="space-y-3">
-                                            <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full rounded-full bg-gradient-to-r ${getRiskColor(group.risk_score)} transition-all duration-1000`}
-                                                    style={{ width: `${group.risk_score}%` }}
-                                                ></div>
+                                return (
+                                    <div key={group.group_id} className="relative group/card">
+                                        <div className="bg-white rounded-3xl p-6 border-2 border-gray-50 shadow-md hover:shadow-2xl hover:border-blue-100 transition-all duration-300">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className={`p-2 rounded-lg bg-gradient-to-br ${getRiskColor(group.score)} text-white shadow-lg`}>
+                                                    <FaUsers size={16} />
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-full ${group.is_frozen === 1 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                        {group.is_frozen === 1 ? 'FROZEN' : 'ACTIVE'}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div className="flex justify-between items-center text-[10px] font-bold">
-                                                <span className="text-gray-400 uppercase">Score</span>
-                                                <span className="text-gray-800 font-black">{group.risk_score}/100</span>
-                                            </div>
-                                        </div>
+                                            <h3 className="font-black text-gray-800 text-lg truncate mb-1">{group.name}</h3>
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Risk: {getRiskText(group.score)}</p>
 
-                                        <div className="mt-6 pt-4 border-t border-gray-50 flex justify-between items-center">
-                                            <div className="text-center">
-                                                <p className="text-[10px] font-bold text-gray-400 uppercase">Members</p>
-                                                <p className="text-sm font-black text-gray-800">{group.member_count}</p>
+                                            <div className="space-y-3">
+                                                <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={`h-full rounded-full bg-gradient-to-r ${getRiskColor(group.score)} transition-all duration-1000`}
+                                                        style={{ width: `${group.score}%` }}
+                                                    ></div>
+                                                </div>
+                                                <div className="flex justify-between items-center text-[10px] font-bold">
+                                                    <span className="text-gray-400 uppercase">Score</span>
+                                                    <span className="text-gray-800 font-black">{group.score}/100</span>
+                                                </div>
                                             </div>
-                                            <div className="text-right">
-                                                <p className="text-[10px] font-bold text-gray-400 uppercase">Liquidity</p>
-                                                <p className={`text-sm font-black ${group.liquidity >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                                                    {group.liquidity >= 0 ? `+${(group.liquidity / 1000).toFixed(1)}k` : `${(group.liquidity / 1000).toFixed(1)}k`}
-                                                </p>
-                                            </div>
-                                        </div>
 
-                                        <div className="mt-6">
-                                            <button
-                                                onClick={() => handleFreeze('GROUP', group.id, group.freeze_status === 'frozen' ? 'UNFREEZE' : 'FREEZE', group.name)}
-                                                className={`w-full py-2 rounded-xl text-xs font-black tracking-widest uppercase transition-all flex items-center justify-center gap-2 ${group.freeze_status === 'frozen' ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white' : 'bg-red-50 text-red-600 hover:bg-red-600 hover:text-white'}`}
-                                            >
-                                                {group.freeze_status === 'frozen' ? <><FaLockOpen /> Restore</> : <><FaLock /> Freeze</>}
-                                            </button>
+                                            <div className="mt-6 pt-4 border-t border-gray-50 flex justify-between items-center">
+                                                <div className="text-center">
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Loans</p>
+                                                    <p className="text-sm font-black text-gray-800">{stats.totalLoansCount || 0}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Liquidity</p>
+                                                    <p className={`text-sm font-black ${groupLiquidity >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                                        {groupLiquidity >= 0 ? `+${(groupLiquidity / 1000).toFixed(1)}k` : `${(groupLiquidity / 1000).toFixed(1)}k`}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-6">
+                                                <button
+                                                    onClick={() => handleFreeze('GROUP', group.group_id, group.is_frozen === 1 ? 'UNFREEZE' : 'FREEZE', group.name)}
+                                                    className={`w-full py-2 rounded-xl text-xs font-black tracking-widest uppercase transition-all flex items-center justify-center gap-2 ${group.is_frozen === 1 ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white' : 'bg-red-50 text-red-600 hover:bg-red-600 hover:text-white'}`}
+                                                >
+                                                    {group.is_frozen === 1 ? <><FaLockOpen /> Restore</> : <><FaLock /> Freeze</>}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     ) : (
                         <div className="overflow-x-auto rounded-2xl border">
