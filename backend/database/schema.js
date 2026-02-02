@@ -1,0 +1,126 @@
+const db = require('../db');
+
+/**
+ * 🗄️ Database Schema & Migrations
+ * Runs on server startup to ensure all governance and partnership tables exist.
+ */
+const initSchema = () => {
+    db.serialize(() => {
+        // 1. Core Governance Extensions
+        db.run("ALTER TABLE groups ADD COLUMN is_frozen INTEGER DEFAULT 0", (err) => {
+            if (!err) console.log("Governance: 'is_frozen' added to groups");
+        });
+        db.run("ALTER TABLE officers ADD COLUMN status TEXT DEFAULT 'active'", (err) => {
+            if (!err) console.log("Governance: 'status' added to officers");
+        });
+
+        // 2. Audit Logs
+        db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            performed_by INTEGER,
+            target_type TEXT,
+            target_id INTEGER,
+            details TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // 3. Reversal Requests (Dual Control Hub)
+        db.run(`CREATE TABLE IF NOT EXISTS reversal_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_id TEXT NOT NULL, -- UUID or ID
+            requester_id INTEGER NOT NULL,
+            approver_id INTEGER,
+            reason TEXT NOT NULL,
+            status TEXT CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')) DEFAULT 'PENDING',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            reviewed_at TIMESTAMP,
+            FOREIGN KEY(requester_id) REFERENCES officers(id),
+            FOREIGN KEY(approver_id) REFERENCES officers(id)
+        )`);
+
+        // 4. System Settings
+        // Note: DROP TABLE is kept here as per original server.js logic to ensure schema updates for description
+        db.run("DROP TABLE IF EXISTS system_settings");
+        db.run(`CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            description TEXT
+        )`);
+
+        // 4. SMS Logs
+        db.run(`CREATE TABLE IF NOT EXISTS sms_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER,
+            phone TEXT,
+            message TEXT,
+            status TEXT DEFAULT 'SENT',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // 5. Partnership Tables
+        db.run(`CREATE TABLE IF NOT EXISTS company_investments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER,
+            amount REAL NOT NULL,
+            notes TEXT,
+            status TEXT DEFAULT 'ACTIVE',
+            type TEXT DEFAULT 'TOPUP',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(group_id) REFERENCES groups(id)
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS group_commitments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER,
+            amount REAL NOT NULL,
+            notes TEXT,
+            status TEXT DEFAULT 'LOCKED',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(group_id) REFERENCES groups(id)
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS financed_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER,
+            product_name TEXT NOT NULL,
+            total_value REAL NOT NULL,
+            commitment_paid REAL NOT NULL,
+            monthly_installment REAL NOT NULL,
+            status TEXT DEFAULT 'ACTIVE',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(member_id) REFERENCES members(id)
+        )`);
+
+        // 6. Daily Cash Report Audit Extensions
+        db.run("ALTER TABLE daily_cash_reports ADD COLUMN officer_declaration INTEGER DEFAULT 0", (err) => {
+            if (!err) console.log("Governance: 'officer_declaration' added to reports");
+        });
+        db.run("ALTER TABLE daily_cash_reports ADD COLUMN ip_address TEXT", (err) => {
+            if (!err) console.log("Governance: 'ip_address' added to reports");
+        });
+        db.run("ALTER TABLE daily_cash_reports ADD COLUMN submission_timestamp TEXT", (err) => {
+            if (!err) console.log("Governance: 'submission_timestamp' added to reports");
+        });
+
+        // 7. Meeting Planning Extensions
+        db.run("ALTER TABLE meeting_sessions ADD COLUMN venue TEXT", (err) => {
+            if (!err) console.log("Planning: 'venue' added to meeting_sessions");
+        });
+        db.run("ALTER TABLE meeting_sessions ADD COLUMN agenda TEXT", (err) => {
+            if (!err) console.log("Planning: 'agenda' added to meeting_sessions");
+        });
+        db.run("ALTER TABLE meeting_sessions ADD COLUMN meeting_type TEXT DEFAULT 'Routine'", (err) => {
+            if (!err) console.log("Planning: 'meeting_type' added to meeting_sessions");
+        });
+        db.run("ALTER TABLE meeting_sessions ADD COLUMN expected_attendance INTEGER", (err) => {
+            if (!err) console.log("Planning: 'expected_attendance' added to meeting_sessions");
+        });
+
+        // 7. Defaults
+        db.run("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, ?, ?)", ["SYSTEM_LOCKDOWN", "false", "Emergency Global Freeze"]);
+        db.run("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, ?, ?)", ["ALLOW_OVERDRAFTS", "false", "Allow negative operational balances"]);
+    });
+};
+
+module.exports = { initSchema };

@@ -1,13 +1,13 @@
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import NotificationService from './NotificationService';
+
 
 /**
  * UKOMBOZI Table Banking System - API Service
  * Decoupled from Supabase, now using Local Node.js / SQLite backend.
  */
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'http://localhost:5001/api';
 
 const axiosInstance = axios.create({
     baseURL: API_URL,
@@ -36,12 +36,449 @@ const handleApiError = (error) => {
 
 export const api = {
     // ========================================
+    // CORE MEMBER & GROUP API
+    // ========================================
+
+    async getMember(id) {
+        try {
+            const response = await axiosInstance.get(`/members/${id}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+
+    // Basic Member/Group methods are defined in the overrides section at the end
+
+    async getLatestCashSession(groupId) {
+        try {
+            const response = await axiosInstance.get(`/sessions/latest`, { params: { groupId } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getProjectMemberDayLimit(memberId) {
+        try {
+            const response = await axiosInstance.get(`/members/${memberId}/day-limit`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
     // PHASE 2: AUDIT & GOVERNANCE
     // ========================================
 
     async getAuditSnapshot(date, groupId = null) {
         try {
             const response = await axiosInstance.get('/audit/snapshot', { params: { date, groupId } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // UNIFIED TRANSACTION POSTING API
+    // Routes to appropriate engine based on type
+    // ========================================
+
+
+    // Unified Transaction methods are defined at the end
+
+    // ========================================
+    // CONTRIBUTION ENGINE API
+    // ========================================
+
+    async validateContribution(data) {
+        try {
+            const response = await axiosInstance.post('/contributions/validate', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async postContribution(data) {
+        try {
+            const response = await axiosInstance.post('/contributions/post', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getContributionHistory(memberId) {
+        try {
+            const response = await axiosInstance.get(`/contributions/history/${memberId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // WITHDRAWAL ENGINE API
+    // ========================================
+
+    async validateWithdrawal(data) {
+        try {
+            const response = await axiosInstance.post('/withdrawals/validate', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async postWithdrawal(data) {
+        try {
+            const response = await axiosInstance.post('/withdrawals/post', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getWithdrawalHistory(memberId) {
+        try {
+            const response = await axiosInstance.get(`/withdrawals/history/${memberId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // LOAN DISBURSEMENT ENGINE API
+    // ========================================
+
+    async checkLoanEligibility(data) {
+        try {
+            const response = await axiosInstance.post('/loans/check-eligibility', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async processLoanRepayment(data) {
+        try {
+            const response = await axiosInstance.post('/loans/repay', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getLoanArrears(loanId) {
+        try {
+            const response = await axiosInstance.get(`/loans/${loanId}/arrears`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getLoanPayments(loanId) {
+        try {
+            const response = await axiosInstance.get(`/loans/${loanId}/payments`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // MEMBER STATEMENT API
+    // ========================================
+
+    async getMemberStatement(memberId, startDate = null, endDate = null) {
+        try {
+            const params = {};
+            if (startDate) params.startDate = startDate;
+            if (endDate) params.endDate = endDate;
+            const response = await axiosInstance.get(`/statements/member/${memberId}`, { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    downloadMemberStatementPDF(memberId, startDate = null, endDate = null) {
+        const token = localStorage.getItem('ukombozi_token');
+        let url = `${API_URL}/statements/member/${memberId}/pdf`;
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        if (params.toString()) url += `?${params.toString()}`;
+
+        // Create a temporary link to download
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', '');
+
+        // Add auth header via fetch for PDF download
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            link.href = blobUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('PDF Download error:', err));
+    },
+
+    downloadMemberStatementExcel(memberId, startDate = null, endDate = null) {
+        const token = localStorage.getItem('ukombozi_token');
+        let url = `${API_URL}/statements/member/${memberId}/excel`;
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        if (params.toString()) url += `?${params.toString()}`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', '');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('Excel Download error:', err));
+    },
+
+    // ========================================
+    // GROUP STATEMENT API
+    // ========================================
+
+    async getGroupStatement(groupId, startDate = null, endDate = null) {
+        try {
+            const params = {};
+            if (startDate) params.startDate = startDate;
+            if (endDate) params.endDate = endDate;
+            const response = await axiosInstance.get(`/statements/group/${groupId}`, { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    downloadGroupStatementPDF(groupId, startDate = null, endDate = null) {
+        const token = localStorage.getItem('ukombozi_token');
+        let url = `${API_URL}/statements/group/${groupId}/pdf`;
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        if (params.toString()) url += `?${params.toString()}`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', '');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('PDF Download error:', err));
+    },
+
+    downloadGroupStatementExcel(groupId, startDate = null, endDate = null) {
+        const token = localStorage.getItem('ukombozi_token');
+        let url = `${API_URL}/statements/group/${groupId}/excel`;
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        if (params.toString()) url += `?${params.toString()}`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', '');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('Excel Download error:', err));
+    },
+
+    // ========================================
+    // DIVIDEND REPORT API
+    // ========================================
+
+    downloadDividendReportPDF(runId) {
+        const token = localStorage.getItem('ukombozi_token');
+        const url = `${API_URL}/dividend-runs/${runId}/pdf`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', '');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('PDF Download error:', err));
+    },
+
+    // ========================================
+    // RECONCILIATION API
+    // ========================================
+
+    async createReconciliation(sessionId, actualCash, notes = null) {
+        try {
+            const response = await axiosInstance.post('/reconciliation/session', {
+                sessionId,
+                actualCash,
+                notes
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getSessionReconciliation(sessionId) {
+        try {
+            const response = await axiosInstance.get(`/reconciliation/session/${sessionId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getDiscrepancies(status = null, groupId = null) {
+        try {
+            const params = {};
+            if (status) params.status = status;
+            if (groupId) params.groupId = groupId;
+            const response = await axiosInstance.get('/reconciliation/discrepancies', { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async resolveDiscrepancy(recId, resolutionNotes) {
+        try {
+            const response = await axiosInstance.post(`/reconciliation/${recId}/resolve`, {
+                resolutionNotes
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getReconciliationDashboard() {
+        try {
+            const response = await axiosInstance.get('/reconciliation/dashboard');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // ARREARS TRACKING API
+    // ========================================
+
+    async getArrearsSummary(groupId = null) {
+        try {
+            const params = {};
+            if (groupId) params.groupId = groupId;
+            const response = await axiosInstance.get('/arrears/summary', { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getArrearsMembers(status = null, groupId = null, sortBy = null) {
+        try {
+            const params = {};
+            if (status) params.status = status;
+            if (groupId) params.groupId = groupId;
+            if (sortBy) params.sortBy = sortBy;
+            const response = await axiosInstance.get('/arrears/members', { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async sendArrearsReminders(memberIds, customMessage = null) {
+        try {
+            const response = await axiosInstance.post('/arrears/notify', {
+                memberIds,
+                customMessage
+            });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getArrearsHistory(memberId) {
+        try {
+            const response = await axiosInstance.get(`/arrears/history/${memberId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // DIRECTOR DASHBOARD API
+    // ========================================
+
+    async getDirectorDashboard() {
+        try {
+            const response = await axiosInstance.get('/dashboard/director');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getPortfolioAnalytics() {
+        try {
+            const response = await axiosInstance.get('/dashboard/portfolio');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGroupRankings() {
+        try {
+            const response = await axiosInstance.get('/dashboard/groups');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getActivityFeed(limit = 20) {
+        try {
+            const response = await axiosInstance.get('/dashboard/activity', { params: { limit } });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -68,15 +505,7 @@ export const api = {
         }
     },
 
-    async getAuditLogs() {
-        try {
-            const response = await axiosInstance.get('/governance/audit-logs');
-            return response.data;
-        } catch (error) {
-            console.error('getAuditLogs error:', error);
-            return [];
-        }
-    },
+
 
     async getRiskOverview() {
         try {
@@ -115,7 +544,15 @@ export const api = {
     },
     async getReversalRequests() {
         try {
-            const response = await axiosInstance.get('/reversals/requests'); // Wait, I need to add this endpoint to server.js
+            const response = await axiosInstance.get('/reversals/requests');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async unlockSession(sessionId, reason) {
+        try {
+            const response = await axiosInstance.post('/reversals/unlock-session', { sessionId, reason });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -163,45 +600,60 @@ export const api = {
     },
 
     // ========================================
-    // DAILY CASH REPORTS (New)
+    // CASH CONTROL & RECONCILIATION (Bank-Grade)
     // ========================================
-    async getDailyReports(params) {
+    async openCashSession(groupId, date) {
         try {
-            const response = await axiosInstance.get('/daily-reports', { params });
+            const response = await axiosInstance.post('/cash-sessions/open', { groupId, date });
             return response.data;
         } catch (error) {
-            console.error('getDailyReports error:', error);
-            return [];
+            handleApiError(error);
         }
     },
 
-    async getDailyReport(id) {
+    async getCashSessionContext(sessionId) {
         try {
-            const response = await axiosInstance.get(`/daily-reports/${id}`);
+            const response = await axiosInstance.get(`/cash-sessions/${sessionId}/context`);
             return response.data;
         } catch (error) {
-            console.error('getDailyReport error:', error);
+            handleApiError(error);
+        }
+    },
+
+    async verifyAndLockCashSession(sessionId, data) {
+        try {
+            const response = await axiosInstance.patch(`/cash-sessions/${sessionId}/verify`, data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getLatestCashSession(groupId) {
+        try {
+            const response = await axiosInstance.get(`/cash-sessions/latest/${groupId}`);
+            return response.data;
+        } catch (error) {
+            console.error('getLatestCashSession error:', error);
             return null;
         }
     },
 
-    async saveDailyReport(data) {
+    async getMonthlyReports(filters = {}) {
         try {
-            const response = await axiosInstance.post('/daily-reports', data);
+            const response = await axiosInstance.get('/monthly-reports', { params: filters });
             return response.data;
         } catch (error) {
-            console.error('saveDailyReport error:', error);
-            throw error;
+            handleApiError(error);
         }
     },
 
-    async submitDailyReport(id) {
+    async getMonthlyReportDetails(id) {
         try {
-            const response = await axiosInstance.patch(`/daily-reports/${id}/submit`);
+            const response = await axiosInstance.get(`/monthly-reports/${id}`);
             return response.data;
         } catch (error) {
-            console.error('submitDailyReport error:', error);
-            throw error;
+            handleApiError(error);
         }
     },
 
@@ -255,22 +707,7 @@ export const api = {
     // REPORTS (PDF)
     // ========================================
 
-    async downloadMeetingMinutes(sessionId) {
-        try {
-            const response = await axiosInstance.get(`/reports/meeting/${sessionId}`, {
-                responseType: 'blob'
-            });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `meeting_minutes_${sessionId}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
+
 
     async downloadMemberStatement(memberId, startDate, endDate) {
         try {
@@ -281,7 +718,25 @@ export const api = {
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', `member_statement_${memberId}.pdf`);
+            link.setAttribute('download', `statement_${memberId}_${Date.now()}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async downloadMemberExcel(memberId, startDate, endDate) {
+        try {
+            const response = await axiosInstance.get(`/reports/member/${memberId}/excel`, {
+                params: { startDate, endDate },
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `statement_${memberId}_${Date.now()}.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -325,23 +780,7 @@ export const api = {
         }
     },
 
-    async downloadLoanRepaymentReport(month, groupId, type) {
-        try {
-            const response = await axiosInstance.get(`/reports/loan-repayments`, {
-                params: { month, groupId, type },
-                responseType: 'blob'
-            });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `loan_repayment_report_${month}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
+
     // ========================================
     // MEMBER MANAGEMENT
     // ========================================
@@ -410,6 +849,15 @@ export const api = {
     /**
      * Get a single member by ID
      */
+    async postTransaction(data) {
+        try {
+            const response = await axiosInstance.post('/transactions', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     async getMember(id) {
         try {
             const response = await axiosInstance.get(`/members/${id}`);
@@ -561,15 +1009,7 @@ export const api = {
     /**
      * Get loan repayment tracking data (Institutional Standard)
      */
-    async getLoanRepaymentTracking(month) {
-        try {
-            const response = await axiosInstance.get(`/reports/loan-repayment-tracking?month=${month}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-            return [];
-        }
-    },
+
 
     async getSMSLogs() {
         try {
@@ -635,6 +1075,15 @@ export const api = {
         }
     },
 
+    async updateMeeting(meetingId, meetingData) {
+        try {
+            const response = await axiosInstance.patch(`/sessions/${meetingId}`, meetingData);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     /**
      * Close a meeting session
      */
@@ -672,37 +1121,15 @@ export const api = {
         }
     },
 
-    /**
-     * Get transactions for a member
-     */
-    async getTransactions(memberId = null, filters = {}) {
-        try {
-            const params = new URLSearchParams(filters);
-            if (memberId) params.append('memberId', memberId);
-            const response = await axiosInstance.get(`/transactions?${params.toString()}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
+
+    // Transaction methods are at the end
 
     // ========================================
     // GROUP MANAGEMENT
     // ========================================
 
-    // GROUPS (Supabase Integrated)
-    async getGroups() {
-        try {
-            const response = await axiosInstance.get('/groups');
-            return response.data.map(g => ({
-                ...g,
-                group_name: g.name // Map 'name' from SQLite to 'group_name' used in UI
-            }));
-        } catch (error) {
-            console.error('getGroups error:', error);
-            return [];
-        }
-    },
+
+    // Group methods are at the end
 
     async deleteGroup(id) {
         try {
@@ -806,14 +1233,7 @@ export const api = {
     // DIVIDEND ENGINE
     // ========================================
 
-    async getDividendRuns() {
-        try {
-            const response = await axiosInstance.get('/dividends/runs');
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
+
 
     async previewDividends(params) {
         try {
@@ -891,6 +1311,15 @@ export const api = {
         }
     },
 
+    async updateProfile(updates) {
+        try {
+            const response = await axiosInstance.put('/profile', updates);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     async saveOfficer(officer) {
         try {
             const response = await axiosInstance.post('/officers', officer);
@@ -954,6 +1383,15 @@ export const api = {
     async getDailyReports(filters = {}) {
         // Return meeting summaries as daily reports
         return await this.getMeetingSessions();
+    },
+
+    async getDailyReportContext(groupId, date) {
+        try {
+            const response = await axiosInstance.get(`/daily-reports/context/${groupId}/${date}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
     // ========================================
@@ -1067,13 +1505,13 @@ export const api = {
 
     async downloadMeetingMinutes(sessionId) {
         try {
-            const response = await axiosInstance.get(`/reports/meeting-minutes/${sessionId}`, {
+            const response = await axiosInstance.get(`/reports/meeting/${sessionId}`, {
                 responseType: 'blob'
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', `Meeting_Minutes_${sessionId}.pdf`);
+            link.setAttribute('download', `Meeting_Minutes_${sessionId}_${Date.now()}.pdf`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -1175,8 +1613,16 @@ export const api = {
 
     async downloadPartnershipStatement(groupId) {
         try {
-            const response = await axiosInstance.get(`/reports/partnership/${groupId}`, { responseType: 'blob' });
-            return response.data;
+            const response = await axiosInstance.get(`/reports/partnership/${groupId}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Partnership_Statement_${groupId}_${Date.now()}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
         } catch (error) {
             handleApiError(error);
         }
@@ -1323,6 +1769,159 @@ export const api = {
         } catch (error) {
             handleApiError(error);
         }
+    },
+
+    // ========================================
+    // PROJECT MANAGEMENT
+    // ========================================
+
+    async getProjectMemberStatus(memberId) {
+        try {
+            const response = await axiosInstance.get(`/projects/member/${memberId}/status`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectMemberStatus error:', error);
+            return [];
+        }
+    },
+
+    async getProjectMemberDayLimit(memberId) {
+        try {
+            const response = await axiosInstance.get(`/projects/member/${memberId}/daily-limit`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectMemberDayLimit error:', error);
+            return { remaining_limit: 0, daily_savings: 0 };
+        }
+    },
+
+    async postProjectSaving(registrationId, amount, date, groupId) {
+        try {
+            const payload = { amount, date, groupId };
+            const response = await axiosInstance.post(`/projects/savings/${registrationId}`, payload);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // DEFINITIVE OVERRIDES (Resolves Duplicate Chaos)
+    // ========================================
+
+    async getMember(id) {
+        const response = await axiosInstance.get(`/members/${id}`);
+        return response.data;
+    },
+
+    async getGroup(id) {
+        const response = await axiosInstance.get(`/groups/${id}`);
+        return response.data;
+    },
+
+    async getGroups() {
+        const response = await axiosInstance.get('/groups');
+        return response.data;
+    },
+
+    async getMembers(groupId = null) {
+        const params = groupId ? { groupId } : {};
+        const response = await axiosInstance.get('/members', { params });
+        return response.data;
+    },
+
+    async getMembersByGroup(groupId) {
+        return this.getMembers(groupId);
+    },
+
+    async getLoans(memberId = null) {
+        const params = memberId ? { memberId } : {};
+        const response = await axiosInstance.get('/loans', { params });
+        // Map backend fields to frontend expectations
+        return (response.data || []).map(loan => ({
+            ...loan,
+            date_issued: loan.issued_date || loan.created_at,
+            principal_amount: parseFloat(loan.principal_amount || 0),
+            interest_rate: parseFloat(loan.interest_rate || 0),
+            status: loan.status ? loan.status.charAt(0).toUpperCase() + loan.status.slice(1).toLowerCase() : 'Active'
+        }));
+    },
+
+    async getLatestCashSession(groupId) {
+        const response = await axiosInstance.get(`/sessions/latest`, { params: { groupId } });
+        return response.data;
+    },
+
+    async postContribution(data) {
+        // Ensure sessionId is preserved and amount is mapped if needed for legacy compatibility
+        const payload = {
+            ...data,
+            amount: data.amount || (parseFloat(data.savings || 0) + parseFloat(data.welfare || 0) + parseFloat(data.project || 0) + parseFloat(data.penalty || 0))
+        };
+        const response = await axiosInstance.post('/contributions/post', payload);
+        return response.data;
+    },
+
+    async postWithdrawal(data) {
+        const response = await axiosInstance.post('/withdrawals/post', data);
+        return response.data;
+    },
+
+    async processLoanRepayment(data) {
+        const response = await axiosInstance.post('/loans/repay', data);
+        return response.data;
+    },
+
+    async previewTransaction(data) {
+        try {
+            const response = await axiosInstance.post('/transactions/preview', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async postTransaction(data) {
+        try {
+            // Unified MTE Payload
+            const payload = {
+                memberId: data.memberId,
+                sessionId: data.sessionId || data.meetingId,
+                transaction_type: data.type || data.finalType,
+                amount: parseFloat(data.amount),
+                description: data.description || '',
+                officerId: data.officerId,
+                breakdown: data.breakdown
+            };
+
+            const response = await axiosInstance.post('/transactions/post', payload);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getTransactions(memberId = null, filters = {}) {
+        const params = { ...filters };
+        if (memberId) params.memberId = memberId;
+        const response = await axiosInstance.get('/transactions', { params });
+        // Map backend fields to frontend expectations for Member Profile
+        return (response.data || []).map(t => {
+            // Normalize transaction type for UI filters (e.g., SAVINGS -> Savings)
+            let type = t.transaction_type || 'Savings';
+            if (type.toUpperCase() === 'SAVINGS') type = 'Savings';
+            else if (type.toUpperCase() === 'WITHDRAWAL') type = 'Withdrawal';
+            else if (type.toUpperCase() === 'LOANREPAYMENT') type = 'LoanRepayment';
+            else if (type.toUpperCase() === 'FINE') type = 'Fine';
+            else type = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
+
+            return {
+                ...t,
+                date: t.sessionDate || t.created_at,
+                type: type,
+                amount: parseFloat(t.savings_amount || 0) - parseFloat(t.withdrawals || 0) + parseFloat(t.stl_repayment || 0) + parseFloat(t.ltl_repayment || 0) + parseFloat(t.loan_interest || 0) + parseFloat(t.fines || 0)
+            };
+        });
     }
 };
 

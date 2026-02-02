@@ -10,7 +10,9 @@ const RiskHeatmapWidget = () => {
         const fetchRiskData = async () => {
             try {
                 const data = await api.getRiskOverview();
-                setAuditData(data || []);
+                // Ensure data is an array (handle backend object or array responses)
+                const sanitizedData = Array.isArray(data) ? data : (data?.groups || data?.heatmap || []);
+                setAuditData(sanitizedData);
             } catch (error) {
                 console.error("Failed to load risk heatmap", error);
             } finally {
@@ -55,7 +57,7 @@ const RiskHeatmapWidget = () => {
                             </div>
 
                             <div className="space-y-1 my-3">
-                                {group.riskFactors.length > 0 ? (
+                                {Array.isArray(group.riskFactors) && group.riskFactors.length > 0 ? (
                                     group.riskFactors.map((factor, idx) => (
                                         <div key={idx} className="text-xs font-semibold flex items-center gap-1">
                                             • {factor}
@@ -74,7 +76,7 @@ const RiskHeatmapWidget = () => {
                             </div>
                             <div className="flex flex-col text-right">
                                 <span className="opacity-60 uppercase text-[10px]">Utilization</span>
-                                <span className="font-bold text-base">{group.metrics.utilization}%</span>
+                                <span className="font-bold text-base">{group.metrics?.utilization || 0}%</span>
                             </div>
                         </div>
                     </div>

@@ -11,7 +11,11 @@ import {
     FaFileAlt,
     FaFilePdf,
     FaPlus,
-    FaSearch
+    FaSearch,
+    FaMapMarkerAlt,
+    FaListUl,
+    FaClipboardList,
+    FaEdit
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { useTransactions } from '../context/TransactionContext';
@@ -34,8 +38,14 @@ const MeetingSessions = () => {
     const [newMeeting, setNewMeeting] = useState({
         group_id: '',
         meeting_date: new Date().toISOString().split('T')[0],
-        venue: ''
+        venue: '',
+        agenda: '',
+        meeting_type: 'Routine',
+        expected_attendance: ''
     });
+
+    const [isEditing, setIsEditing] = useState(false);
+    const [editId, setEditId] = useState(null);
 
     // Search state for new meeting modal
     const [groupSearchQuery, setGroupSearchQuery] = useState('');
@@ -77,62 +87,106 @@ const MeetingSessions = () => {
         return meetings.find(m => m.group_id === groupId && m.status === 'ACTIVE');
     };
 
-    // Open new meeting
-    const handleOpenMeeting = async () => {
+    // Save current meeting (Create or Update)
+    const handleSaveMeeting = async () => {
         if (!newMeeting.group_id) {
             toast.error('Please select a group');
             return;
         }
 
-        // Check if group already has an active meeting
-        const activeMeeting = getActiveMeeting(parseInt(newMeeting.group_id));
-        if (activeMeeting) {
-            toast.error(`Group already has an active meeting: ${activeMeeting.session_number}`);
-            return;
-        }
-
         try {
-            // Create new meeting (would be API call)
-            const newMeetingSession = {
-                id: meetings.length + 1,
-                session_number: `MTG-202501-GRP-${String(meetings.length + 1).padStart(3, '0')}`,
-                group_id: parseInt(newMeeting.group_id),
-                group_name: groups.find(g => g.id === parseInt(newMeeting.group_id))?.name,
-                meeting_date: newMeeting.meeting_date,
-                start_time: new Date().toISOString(),
-                end_time: null,
-                status: 'ACTIVE',
-                venue: newMeeting.venue,
-                total_collected: 0,
-                total_loans_disbursed: 0,
-                members_present: 0,
-                members_absent: 0,
-                attendance_percentage: 0,
-                opened_by_name: currentUser.name,
-                opened_at: new Date().toISOString(),
-                hours_open: 0
-            };
+            if (isEditing) {
+                await api.updateMeeting(editId, {
+                    date: newMeeting.meeting_date,
+                    venue: newMeeting.venue,
+                    agenda: newMeeting.agenda,
+                    meeting_type: newMeeting.meeting_type,
+                    expected_attendance: newMeeting.expected_attendance
+                });
+                toast.success("Meeting rescheduled successfully!");
+            } else {
+                // Check if group already has an active meeting
+                const activeMeeting = getActiveMeeting(parseInt(newMeeting.group_id));
+                if (activeMeeting) {
+                    toast.error(`Group already has an active meeting: ${activeMeeting.session_number}`);
+                    return;
+                }
 
-            setMeetings([newMeetingSession, ...meetings]);
+                await api.createMeeting({
+                    groupId: parseInt(newMeeting.group_id),
+                    officerId: currentUser.id,
+                    date: newMeeting.meeting_date,
+                    startTime: new Date().toISOString(),
+                    venue: newMeeting.venue,
+                    agenda: newMeeting.agenda,
+                    meeting_type: newMeeting.meeting_type,
+                    expected_attendance: newMeeting.expected_attendance
+                });
+
+                // Send SMS Notification
+                await NotificationService.sendSMS(
+                    'ALL_MEMBERS',
+                    `New Meeting Scheduled: ${groups.find(g => g.id === parseInt(newMeeting.group_id))?.name} on ${newMeeting.meeting_date} at ${newMeeting.venue || 'Usual Venue'}.`,
+                    { date: newMeeting.meeting_date }
+                );
+
+                toast.success(`Meeting opened successfully!`);
+            }
+
+            loadMeetings();
             setShowOpenModal(false);
-            setNewMeeting({
-                group_id: '',
-                meeting_date: new Date().toISOString().split('T')[0],
-                venue: ''
-            });
-
-            // Send SMS Notification
-            await NotificationService.sendSMS(
-                'ALL_MEMBERS',
-                `Meeting Started: ${newMeetingSession.group_name} at ${newMeetingSession.venue || 'Usual Venue'}. Attendance marked.`,
-                { meetingId: newMeetingSession.id }
-            );
-
-            toast.success(`Meeting ${newMeetingSession.session_number} opened successfully!`);
+            resetForm();
         } catch (error) {
-            console.error('Open meeting error:', error);
-            toast.error('Failed to open meeting');
+            console.error('Save meeting error:', error);
+            toast.error(isEditing ? 'Failed to update meeting' : 'Failed to open meeting');
         }
+    };
+
+    const resetForm = () => {
+        setNewMeeting({
+            group_id: '',
+            meeting_date: new Date().toISOString().split('T')[0],
+            venue: '',
+            agenda: '',
+            meeting_type: 'Routine',
+            expected_attendance: ''
+        });
+        setIsEditing(false);
+        setEditId(null);
+        setGroupSearchQuery('');
+    };
+
+    const handleEditMeeting = (meeting) => {
+        setEditId(meeting.id);
+        setIsEditing(true);
+        setNewMeeting({
+            group_id: meeting.groupId || meeting.group_id,
+            meeting_date: meeting.date || meeting.meeting_date,
+            venue: meeting.venue || '',
+            agenda: meeting.agenda || '',
+            meeting_type: meeting.meeting_type || 'Routine',
+            expected_attendance: meeting.expected_attendance || ''
+        });
+        setGroupSearchQuery(meeting.group_name || '');
+        setShowOpenModal(true);
+    };
+
+    const handleScheduleNext = (meeting) => {
+        const nextDate = new Date(meeting.date || meeting.meeting_date);
+        nextDate.setMonth(nextDate.getMonth() + 1);
+
+        setIsEditing(false);
+        setEditId(null);
+        setNewMeeting({
+            group_id: meeting.groupId || meeting.group_id,
+            meeting_date: nextDate.toISOString().split('T')[0],
+            venue: meeting.venue || '',
+            agenda: meeting.agenda || '',
+            meeting_type: meeting.meeting_type || 'Routine',
+            expected_attendance: meeting.expected_attendance || ''
+        });
+        setGroupSearchQuery(meeting.group_name || '');
+        setShowOpenModal(true);
     };
 
     // Close meeting
@@ -175,6 +229,8 @@ const MeetingSessions = () => {
                 return 'bg-green-100 text-green-700 border-green-200';
             case 'LOCKED':
                 return 'bg-gray-100 text-gray-700 border-gray-200';
+            case 'SCHEDULED':
+                return 'bg-blue-100 text-blue-700 border-blue-200';
             case 'CANCELLED':
                 return 'bg-red-100 text-red-700 border-red-200';
             default:
@@ -239,7 +295,7 @@ const MeetingSessions = () => {
             {/* Filters */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                 <div className="flex flex-wrap gap-2">
-                    {['ALL', 'ACTIVE', 'LOCKED', 'CANCELLED'].map(status => (
+                    {['ALL', 'ACTIVE', 'SCHEDULED', 'LOCKED', 'CANCELLED'].map(status => (
                         <button
                             key={status}
                             onClick={() => setFilterStatus(status)}
@@ -331,6 +387,22 @@ const MeetingSessions = () => {
                                                     <FaFilePdf size={18} />
                                                 </button>
                                                 <button
+                                                    onClick={() => handleScheduleNext(meeting)}
+                                                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                                    title="Schedule Next (Clone)"
+                                                >
+                                                    <FaCalendarAlt size={18} />
+                                                </button>
+                                                {meeting.status !== 'LOCKED' && (
+                                                    <button
+                                                        onClick={() => handleEditMeeting(meeting)}
+                                                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                                        title="Reschedule / Edit"
+                                                    >
+                                                        <FaEdit size={18} />
+                                                    </button>
+                                                )}
+                                                <button
                                                     className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     title="View Details"
                                                 >
@@ -405,123 +477,154 @@ const MeetingSessions = () => {
                 </div>
             )}
 
-            {/* Open Meeting Modal */}
+            {/* Premium Meeting Scheduler Modal */}
             {showOpenModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-                        <div className="p-6">
-                            <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <FaUnlock className="text-green-600" />
-                                Open New Meeting
-                            </h3>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-2xl w-full overflow-hidden border border-white/20 animate-in zoom-in duration-300">
+                        {/* Modal Header */}
+                        <div className={`p-8 text-white flex justify-between items-center ${isEditing ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-safaricom-green to-emerald-700'}`}>
+                            <div>
+                                <h3 className="text-3xl font-black flex items-center gap-3">
+                                    {isEditing ? <FaEdit /> : <FaCalendarAlt />}
+                                    {isEditing ? 'Reschedule Meeting' : 'Schedule Next Meeting'}
+                                </h3>
+                                <p className="text-white/80 font-bold text-sm uppercase tracking-widest mt-1">
+                                    {isEditing ? 'Modifying existing session parameters' : 'Plan and notify members for the upcoming session'}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => { setShowOpenModal(false); resetForm(); }}
+                                className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-2xl transition-all"
+                            >
+                                &times;
+                            </button>
+                        </div>
 
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        Group <span className="text-red-600">*</span>
-                                    </label>
-                                    {/* SEARCHABLE GROUP SELECT */}
-                                    <div className="relative">
+                        <div className="p-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Column 1: Core Logistics */}
+                                <div className="space-y-6">
+                                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <FaUsers className="text-safaricom-green" /> Group Selection
+                                        </h4>
                                         <div className="relative">
                                             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                             <input
                                                 type="text"
-                                                placeholder="Search & Select Group..."
-                                                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green font-bold text-gray-700"
+                                                placeholder="Search Group..."
+                                                className="w-full pl-10 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-safaricom-green/10 focus:border-safaricom-green font-bold text-gray-700"
                                                 value={groupSearchQuery}
                                                 onChange={(e) => {
                                                     setGroupSearchQuery(e.target.value);
-                                                    setNewMeeting(prev => ({ ...prev, group_id: '' })); // Reset selection on search
+                                                    if (!isEditing) setNewMeeting(prev => ({ ...prev, group_id: '' }));
                                                 }}
+                                                disabled={isEditing}
                                             />
-                                        </div>
-
-                                        {/* Filtered List */}
-                                        <div className="mt-2 max-h-48 overflow-y-auto border border-gray-100 rounded-lg shadow-inner bg-gray-50/50">
-                                            {groups
-                                                .filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase()))
-                                                .map(group => {
-                                                    const groupName = group.group_name || group.name || 'Unknown Group';
-                                                    const isActive = getActiveMeeting(group.id);
-                                                    return (
-                                                        <button
-                                                            key={group.id}
-                                                            onClick={() => {
-                                                                if (!isActive) {
+                                            {!isEditing && groupSearchQuery && !newMeeting.group_id && (
+                                                <div className="absolute z-10 w-full mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-40 overflow-y-auto">
+                                                    {groups
+                                                        .filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase()))
+                                                        .map(group => (
+                                                            <button
+                                                                key={group.id}
+                                                                onClick={() => {
                                                                     setNewMeeting({ ...newMeeting, group_id: group.id.toString() });
-                                                                    setGroupSearchQuery(groupName); // Set input to name
-                                                                }
-                                                            }}
-                                                            disabled={!!isActive}
-                                                            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-white transition-colors border-b border-gray-100 last:border-0 ${String(newMeeting.group_id) === String(group.id) ? 'bg-green-50 text-safaricom-green ring-1 ring-safaricom-green' : 'text-gray-700'
-                                                                } ${isActive ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''}`}
-                                                        >
-                                                            <span className="font-bold flex items-center gap-2">
-                                                                {groupName}
-                                                                {String(newMeeting.group_id) === String(group.id) && <FaCheckCircle />}
-                                                            </span>
-                                                            {isActive ? (
-                                                                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
-                                                                    ACTIVE
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-[10px] text-gray-400">Select</span>
-                                                            )}
-                                                        </button>
-                                                    );
-                                                })}
-                                            {groups.filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase())).length === 0 && (
-                                                <div className="px-3 py-4 text-center text-xs text-gray-400">
-                                                    No groups found
+                                                                    setGroupSearchQuery(group.group_name || group.name);
+                                                                }}
+                                                                className="w-full text-left px-4 py-3 text-sm hover:bg-green-50 font-bold text-gray-700 border-b border-gray-50 last:border-0"
+                                                            >
+                                                                {group.group_name || group.name}
+                                                            </button>
+                                                        ))}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
+
+                                    <div className="grid grid-cols-1 gap-6">
+                                        <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                                            <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                <FaClock /> Date & Time
+                                            </h4>
+                                            <input
+                                                type="date"
+                                                value={newMeeting.meeting_date}
+                                                onChange={(e) => setNewMeeting({ ...newMeeting, meeting_date: e.target.value })}
+                                                className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-bold text-gray-700"
+                                            />
+                                        </div>
+                                        <div className="p-4 bg-purple-50/50 rounded-2xl border border-purple-100">
+                                            <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                <FaMapMarkerAlt /> Meeting Venue
+                                            </h4>
+                                            <input
+                                                type="text"
+                                                value={newMeeting.venue}
+                                                onChange={(e) => setNewMeeting({ ...newMeeting, venue: e.target.value })}
+                                                placeholder="e.g., Kajiado Community Hall"
+                                                className="w-full px-4 py-2.5 bg-white border border-purple-200 rounded-xl focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 font-bold text-gray-700"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        Meeting Date <span className="text-red-600">*</span>
-                                    </label>
-                                    <input
-                                        type="date"
-                                        value={newMeeting.meeting_date}
-                                        onChange={(e) => setNewMeeting({ ...newMeeting, meeting_date: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green"
-                                    />
-                                </div>
+                                {/* Column 2: Agenda & Information */}
+                                <div className="space-y-6">
+                                    <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                                        <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <FaListUl /> Strategic Agenda
+                                        </h4>
+                                        <textarea
+                                            value={newMeeting.agenda}
+                                            onChange={(e) => setNewMeeting({ ...newMeeting, agenda: e.target.value })}
+                                            placeholder="1. Welfare Contributions&#10;2. Loan Appraisals&#10;3. Market Updates..."
+                                            className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 font-bold text-gray-700 min-h-[120px]"
+                                        />
+                                    </div>
 
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">Venue</label>
-                                    <input
-                                        type="text"
-                                        value={newMeeting.venue}
-                                        onChange={(e) => setNewMeeting({ ...newMeeting, venue: e.target.value })}
-                                        placeholder="e.g., Community Hall"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green"
-                                    />
-                                </div>
-
-                                <div className="bg-blue-50 border-l-4 border-blue-500 p-3 rounded-r-lg">
-                                    <p className="text-xs text-blue-700">
-                                        <span className="font-bold">ℹ️ Note:</span> Once opened, this meeting will allow transactions.
-                                        Close and lock the meeting when done to prevent further changes.
-                                    </p>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Type</label>
+                                            <select
+                                                className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700"
+                                                value={newMeeting.meeting_type}
+                                                onChange={(e) => setNewMeeting({ ...newMeeting, meeting_type: e.target.value })}
+                                            >
+                                                <option>Routine</option>
+                                                <option>Annual AGM</option>
+                                                <option>Emergency</option>
+                                                <option>Special</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Target Pop.</label>
+                                            <input
+                                                type="number"
+                                                placeholder="Members"
+                                                className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700"
+                                                value={newMeeting.expected_attendance}
+                                                onChange={(e) => setNewMeeting({ ...newMeeting, expected_attendance: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex gap-3 mt-6">
+                            {/* Footer Actions */}
+                            <div className="flex gap-4 mt-10">
                                 <button
-                                    onClick={() => setShowOpenModal(false)}
-                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-bold"
+                                    onClick={() => { setShowOpenModal(false); resetForm(); }}
+                                    className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black hover:bg-gray-200 transition-all uppercase tracking-widest text-xs"
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={handleOpenMeeting}
-                                    className="flex-1 px-4 py-2 bg-safaricom-green text-white rounded-lg hover:bg-safaricom-dark transition-colors font-bold"
+                                    onClick={handleSaveMeeting}
+                                    className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all uppercase tracking-widest text-xs active:scale-95 flex items-center justify-center gap-2 ${isEditing ? 'bg-orange-600 hover:bg-orange-700' : 'bg-safaricom-green hover:bg-safaricom-dark'
+                                        }`}
                                 >
-                                    Open Meeting
+                                    {isEditing ? <><FaClock /> Update & Notify</> : <><FaCheckCircle /> Schedule & Notify</>}
                                 </button>
                             </div>
                         </div>

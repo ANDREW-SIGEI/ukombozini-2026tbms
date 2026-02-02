@@ -99,7 +99,7 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                     <div className="text-center md:text-right">
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">Net Position</p>
                         <p className={`text-4xl font-black ${net_cash === 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
-                            KES {net_cash.toLocaleString()}
+                            KES {(net_cash || 0).toLocaleString()}
                         </p>
                     </div>
                 </div>
@@ -125,12 +125,12 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                                         </div>
                                         <span className="font-bold text-gray-700">{item.label}</span>
                                     </div>
-                                    <span className="font-black text-gray-900">KES {item.value.toLocaleString()}</span>
+                                    <span className="font-black text-gray-900">KES {(item.value || 0).toLocaleString()}</span>
                                 </div>
                             ))}
                             <div className="pt-4 border-t border-gray-200 flex justify-between items-center">
                                 <span className="font-black text-gray-800">TOTAL INFLOW</span>
-                                <span className="text-xl font-black text-blue-600 underline">KES {total_inflow.toLocaleString()}</span>
+                                <span className="text-xl font-black text-blue-600 underline">KES {(total_inflow || 0).toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
@@ -152,13 +152,13 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                                         </div>
                                         <span className="font-bold text-gray-700">{item.label}</span>
                                     </div>
-                                    <span className="font-black text-gray-900">KES {item.value.toLocaleString()}</span>
+                                    <span className="font-black text-gray-900">KES {(item.value || 0).toLocaleString()}</span>
                                 </div>
                             ))}
                             <div className="h-[148px]"></div> {/* Spacer to level with Inflows */}
                             <div className="pt-4 border-t border-gray-200 flex justify-between items-center">
                                 <span className="font-black text-gray-800">TOTAL OUTFLOW</span>
-                                <span className="text-xl font-black text-red-600 underline">KES {total_outflow.toLocaleString()}</span>
+                                <span className="text-xl font-black text-red-600 underline">KES {(total_outflow || 0).toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
