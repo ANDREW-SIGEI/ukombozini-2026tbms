@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import ContributionModal from '../components/ContributionModal';
 import { toast } from 'react-toastify';
 import api from '../services/api';
-import { FaPlus, FaSearch, FaPiggyBank, FaUserClock, FaCheckCircle, FaLock, FaUnlock, FaShieldAlt } from 'react-icons/fa';
+import offlineManager from '../services/OfflineManager';
+import { FaPlus, FaSearch, FaPiggyBank, FaUserClock, FaCheckCircle, FaLock, FaUnlock, FaShieldAlt, FaWifi } from 'react-icons/fa';
 
 const Step = ({ number, label, active, completed }) => (
     <div className="flex items-center gap-2">
@@ -25,6 +26,17 @@ const Contributions = () => {
     const [showModal, setShowModal] = useState(false);
     const [selectedMember, setSelectedMember] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
+
+    useEffect(() => {
+        const handleStatus = () => setIsOfflineMode(!navigator.onLine);
+        window.addEventListener('online', handleStatus);
+        window.addEventListener('offline', handleStatus);
+        return () => {
+            window.removeEventListener('online', handleStatus);
+            window.removeEventListener('offline', handleStatus);
+        };
+    }, []);
 
     const [groups, setGroups] = useState([]);
     const [members, setMembers] = useState([]);
@@ -61,8 +73,25 @@ const Contributions = () => {
             const openSessions = (sessionsData || []).filter(s => s.status === 'ACTIVE');
             setActiveMeetings(openSessions);
         } catch (error) {
-            console.error(error);
-            toast.error('Failed to load data');
+            console.error("Fetch failed, exploring local cache:", error);
+
+            // Try cache fallbacks
+            try {
+                const [cachedGroups, cachedMembers] = await Promise.all([
+                    offlineManager.getCachedGroups(),
+                    offlineManager.getCachedMembers()
+                ]);
+
+                if (cachedGroups?.length || cachedMembers?.length) {
+                    setGroups(cachedGroups || []);
+                    setMembers(cachedMembers || []);
+                    toast.info("📶 Displaying locally cached data (Offline)");
+                } else {
+                    toast.error('Failed to load data (No offline cache found)');
+                }
+            } catch (cacheErr) {
+                toast.error('Critical failure: Could not access server or local cache');
+            }
         } finally {
             setLoading(false);
         }
@@ -110,7 +139,14 @@ const Contributions = () => {
                 <div className="flex justify-between items-center">
                     <div>
                         <h2 className="text-2xl font-black text-gray-800 tracking-tight">Post Contributions</h2>
-                        <p className="text-sm text-gray-500 font-medium">Record member deposits securely within active meetings.</p>
+                        <div className="flex items-center gap-2">
+                            <p className="text-sm text-gray-500 font-medium">Record member deposits securely within active meetings.</p>
+                            {isOfflineMode && (
+                                <span className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase rounded border border-amber-200">
+                                    <FaWifi className="opacity-50" /> Offline Mode
+                                </span>
+                            )}
+                        </div>
                     </div>
                     {selectedMeetingId && (
                         <button
@@ -316,7 +352,7 @@ const Contributions = () => {
                         activeMeeting={activeMeeting}
                         onSuccess={async (contributionData) => {
                             try {
-                                await api.postContribution({
+                                const res = await api.postContribution({
                                     memberId: contributionData.memberId,
                                     groupId: contributionData.groupId,
                                     meetingId: contributionData.meetingId,
@@ -326,7 +362,12 @@ const Contributions = () => {
                                     meetingReference: contributionData.meetingReference,
                                     officerId: contributionData.officerId || 1
                                 });
-                                toast.success("✅ Recorded successfully!");
+
+                                if (res?.offline) {
+                                    toast.success("💾 Saved offline - Will sync when connection is restored");
+                                } else {
+                                    toast.success("✅ Recorded successfully!");
+                                }
                                 fetchData();
                             } catch (error) {
                                 console.error(error);

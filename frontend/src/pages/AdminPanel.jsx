@@ -50,7 +50,7 @@ const AdminPanel = () => {
         name: '',
         email: '',
         phone: '',
-        role: 'FIELD_OFFICER'
+        role: 'Field Officer'
     });
 
     // Loan Products State
@@ -208,14 +208,26 @@ const AdminPanel = () => {
     const handleCreateOfficer = async (e) => {
         e.preventDefault();
         try {
-            // Add create officer API call
-            toast.success(`✅ Officer ${newOfficer.name} added successfully!`);
+            await api.saveOfficer(newOfficer);
+            toast.success(`✅ Field Officer ${newOfficer.name} registered with generated password!`);
             setShowOfficerModal(false);
-            setNewOfficer({ name: '', email: '', phone: '', role: 'FIELD_OFFICER' });
+            setNewOfficer({ name: '', email: '', phone: '', role: 'Field Officer', password: '' });
+            fetchSystemData();
         } catch (error) {
-            toast.error("Failed to create officer");
+            console.error("Create Officer Error", error);
+            toast.error(error.message || "Failed to create officer");
         }
     };
+
+    const generateRandomPassword = () => {
+        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+        let retVal = "";
+        for (let i = 0, n = charset.length; i < 8; ++i) {
+            retVal += charset.charAt(Math.floor(Math.random() * n));
+        }
+        setNewOfficer(prev => ({ ...prev, password: retVal }));
+    };
+
 
     // ========================================
     // LOAN PRODUCTS FUNCTIONS
@@ -926,11 +938,32 @@ const AdminPanel = () => {
                             value={newOfficer.role}
                             onChange={(e) => setNewOfficer({ ...newOfficer, role: e.target.value })}
                             options={[
-                                { value: 'FIELD_OFFICER', label: 'Field Officer' },
-                                { value: 'ADMIN', label: 'Administrator' },
-                                { value: 'DIRECTOR', label: 'Director' }
+                                { value: 'Field Officer', label: 'Field Officer' },
+                                { value: 'Admin', label: 'Administrator' },
+                                { value: 'Director', label: 'Director' }
                             ]}
                         />
+
+                        <div className="p-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Initial System Password</label>
+                                <button
+                                    type="button"
+                                    onClick={generateRandomPassword}
+                                    className="text-[10px] font-black text-safaricom-green hover:underline"
+                                >
+                                    Generate
+                                </button>
+                            </div>
+                            <input
+                                type="text"
+                                readOnly
+                                value={newOfficer.password || ''}
+                                className="w-full bg-white border-none rounded-xl text-center font-mono font-bold text-safaricom-green"
+                                placeholder="Click Generate"
+                            />
+                            <p className="text-[10px] text-gray-400 mt-2 italic text-center">Copy this password before saving.</p>
+                        </div>
                     </div>
                 </Modal>
             )}

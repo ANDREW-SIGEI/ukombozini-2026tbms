@@ -4,13 +4,14 @@ import NotificationService from '../services/NotificationService';
 import { api } from '../services/api';
 import { toast } from 'react-toastify';
 
-const NotificationsPage = () => {
+const CommunicationHub = () => {
     const [logs, setLogs] = useState([]);
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [activeTab, setActiveTab] = useState('LOGS'); // LOGS, COMPOSE
     const [filter, setFilter] = useState('ALL');
+    const [balance, setBalance] = useState(null);
 
     // Composer State
     const [targetType, setTargetType] = useState('ROLES'); // ROLES, GROUPS
@@ -19,6 +20,12 @@ const NotificationsPage = () => {
     const [message, setMessage] = useState('');
     const [method, setMethod] = useState('SMS');
 
+    const TEMPLATES = [
+        { name: 'Meeting Reminder', text: 'Jambo! This is a reminder for our upcoming meeting on [DATE] at [TIME]. Please attend. - UKOMBOZI' },
+        { name: 'Repayment Alert', text: 'Dear Member, your loan repayment of KES [AMOUNT] is due. Please clear to keep your limit high. - UKOMBOZI' },
+        { name: 'General Update', text: 'Important Notice: [MESSAGE] - UKOMBOZI Management' }
+    ];
+
     useEffect(() => {
         fetchData();
     }, []);
@@ -26,12 +33,14 @@ const NotificationsPage = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [logData, groupData] = await Promise.all([
+            const [logData, groupData, balanceData] = await Promise.all([
                 NotificationService.getLogs(100),
-                api.getGroups()
+                api.getGroups(),
+                api.getSMSBalance().catch(() => ({ balance: 'Error' }))
             ]);
-            setLogs(logData);
-            setGroups(groupData);
+            setLogs(logData || []);
+            setGroups(groupData || []);
+            setBalance(balanceData?.balance);
         } catch (err) {
             console.error("fetchData error:", err);
         } finally {
@@ -105,7 +114,7 @@ const NotificationsPage = () => {
                 <div>
                     <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">
                         <FaBell className="text-safaricom-green h-6 w-6" />
-                        Messaging Hub
+                        Communication Hub
                     </h2>
                     <p className="text-sm text-gray-500 font-medium">Director-level control for official communications.</p>
                 </div>
@@ -122,6 +131,12 @@ const NotificationsPage = () => {
                     >
                         <FaPaperPlane /> COMPOSE
                     </button>
+                    {balance && (
+                        <div className="ml-4 flex flex-col justify-center border-l pl-4 border-gray-200">
+                            <span className="text-[8px] font-black text-gray-400 uppercase leading-none">SMS Balance</span>
+                            <span className="text-xs font-black text-safaricom-green">{balance}</span>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -232,6 +247,19 @@ const NotificationsPage = () => {
                             <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2 uppercase tracking-tight">
                                 <FaComment className="text-safaricom-green" /> 2. Compose Message
                             </h3>
+
+                            {/* Template Quick Select */}
+                            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+                                {TEMPLATES.map(t => (
+                                    <button
+                                        key={t.name}
+                                        onClick={() => setMessage(t.text)}
+                                        className="whitespace-nowrap px-3 py-1.5 bg-gray-50 text-[10px] font-black text-gray-500 rounded-lg border border-gray-100 hover:bg-safaricom-green hover:text-white transition-all"
+                                    >
+                                        + {t.name}
+                                    </button>
+                                ))}
+                            </div>
 
                             <div className="flex gap-4 mb-6">
                                 <button
@@ -356,4 +384,4 @@ const NotificationsPage = () => {
     );
 };
 
-export default NotificationsPage;
+export default CommunicationHub;

@@ -3,12 +3,23 @@
  * Institutional-grade financial core.
  */
 
+/**
+ * TRF Calculation Rule:
+ * 1% of amount, capped at KES 3,000 (for amounts > 300,000)
+ */
+function calculateTRF(amount) {
+    const fee = amount * 0.01;
+    return Math.min(fee, 3000);
+}
+
 const TRANSACTION_MAP = {
     'SAVINGS': {
         memberField: 'current_savings', memberDelta: 1, riskDelta: -1,
+        hasTRF: true,
         entries: [
-            { type: 'MEMBER', account: 'SAVINGS', direction: 'CREDIT' },
-            { type: 'GROUP', account: 'CASH', direction: 'DEBIT' }
+            { type: 'MEMBER', account: 'SAVINGS', direction: 'CREDIT', amountSource: 'NET' },
+            { type: 'SYSTEM', account: 'REVENUE_TRF', direction: 'CREDIT', amountSource: 'TRF' },
+            { type: 'GROUP', account: 'CASH', direction: 'DEBIT', amountSource: 'GROSS' }
         ]
     },
     'WELFARE': {
@@ -62,16 +73,20 @@ const TRANSACTION_MAP = {
     },
     'EDUCATION': {
         memberField: 'education_savings', memberDelta: 1, riskDelta: 0,
+        hasTRF: true,
         entries: [
-            { type: 'MEMBER', account: 'EDUCATION_SAVINGS', direction: 'CREDIT' },
-            { type: 'GROUP', account: 'CASH', direction: 'DEBIT' }
+            { type: 'MEMBER', account: 'EDUCATION_SAVINGS', direction: 'CREDIT', amountSource: 'NET' },
+            { type: 'SYSTEM', account: 'REVENUE_TRF', direction: 'CREDIT', amountSource: 'TRF' },
+            { type: 'GROUP', account: 'CASH', direction: 'DEBIT', amountSource: 'GROSS' }
         ]
     },
     'AGRICULTURE': {
         memberField: 'agriculture_savings', memberDelta: 1, riskDelta: 0,
+        hasTRF: true,
         entries: [
-            { type: 'MEMBER', account: 'AGRICULTURE_SAVINGS', direction: 'CREDIT' },
-            { type: 'GROUP', account: 'CASH', direction: 'DEBIT' }
+            { type: 'MEMBER', account: 'AGRICULTURE_SAVINGS', direction: 'CREDIT', amountSource: 'NET' },
+            { type: 'SYSTEM', account: 'REVENUE_TRF', direction: 'CREDIT', amountSource: 'TRF' },
+            { type: 'GROUP', account: 'CASH', direction: 'DEBIT', amountSource: 'GROSS' }
         ]
     },
     'DIVIDEND': {
@@ -140,7 +155,7 @@ const TRANSACTION_MAP = {
  */
 async function runMTELogic(client, params, officerId) {
     const { memberId, sessionId, transaction_type, amount, description, txRef } = params;
-    const val = parseFloat(amount);
+    const grossVal = parseFloat(amount);
     const convertSql = (s) => { let c = 0; return s.replace(/\?/g, () => `$${++c}`); };
 
     // 1. LOGIC ROUTING
@@ -148,17 +163,23 @@ async function runMTELogic(client, params, officerId) {
     const txConfig = TRANSACTION_MAP[txKey];
     if (!txConfig) throw new Error(`Unsupported transaction type: ${transaction_type}`);
 
+    // 2. TRF Calculation
+    const trfVal = txConfig.hasTRF ? calculateTRF(grossVal) : 0;
+    const netVal = grossVal - trfVal;
+
     // 2. Get Context
     const memberRes = await client.query(convertSql(`SELECT group_id FROM members WHERE id = ?`), [memberId]);
     if (memberRes.rows.length === 0) throw new Error('Member not found');
     const groupId = memberRes.rows[0].group_id;
 
     // 3. Update Member Balance & Risk
+    // For TRF-enabled transactions, only the NET amount hits the member's personal balance
+    const memberAmount = txConfig.hasTRF ? netVal : grossVal;
+
     const mUpdates = [`${txConfig.memberField} = COALESCE(${txConfig.memberField}, 0) + ?`];
-    const mParams = [val * txConfig.memberDelta];
+    const mParams = [memberAmount * txConfig.memberDelta];
+
     if (txConfig.riskDelta !== 0) {
-        // 🛡️ CROSS-DB COMPATIBLE CLAMPING (0-100)
-        // Replaces LEAST(100, GREATEST(0, ...)) with CASE WHEN for SQLite/Postgres compatibility
         mUpdates.push(`
             risk_score = CASE 
                 WHEN (COALESCE(risk_score, 50) + ?) > 100 THEN 100 
@@ -166,7 +187,6 @@ async function runMTELogic(client, params, officerId) {
                 ELSE (COALESCE(risk_score, 50) + ?) 
             END
         `);
-        // We push the parameter 3 times because standard SQL '?' parameters cannot be reused by name/index easily here
         mParams.push(txConfig.riskDelta);
         mParams.push(txConfig.riskDelta);
         mParams.push(txConfig.riskDelta);
@@ -178,6 +198,11 @@ async function runMTELogic(client, params, officerId) {
     for (const entry of txConfig.entries) {
         let entityId = null;
         let accountFullName = entry.account;
+
+        // Determine value based on amountSource
+        let entryVal = grossVal;
+        if (entry.amountSource === 'NET') entryVal = netVal;
+        else if (entry.amountSource === 'TRF') entryVal = trfVal;
 
         if (entry.type === 'MEMBER') {
             entityId = memberId;
@@ -195,11 +220,11 @@ async function runMTELogic(client, params, officerId) {
             INSERT INTO ledger_entries (
                 tx_ref, account_name, entity_type, entity_id, direction, amount, session_id, officer_id, notes
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `), [txRef, accountFullName, entry.type, entityId, entry.direction, val, sessionId || null, officerId, description || '']);
+        `), [txRef, accountFullName, entry.type, entityId, entry.direction, entryVal, sessionId || null, officerId, description || '']);
 
         // Update Institutional Balance
         if (entry.type !== 'MEMBER') {
-            const balanceDelta = entry.direction === 'DEBIT' ? val : -val;
+            const balanceDelta = entry.direction === 'DEBIT' ? entryVal : -entryVal;
             await client.query(convertSql(`
                 INSERT INTO account_balances (account_name, account_category, balance)
                 VALUES (?, ?, ?)
@@ -222,7 +247,7 @@ async function runMTELogic(client, params, officerId) {
     await client.query(convertSql(`
         INSERT INTO transactions (memberId, sessionId, transaction_type, ${legacyField}, description, status, uploaded)
         VALUES (?, ?, ?, ?, ?, 'COMPLETED', 1)
-    `), [memberId, sessionId || null, txKey, val, description || '']);
+    `), [memberId, sessionId || null, txKey, memberAmount, description || '']);
 }
 
 module.exports = {

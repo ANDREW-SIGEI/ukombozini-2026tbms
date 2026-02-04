@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import offlineManager from './OfflineManager';
 
 
 /**
@@ -23,6 +24,32 @@ axiosInstance.interceptors.request.use((config) => {
         config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
+}, (error) => {
+    return Promise.reject(error);
+});
+
+// Add Response Interceptor for Automatic Caching
+axiosInstance.interceptors.response.use(async (response) => {
+    const url = response.config.url;
+
+    try {
+        // Cache Members
+        if (url.includes('/members') && response.config.method === 'get' && Array.isArray(response.data)) {
+            await offlineManager.cacheMembers(response.data);
+        }
+        // Cache Groups
+        else if (url.includes('/groups') && response.config.method === 'get' && Array.isArray(response.data)) {
+            await offlineManager.cacheGroups(response.data);
+        }
+        // Cache Loan Products
+        else if (url.includes('/loan-products') && response.config.method === 'get' && Array.isArray(response.data)) {
+            await offlineManager.cacheLoanProducts(response.data);
+        }
+    } catch (e) {
+        console.warn('Caching failed:', e);
+    }
+
+    return response;
 }, (error) => {
     return Promise.reject(error);
 });
@@ -685,6 +712,55 @@ export const api = {
     async getMeetingSummary(sessionId) {
         try {
             const response = await axiosInstance.get(`/sessions/${sessionId}/summary`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // ========================================
+    // ALLOCATION MATRIX API (TABLE BANKING)
+    // ========================================
+
+    async getAllocationPreview(sessionId) {
+        try {
+            const response = await axiosInstance.get(`/allocation/preview/${sessionId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async commitAllocation(sessionId) {
+        try {
+            const response = await axiosInstance.post(`/allocation/commit/${sessionId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getAllocationRules(groupId) {
+        try {
+            const response = await axiosInstance.get(`/allocation/rules/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async updateAllocationRules(data) {
+        try {
+            const response = await axiosInstance.post(`/allocation/rules`, data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getAllocationHistory(limit = 50) {
+        try {
+            const response = await axiosInstance.get(`/allocation/history`, { params: { limit } });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -2032,6 +2108,23 @@ export const api = {
             const response = await axiosInstance.post('/transactions/post', payload);
             return response.data;
         } catch (error) {
+            // Check for Network Error
+            if (!error.response && error.request) {
+                console.warn('⚡ Network Error detected. Saving transaction offline...');
+                const offlineId = await offlineManager.saveOfflineTransaction({
+                    type: data.type || data.finalType || 'contribution',
+                    data: {
+                        memberId: data.memberId,
+                        sessionId: data.sessionId || data.meetingId,
+                        transaction_type: data.type || data.finalType,
+                        amount: parseFloat(data.amount),
+                        description: data.description || '',
+                        officerId: data.officerId,
+                        breakdown: data.breakdown
+                    }
+                });
+                return { success: true, offline: true, offlineId };
+            }
             handleApiError(error);
         }
     },
@@ -2059,12 +2152,30 @@ export const api = {
         });
     },
 
+    async getMemberRisk(memberId) {
+        try {
+            const response = await axiosInstance.get(`/risk/member/${memberId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     // ========================================
     // MESSAGING HUB & SMS API
     // ========================================
     async getNotificationLogs(limit = 100) {
         try {
             const response = await axiosInstance.get('/sms/logs', { params: { limit } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getSMSBalance() {
+        try {
+            const response = await axiosInstance.get('/sms/balance');
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -2078,6 +2189,21 @@ export const api = {
             return response.data;
         } catch (error) {
             handleApiError(error);
+        }
+    },
+
+    async getPartnershipStats() {
+        try {
+            const response = await axiosInstance.get('/partnership/stats');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+            return {
+                totalInjected: 0,
+                activeCommitments: 0,
+                pendingRepayments: 0,
+                productFinanceVolume: 0
+            };
         }
     }
 };

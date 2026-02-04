@@ -98,6 +98,13 @@ class RiskService {
     static async persistRiskIdentity(scope, targetId, score, details) {
         db.run(`INSERT INTO risk_scores (scope, target_id, score, metrics_snapshot) VALUES (?, ?, ?, ?)`,
             [scope, targetId, score, JSON.stringify(details)]);
+
+        // Mirror to primary tables for UI consistency
+        if (scope === 'MEMBER') {
+            db.run(`UPDATE members SET risk_score = ? WHERE id = ?`, [score, targetId]);
+        } else if (scope === 'GROUP') {
+            db.run(`UPDATE groups SET risk_score = ? WHERE id = ?`, [score, targetId]);
+        }
     }
 
     static async logAlert(scope, targetId, type, severity, message) {
@@ -111,6 +118,75 @@ class RiskService {
                 db.run("INSERT INTO audit_logs (action, category, details, target_id) VALUES (?, ?, ?, ?)",
                     ['AUTO_FREEZE', 'RISK', reason, groupId]);
             }
+        });
+    }
+
+    /**
+     * 🧠 Calculate individual member risk score based on longitudinal history.
+     * Scores: 0-100 (0 = Lowest Risk, 100 = Highest Risk)
+     */
+    static async evaluateMemberRisk(memberId) {
+        return new Promise((resolve, reject) => {
+            const queries = {
+                memberData: "SELECT * FROM members WHERE id = ?",
+                loanHistory: "SELECT id, status, due_date, principal_amount FROM loans WHERE member_id = ?",
+                penaltyCount: "SELECT COUNT(*) as count FROM transactions WHERE memberId = ? AND transaction_type = 'FINE' AND created_at > date('now', '-6 months')"
+            };
+
+            db.get(queries.memberData, [memberId], async (err, member) => {
+                if (err || !member) return reject(err || new Error("Member not found"));
+
+                try {
+                    let score = 0;
+                    const alerts = [];
+
+                    // 1. Debt-to-Savings Analysis (Leverage Risk)
+                    const savings = (member.current_savings || 0);
+                    const debt = (member.active_loan_balance || 0);
+                    const ratio = debt / (savings || 1);
+
+                    if (ratio > 4) {
+                        score += 40;
+                        alerts.push({ type: 'CREDIT_PREDICTOR', severity: 'HIGH', msg: `Critical leverage: Debt is ${ratio.toFixed(1)}x savings.` });
+                    } else if (ratio > 2.5) {
+                        score += 20;
+                        alerts.push({ type: 'CREDIT_PREDICTOR', severity: 'MEDIUM', msg: `High leverage: Debt is ${ratio.toFixed(1)}x savings.` });
+                    }
+
+                    // 2. Penalty Frequency (Behavioral Risk)
+                    const penalties = await new Promise(res => db.get(queries.penaltyCount, [memberId], (e, r) => res(r?.count || 0)));
+                    if (penalties >= 3) {
+                        score += 40;
+                        alerts.push({ type: 'BEHAVIORAL_RISK', severity: 'HIGH', msg: `Predictive default: ${penalties} penalties in last 6 months.` });
+                    } else if (penalties > 0) {
+                        score += 10;
+                    }
+
+                    // 3. Repayment Consistency (On-Time Rate)
+                    const lateLoans = await new Promise(res => db.all(queries.loanHistory, [memberId], (e, rows) => {
+                        const late = rows?.filter(r => r.status === 'active' && new Date() > new Date(r.due_date));
+                        res(late || []);
+                    }));
+
+                    if (lateLoans.length > 0) {
+                        score += 30;
+                        alerts.push({ type: 'DELINQUENCY', severity: 'HIGH', msg: `Active delinquency: ${lateLoans.length} loans past due.` });
+                    }
+
+                    score = Math.max(0, Math.min(100, score));
+
+                    // Persistence
+                    await this.persistRiskIdentity('MEMBER', memberId, score, { ratio, penalties, lateCount: lateLoans.length, alerts });
+
+                    for (const alert of alerts) {
+                        await this.logAlert('MEMBER', memberId, alert.type, alert.severity, alert.msg);
+                    }
+
+                    resolve({ score, alerts });
+                } catch (error) {
+                    reject(error);
+                }
+            });
         });
     }
 

@@ -55,21 +55,22 @@ const reportService = {
                         doc.moveDown();
 
                         // --- TOTALS SUMMARY ---
-                        const totals = session.totals ? JSON.parse(session.totals) : {
-                            savings: 0, stl_repayment: 0, ltl_repayment: 0, loan_interest: 0, welfare: 0, fines: 0, loans_issued: 0
-                        };
+                        let totals = session.totals ? JSON.parse(session.totals) : null;
+                        if (!totals) {
+                            totals = { savings: 0, stl_repayment: 0, ltl_repayment: 0, loan_interest: 0, welfare: 0, fines: 0, loans_issued: 0 };
+                        }
 
                         const summaryTable = {
                             title: "Financial Summary",
                             headers: ["Category", "Total (KES)"],
                             rows: [
-                                ["Total Savings", totals.savings.toLocaleString()],
-                                ["STL Repayments", totals.stl_repayment.toLocaleString()],
-                                ["LTL Repayments", totals.ltl_repayment.toLocaleString()],
-                                ["Loan Interest", totals.loan_interest.toLocaleString()],
-                                ["Welfare Contribution", totals.welfare.toLocaleString()],
-                                ["Fines & Penalties", totals.fines.toLocaleString()],
-                                ["New Loans Issued", totals.loans_issued.toLocaleString()],
+                                ["Total Savings", (totals.savings || 0).toLocaleString()],
+                                ["STL Repayments", (totals.stl_repayment || 0).toLocaleString()],
+                                ["LTL Repayments", (totals.ltl_repayment || 0).toLocaleString()],
+                                ["Loan Interest", (totals.loan_interest || 0).toLocaleString()],
+                                ["Welfare Contribution", (totals.welfare || 0).toLocaleString()],
+                                ["Fines & Penalties", (totals.fines || 0).toLocaleString()],
+                                ["New Loans Issued", (totals.loans_issued || 0).toLocaleString()],
                             ]
                         };
                         await doc.table(summaryTable, { width: 300 });
@@ -78,12 +79,12 @@ const reportService = {
 
                         // --- DETAILED TRANSACTIONS ---
                         const txRows = transactions.map(t => [
-                            t.memberName,
+                            t.memberName || "Unknown Member",
                             t.attended ? "Yes" : "No",
-                            t.savings_amount.toLocaleString(),
-                            t.stl_repayment.toLocaleString(),
-                            t.ltl_repayment.toLocaleString(),
-                            t.loans_issued.toLocaleString()
+                            (t.savings_amount || 0).toLocaleString(),
+                            (t.stl_repayment || 0).toLocaleString(),
+                            (t.ltl_repayment || 0).toLocaleString(),
+                            (t.loans_issued || 0).toLocaleString()
                         ]);
 
                         const detailTable = {

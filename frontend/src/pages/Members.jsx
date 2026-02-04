@@ -5,7 +5,7 @@ import {
     FaFileInvoice, FaMoneyBillWave, FaClock, FaSpinner,
     FaChartLine, FaTriangleExclamation, FaCircleCheck,
     FaPenToSquare, FaHandHoldingDollar, FaCoins, FaLock,
-    FaFilePdf, FaFileExcel, FaCalendarDays
+    FaFilePdf, FaFileExcel, FaCalendarDays, FaWifi
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { api } from '../services/api';
@@ -28,7 +28,17 @@ const Members = () => {
         id: '', name: '', phone: '', national_id: '', groupId: '', status: 'active',
         nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: ''
     });
-    // ... existing ...
+    const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
+
+    useEffect(() => {
+        const handleStatus = () => setIsOfflineMode(!navigator.onLine);
+        window.addEventListener('online', handleStatus);
+        window.addEventListener('offline', handleStatus);
+        return () => {
+            window.removeEventListener('online', handleStatus);
+            window.removeEventListener('offline', handleStatus);
+        };
+    }, []);
 
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -138,7 +148,10 @@ const Members = () => {
             const savings = member.current_savings || 0;
             const activeLoans = member.active_loan_balance || 0;
             const netPosition = savings - activeLoans;
-            const riskScore = calculateRiskScore(member);
+            // Prioritize backend-calculated longitudinal risk score
+            const riskScore = (member.risk_score !== null && member.risk_score !== undefined)
+                ? member.risk_score
+                : calculateRiskScore(member);
             const riskInfo = getRiskInfo(riskScore);
 
             return {
@@ -385,15 +398,17 @@ const Members = () => {
 
         try {
             // Fetch financial history
-            const [transactions, loans] = await Promise.all([
+            const [transactions, loans, riskReport] = await Promise.all([
                 api.getTransactions(member.id),
-                api.getLoans(member.id)
+                api.getLoans(member.id),
+                api.getMemberRisk(member.id)
             ]);
 
             setProfileData({
                 member: member,
                 transactions: transactions || [],
-                loans: loans || []
+                loans: loans || [],
+                risk: riskReport
             });
         } catch (error) {
             console.error("Failed to load profile details", error);
@@ -407,12 +422,17 @@ const Members = () => {
         <>
             <div className="space-y-6">
                 {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h2 className="text-2xl font-black text-gray-800 flex items-center gap-2">
-                            <FaUser className="text-safaricom-green" /> Members Directory
+                        <h2 className="text-4xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                            Member Directory
+                            {isOfflineMode && (
+                                <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 text-[10px] font-black uppercase rounded-full border border-amber-200">
+                                    <FaWifi className="opacity-50" /> Offline Mode
+                                </span>
+                            )}
                         </h2>
-                        <p className="text-sm font-bold text-gray-500 uppercase tracking-wide">
+                        <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em] mt-1 ml-1 flex items-center gap-2">
                             {filteredMembers.length} Active Members
                         </p>
                     </div>
@@ -1300,57 +1320,61 @@ const Members = () => {
                                                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-300">
                                                     <div className="flex items-center gap-4 mb-8">
                                                         <div className="w-24 h-24 rounded-full border-8 border-gray-100 flex items-center justify-center relative">
-                                                            <span className={`text-3xl font-black ${profileData.member.riskScore > 60 ? 'text-red-500' : profileData.member.riskScore > 30 ? 'text-amber-500' : 'text-green-500'}`}>
-                                                                {profileData.member.riskScore}
+                                                            <span className={`text-3xl font-black ${profileData.risk?.score > 60 ? 'text-red-500' : profileData.risk?.score > 30 ? 'text-amber-500' : 'text-green-500'}`}>
+                                                                {profileData.risk?.score || 0}
                                                             </span>
                                                             <div className="absolute -bottom-2 text-[10px] font-bold text-gray-400 uppercase">Score</div>
                                                         </div>
                                                         <div>
-                                                            <h3 className="text-xl font-black text-gray-800">Risk Assessment</h3>
-                                                            <p className="text-sm text-gray-500">Based on leverage, savings ratio, and repayment history.</p>
+                                                            <h3 className="text-xl font-black text-gray-800">Advanced Risk Report</h3>
+                                                            <p className="text-sm text-gray-500">Longitudinal analysis of behavioral and financial markers.</p>
                                                         </div>
                                                     </div>
 
-                                                    <div className="space-y-4">
-                                                        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                                            <div>
-                                                                <span className="font-bold text-gray-600 block">Leverage Ratio</span>
-                                                                <span className="text-[10px] text-gray-400 font-bold uppercase">Total Loans vs Total Savings</span>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                        <div className="space-y-4">
+                                                            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                                                <div className="flex justify-between items-center mb-2">
+                                                                    <span className="text-xs font-bold text-gray-500 uppercase">Leverage Ratio</span>
+                                                                    <span className={`font-black ${(profileData.risk?.ratio || 0) > 3 ? 'text-red-500' : 'text-green-600'}`}>
+                                                                        {(profileData.risk?.ratio || 0).toFixed(1)}x Savings
+                                                                    </span>
+                                                                </div>
+                                                                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                                    <div className={`h-full ${profileData.risk?.ratio > 3 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, (profileData.risk?.ratio || 0) * 25)}%` }}></div>
+                                                                </div>
                                                             </div>
-                                                            <span className={`font-black text-lg ${(profileData.member.activeLoans / profileData.member.savings) > 1 ? 'text-red-500' : 'text-green-500'}`}>
-                                                                {profileData.member.savings > 0 ? ((profileData.member.activeLoans / profileData.member.savings) * 100).toFixed(1) : '∞'}%
-                                                            </span>
-                                                        </div>
 
-                                                        {/* Debt Capacity Visualization */}
-                                                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                                            <div className="flex justify-between items-center mb-2">
-                                                                <span className="font-bold text-gray-600">Debt Capacity Utilization</span>
-                                                                <span className="text-[10px] font-black p-1 bg-white rounded shadow-sm text-blue-600 tracking-tighter">BANK-GRADE SCORE</span>
-                                                            </div>
-                                                            <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden flex">
-                                                                <div
-                                                                    className={`h-full transition-all duration-1000 ${(profileData.member.activeLoans / profileData.member.savings) > 0.8 ? 'bg-red-500' :
-                                                                            (profileData.member.activeLoans / profileData.member.savings) > 0.5 ? 'bg-amber-500' : 'bg-green-500'
-                                                                        }`}
-                                                                    style={{ width: `${Math.min((profileData.member.activeLoans / (profileData.member.savings || 1)) * 100, 100)}%` }}
-                                                                ></div>
-                                                            </div>
-                                                            <div className="flex justify-between mt-2 text-[9px] font-black text-gray-400 uppercase">
-                                                                <span>Secure (0-50%)</span>
-                                                                <span>Leveraged (50-80%)</span>
-                                                                <span>Critical (80%+)</span>
+                                                            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                                                <div className="flex justify-between items-center text-xs font-bold text-gray-500 uppercase">
+                                                                    <span>Recent Penalties</span>
+                                                                    <span className={profileData.risk?.penalties > 0 ? 'text-amber-600' : 'text-green-600'}>
+                                                                        {profileData.risk?.penalties || 0} (6 Months)
+                                                                    </span>
+                                                                </div>
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                                            <div>
-                                                                <span className="font-bold text-gray-600 block">Net Liquidity Position</span>
-                                                                <span className="text-[10px] text-gray-400 font-bold uppercase">Cash Buffer after clearing all debt</span>
-                                                            </div>
-                                                            <span className={`font-black text-lg ${(profileData.member.savings - profileData.member.activeLoans) < 0 ? 'text-red-500' : 'text-green-500'}`}>
-                                                                KES {(profileData.member.savings - profileData.member.activeLoans).toLocaleString()}
-                                                            </span>
+                                                        <div className="bg-slate-900 rounded-2xl p-6 text-white space-y-4">
+                                                            <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Behavioral Intelligence</h4>
+                                                            {profileData.risk?.alerts?.length > 0 ? (
+                                                                <div className="space-y-3">
+                                                                    {profileData.risk.alerts.map((alert, i) => (
+                                                                        <div key={i} className="flex gap-3">
+                                                                            <div className={`mt-1 w-2 h-2 rounded-full shrink-0 ${alert.severity === 'HIGH' ? 'bg-red-500 animate-pulse' : 'bg-amber-500'}`}></div>
+                                                                            <div>
+                                                                                <p className="text-xs font-bold">{alert.type.replace('_', ' ')}</p>
+                                                                                <p className="text-[10px] text-slate-400">{alert.msg}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex flex-col items-center justify-center py-6 opacity-40">
+                                                                    <FaCircleCheck className="text-3xl mb-2 text-green-400" />
+                                                                    <p className="text-[10px] font-black tracking-widest">CLEAR RECORD</p>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>

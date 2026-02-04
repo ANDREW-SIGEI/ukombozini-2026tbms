@@ -6,7 +6,8 @@ import {
     FaHandHoldingDollar, FaFileInvoiceDollar, FaUserTie,
     FaScaleBalanced, FaGear, FaBell, FaCircleUser, FaCircleCheck,
     FaCommentSms, FaChartLine, FaClipboardList, FaArrowRightFromBracket,
-    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank, FaSackDollar, FaArrowRotateLeft
+    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank, FaSackDollar, FaArrowRotateLeft,
+    FaBuildingColumns
 } from 'react-icons/fa6';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -63,12 +64,13 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 ...(isPowerUser ? [
                     { path: '/officers', name: 'System Staff', icon: <FaUserTie /> },
                     { path: '/officials-directory', name: 'Officials Directory', icon: <FaClipboardList /> },
+                    { path: '/capital-manager', name: 'Capital Manager', icon: <FaBuildingColumns /> },
                     { path: '/governance-hub', name: 'Governance Hub', icon: <FaShieldHalved /> },
                     { path: '/reversal-center', name: 'Reversal Center', icon: <FaArrowRotateLeft /> },
                     { path: '/auditor-mode', name: 'Auditor Mode', icon: <FaFileLines /> },
                     { path: '/admin', name: 'Admin Panel', icon: <FaGear /> },
                 ] : []),
-                { path: '/messaging-hub', name: 'Messaging Hub', icon: <FaCommentSms /> },
+                { path: '/communication-hub', name: 'Communication Hub', icon: <FaCommentSms /> },
             ]
         }
     ];

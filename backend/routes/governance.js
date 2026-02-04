@@ -274,4 +274,15 @@ router.get('/officials', authenticateToken, async (req, res) => {
     });
 });
 
+// GET /api/risk/member/:id - Individual Member Risk Report
+router.get('/risk/member/:id', authenticateToken, async (req, res) => {
+    try {
+        const report = await RiskService.evaluateMemberRisk(req.params.id);
+        res.json(report);
+    } catch (err) {
+        console.error("Member Risk Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

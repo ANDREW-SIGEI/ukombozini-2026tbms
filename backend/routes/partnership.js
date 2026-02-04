@@ -224,4 +224,26 @@ router.post('/apply-offset', authenticateToken, isAdmin, checkFreeze('GROUP'), a
     }
 });
 
+// GET /api/partnership/stats - Institutional Capital Metrics
+router.get('/stats', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const stats = await new Promise((resolve, reject) => {
+            db.get(`
+                SELECT 
+                    (SELECT COALESCE(SUM(amount), 0) FROM company_investments WHERE status = 'ACTIVE') as totalInjected,
+                    (SELECT COALESCE(SUM(amount), 0) FROM group_commitments WHERE status = 'LOCKED') as activeCommitments,
+                    (SELECT COALESCE(SUM(total_value), 0) FROM financed_products WHERE status = 'ACTIVE') as productFinanceVolume,
+                    (SELECT COALESCE(SUM(active_loan_balance), 0) FROM members) as pendingRepayments
+            `, (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        res.json(stats);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

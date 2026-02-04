@@ -9,6 +9,7 @@ import { api } from '../services/api';
 
 const MeetingLedger = ({ sessionId, onClose }) => {
     const [summary, setSummary] = useState(null);
+    const [allocation, setAllocation] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isClosing, setIsClosing] = useState(false);
 
@@ -20,8 +21,12 @@ const MeetingLedger = ({ sessionId, onClose }) => {
         setLoading(true);
         try {
             // Updated to use Supabase API
-            const data = await api.getMeetingSummary(sessionId);
-            setSummary(data);
+            const [summaryData, allocationData] = await Promise.all([
+                api.getMeetingSummary(sessionId),
+                api.getAllocationPreview(sessionId).catch(() => null) // Fallback for non-MTE
+            ]);
+            setSummary(summaryData);
+            setAllocation(allocationData);
         } catch (error) {
             console.error(error);
             toast.error("Failed to load session ledger");
@@ -38,13 +43,22 @@ const MeetingLedger = ({ sessionId, onClose }) => {
 
         setIsClosing(true);
         try {
+            // 1. Commit Table Banking Allocation (if applicable)
+            if (allocation && allocation.surplus > 0) {
+                await api.commitAllocation(sessionId);
+                toast.success("✅ Allocation Matrix Committed!");
+            }
+
+            // 2. Lock the meeting session
             await api.closeMeeting(sessionId, {
                 totalContributions: summary.breakdown.total_savings,
                 totalLoanDisbursements: summary.breakdown.total_loans_issued,
-                totalRepayments: summary.breakdown.total_stl_repayment + summary.breakdown.total_ltl_repayment
+                totalRepayments: summary.breakdown.total_stl_repayment + summary.breakdown.total_ltl_repayment,
+                status: 'LOCKED'
             });
+
             toast.success("✅ Meeting Session Balanced and Locked!");
-            onClose();
+            if (onClose) onClose();
         } catch (error) {
             console.error(error);
             toast.error("Failed to close session");
@@ -163,6 +177,34 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                         </div>
                     </div>
                 </div>
+
+                {/* 🏦 ALLOCATION MATRIX SECTION (DYNAMIC) */}
+                {allocation && allocation.surplus > 0 && (
+                    <div className="mt-8 animate-in slide-in-from-bottom duration-500">
+                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-4">
+                            <FaScaleBalanced className="text-emerald-500" /> Table Banking Allocation Matrix
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
+                                <p className="text-[10px] font-black text-emerald-600 uppercase">Available Surplus</p>
+                                <p className="text-xl font-black text-emerald-800">KES {allocation.surplus.toLocaleString()}</p>
+                            </div>
+                            {allocation.splits.map((split, idx) => (
+                                <div key={idx} className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase">{split.ledger}</p>
+                                    <p className="text-lg font-black text-slate-800">KES {split.amount.toLocaleString()}</p>
+                                    <p className="text-[9px] font-bold text-slate-400">Rule: {split.percentage}%</p>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+                            <FaCircleExclamation className="text-amber-500" />
+                            <p className="text-xs font-bold text-slate-600 italic">
+                                Note: These amounts will be automatically distributed to their respective pools upon session sync.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Footer Actions */}
                 <div className="mt-12 flex gap-4">

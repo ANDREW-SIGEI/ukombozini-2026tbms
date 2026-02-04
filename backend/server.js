@@ -9,16 +9,18 @@ const db = require('./db');
 
 // Modular Imports ("Well Arranged")
 const { initSchema } = require('./database/schema');
+const { initLedgerSchema } = require('./database/ledger_schema');
+const { initAllocationSchema } = require('./database/allocation_schema');
 const { authenticateToken, isAdmin } = require('./middleware/auth');
 const { checkFreeze } = require('./middleware/guards');
 const { logAudit, logAndSendSMS } = require('./utils/logger');
-const { initLedgerSchema } = require('./database/ledger_schema');
 const { initCashControl } = require('./database/cash_control_schema');
 const CashControlService = require('./services/CashControlService');
 const RiskService = require('./services/RiskService');
 const MonthlyReportService = require('./services/MonthlyReportService');
 const reportService = require('./services/reportService');
 const dividendRules = require('./services/dividendRules');
+const AllocationService = require('./services/AllocationService');
 const { TRANSACTION_MAP, runMTELogic } = require('./services/MTEEngine');
 
 const partnershipRoutes = require('./routes/partnership');
@@ -68,6 +70,7 @@ app.use((req, res, next) => {
 // Initialize Database Schema
 initSchema();
 initLedgerSchema(db).catch(err => console.error("Ledger Init Failed:", err));
+initAllocationSchema(db).catch(err => console.error("Allocation Init Failed:", err));
 initCashControl().catch(err => console.error("Cash Control Init Failed:", err));
 
 // Mount Modular Routes
@@ -2768,6 +2771,75 @@ app.get('/api/sessions/:id/summary', (req, res) => {
     });
 });
 
+// ==========================================
+// 🏦 ALLOCATION MATRIX API (TABLE BANKING)
+// ==========================================
+
+// Get Allocation Preview for a session
+app.get('/api/allocation/preview/:sessionId', async (req, res) => {
+    try {
+        const preview = await AllocationService.getPreview(req.params.sessionId);
+        res.json(preview);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Commit Allocation for a session
+app.post('/api/allocation/commit/:sessionId', async (req, res) => {
+    try {
+        const result = await AllocationService.commitAllocation(req.params.sessionId);
+        logAudit(`Commit Allocation`, 'officer', { sessionId: req.params.sessionId });
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Allocation Rules for a group
+app.get('/api/allocation/rules/:groupId', async (req, res) => {
+    try {
+        const rules = await AllocationService.getGroupRules(req.params.groupId);
+        res.json(rules);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Allocation History (Audit Trail)
+app.get('/api/allocation/history', async (req, res) => {
+    try {
+        const history = await AllocationService.getAllocationHistory(req.query.limit || 50);
+        res.json(history);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update Allocation Rules
+app.post('/api/allocation/rules', authenticateToken, isAdmin, async (req, res) => {
+    const { group_id, stl_pct, ltl_pct, dividend_pct, refund_reserve_pct, edu_project_pct, agri_project_pct } = req.body;
+    const sql = `
+        INSERT INTO group_allocation_rules (
+            group_id, stl_pct, ltl_pct, dividend_pct, refund_reserve_pct, edu_project_pct, agri_project_pct, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(group_id) DO UPDATE SET
+            stl_pct = excluded.stl_pct,
+            ltl_pct = excluded.ltl_pct,
+            dividend_pct = excluded.dividend_pct,
+            refund_reserve_pct = excluded.refund_reserve_pct,
+            edu_project_pct = excluded.edu_project_pct,
+            agri_project_pct = excluded.agri_project_pct,
+            updated_at = CURRENT_TIMESTAMP
+    `;
+    db.run(sql, [group_id, stl_pct, ltl_pct, dividend_pct, refund_reserve_pct, edu_project_pct, agri_project_pct], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        logAudit(`Update Allocation Matrix`, 'admin', { groupId: group_id });
+        res.json({ success: true });
+    });
+});
+
+
 // Get Loan Products (for Advisory Panel)
 app.get('/api/loan-products', authenticateToken, (req, res) => {
     db.all("SELECT * FROM loan_products ORDER BY loan_amount ASC", (err, rows) => {
@@ -4506,9 +4578,13 @@ app.get('/api/reports/loan-repayment-pdf', authenticateToken, async (req, res) =
         res.status(500).json({ error: error.message });
     }
 });
-app.post('/api/officers', authenticateToken, isAdmin, (req, res) => {
+app.post('/api/officers', authenticateToken, isAdmin, async (req, res) => {
     const { id, name, role, phone, email, status, password_hash, password } = req.body;
-    const final_password_hash = password_hash || password || null;
+
+    let final_password_hash = password_hash;
+    if (password) {
+        final_password_hash = await bcrypt.hash(password, 10);
+    }
 
     if (id) {
         const stmt = db.prepare("UPDATE officers SET name=?, role=?, phone=?, email=?, status=? WHERE id=?");
@@ -4539,14 +4615,19 @@ app.post('/api/officers', authenticateToken, isAdmin, (req, res) => {
 });
 
 // Reset Officer Password
-app.post('/api/officers/:id/reset-password', authenticateToken, isAdmin, (req, res) => {
+app.post('/api/officers/:id/reset-password', authenticateToken, isAdmin, async (req, res) => {
     const { id } = req.params;
-    const { password_hash } = req.body;
+    const { password_hash, password } = req.body;
 
-    if (!password_hash) return res.status(400).json({ error: "Password hash required" });
+    let final_password_hash = password_hash;
+    if (!final_password_hash && password) {
+        final_password_hash = await bcrypt.hash(password, 10);
+    }
+
+    if (!final_password_hash) return res.status(400).json({ error: "Password or valid hash required" });
 
     const stmt = db.prepare("UPDATE officers SET password_hash = ? WHERE id = ?");
-    stmt.run(password_hash, id, function (err) {
+    stmt.run(final_password_hash, id, function (err) {
         if (err) return res.status(500).json({ error: err.message });
         logAudit(`Reset Password: Officer ID ${id}`, 'admin', { id });
         res.json({ success: true, message: "Password reset successful" });

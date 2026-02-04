@@ -78,6 +78,16 @@ class OfflineManager {
                 if (!db.objectStoreNames.contains('cachedLoans')) {
                     db.createObjectStore('cachedLoans', { keyPath: 'id' });
                 }
+
+                // Cached groups
+                if (!db.objectStoreNames.contains('cachedGroups')) {
+                    db.createObjectStore('cachedGroups', { keyPath: 'id' });
+                }
+
+                // Cached loan products
+                if (!db.objectStoreNames.contains('cachedLoanProducts')) {
+                    db.createObjectStore('cachedLoanProducts', { keyPath: 'id' });
+                }
             };
         });
     }
@@ -175,11 +185,21 @@ class OfflineManager {
                         result = await api.postTransaction(transaction.data);
                         break;
                     case 'loan':
-                        result = await api.issueLoan(transaction.data);
+                    case 'LOAN_DISBURSEMENT':
+                        result = await api.postTransaction({ ...transaction.data, type: 'LOAN_DISBURSEMENT' });
+                        break;
+                    case 'withdrawal':
+                    case 'WITHDRAWAL':
+                        result = await api.postTransaction({ ...transaction.data, type: 'WITHDRAWAL' });
+                        break;
+                    case 'repayment':
+                    case 'LOAN_REPAYMENT':
+                        result = await api.postTransaction({ ...transaction.data, type: 'LOAN_REPAYMENT' });
                         break;
                     default:
-                        console.warn('Unknown transaction type:', transaction.type);
-                        continue;
+                        // Try standard transaction post if type matches MTE expectations
+                        result = await api.postTransaction(transaction.data);
+                        break;
                 }
 
                 // Mark as synced
@@ -310,6 +330,77 @@ class OfflineManager {
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
         });
+    }
+
+    /**
+     * Cache groups for offline access
+     */
+    async cacheGroups(groups) {
+        const tx = this.db.transaction(['cachedGroups'], 'readwrite');
+        const store = tx.objectStore('cachedGroups');
+
+        for (const group of groups) {
+            await new Promise((resolve, reject) => {
+                const request = store.put({
+                    ...group,
+                    cachedAt: new Date().toISOString()
+                });
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+    }
+
+    /**
+     * Get cached groups
+     */
+    async getCachedGroups() {
+        const tx = this.db.transaction(['cachedGroups'], 'readonly');
+        const store = tx.objectStore('cachedGroups');
+        return new Promise((resolve, reject) => {
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Cache loan products
+     */
+    async cacheLoanProducts(products) {
+        const tx = this.db.transaction(['cachedLoanProducts'], 'readwrite');
+        const store = tx.objectStore('cachedLoanProducts');
+
+        for (const product of products) {
+            await new Promise((resolve, reject) => {
+                const request = store.put({
+                    ...product,
+                    cachedAt: new Date().toISOString()
+                });
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+    }
+
+    /**
+     * Get cached loan products
+     */
+    async getCachedLoanProducts() {
+        const tx = this.db.transaction(['cachedLoanProducts'], 'readonly');
+        const store = tx.objectStore('cachedLoanProducts');
+        return new Promise((resolve, reject) => {
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Get sync queue
+     */
+    async getSyncQueue() {
+        return await this.getPendingTransactions();
     }
 
     /**

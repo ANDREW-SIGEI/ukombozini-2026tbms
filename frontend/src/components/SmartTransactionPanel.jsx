@@ -3,13 +3,15 @@ import {
     FaMoneyBillWave, FaHandHoldingDollar, FaCoins, FaGraduationCap,
     FaLeaf, FaFileInvoiceDollar, FaBuildingColumns, FaTriangleExclamation,
     FaArrowRight, FaSpinner, FaCircleCheck, FaSackDollar, FaBoxArchive,
-    FaShieldHalved, FaMoneyBillTransfer, FaUserShield, FaChartLine
+    FaShieldHalved, FaMoneyBillTransfer, FaUserShield, FaChartLine,
+    FaFilePdf
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { api } from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
 import { useAuth } from '../context/AuthContext';
 import offlineManager from '../services/OfflineManager';
+import ReceiptService from '../services/ReceiptService';
 
 const TRANSACTION_GROUPS = [
     {
@@ -79,6 +81,8 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
     const [amount, setAmount] = useState('');
     const [notes, setNotes] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isSuccess, setIsSuccess] = useState(false);
+    const [lastTxData, setLastTxData] = useState(null);
 
     // Dynamic Data Helpers
     const [loans, setLoans] = useState([]);
@@ -100,6 +104,8 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
             setGuarantors({ g1: '', g2: '' });
             setSelectedLoan(null);
             setAssetDetails({ productName: '', value: '' });
+            setIsSuccess(false);
+            setLastTxData(null);
         }
     }, [isOpen, initialMember]);
 
@@ -334,9 +340,10 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 breakdown: calculationPreview?.split
             };
 
+            let result = null;
             if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
                 // Loans still use their own engine for now due to complexity of schedule creation
-                await api.issueLoan({
+                result = await api.issueLoan({
                     memberId: memberContext.id,
                     groupId: memberContext.group_id,
                     sessionId: activeSession?.id || latestCashSession?.id,
@@ -351,7 +358,7 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 });
             } else if (selectedType.id === 'productfinancing') {
                 // Asset financing using the unified engine payload extension
-                await api.postTransaction({
+                result = await api.postTransaction({
                     ...commonPayload,
                     productName: assetDetails.productName,
                     totalValue: parseFloat(assetDetails.value) || parseFloat(amount),
@@ -359,17 +366,23 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 });
             } else {
                 // Unified Savings / Welfare / Penalty / Project / Repayment / Withdrawal
-                await api.postTransaction(commonPayload);
+                result = await api.postTransaction(commonPayload);
             }
 
             toast.success("Transaction Posted Successfully");
 
-            // Allow state to settle, then call refresh and close
-            setTimeout(() => {
-                if (onRefresh) onRefresh();
-                onClose();
-            }, 500);
+            // Set success state for overlay
+            setLastTxData({
+                id: result?.id || Date.now(),
+                amount: commonPayload.amount,
+                type: selectedType.label,
+                date: new Date().toISOString(),
+                officer: user?.name,
+                notes: notes
+            });
+            setIsSuccess(true);
 
+            if (onRefresh) onRefresh();
         } catch (error) {
             console.error("MTE Post Failed:", error);
             const errorMsg = error.response?.data?.error || error.message || "Posting Failed";
@@ -432,27 +445,27 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 {/* 🔹 ZONE A: FINANCIAL SNAPSHOT CARDS */}
                 <div className="bg-slate-900 grid grid-cols-2 md:grid-cols-6 gap-0.5 p-0.5 shrink-0 border-b border-slate-700">
                     {snapshot.map((card, i) => (
-                        <div key={i} className={`p-4 ${card.isRisk ? 'bg-slate-800' : 'bg-slate-900'}`}>
+                        <div key={i} className={`p - 4 ${card.isRisk ? 'bg-slate-800' : 'bg-slate-900'} `}>
                             <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">{card.label}</div>
                             {card.isRisk ? (
                                 <div className="flex items-center gap-2">
                                     <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
-                                        <div className={`h-full transition-all duration-1000 ${card.val > 70 ? 'bg-red-500' : card.val > 40 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${card.val}%` }} />
+                                        <div className={`h - full transition - all duration - 1000 ${card.val > 70 ? 'bg-red-500' : card.val > 40 ? 'bg-amber-500' : 'bg-green-500'} `} style={{ width: `${card.val}% ` }} />
                                     </div>
                                     <span className="text-sm font-black text-white">{card.val || 0}%</span>
                                 </div>
                             ) : card.isStatus ? (
-                                <div className={`text-sm font-black ${card.color} flex items-center gap-2`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${card.val === 'ELIGIBLE' ? 'bg-green-400' : 'bg-amber-400'}`}></span>
+                                <div className={`text - sm font - black ${card.color} flex items - center gap - 2`}>
+                                    <span className={`w - 1.5 h - 1.5 rounded - full animate - pulse ${card.val === 'ELIGIBLE' ? 'bg-green-400' : 'bg-amber-400'} `}></span>
                                     {card.val}
                                 </div>
                             ) : card.isText ? (
-                                <div className={`text-sm font-black ${card.text}`}>
+                                <div className={`text - sm font - black ${card.text} `}>
                                     {card.val}
                                 </div>
                             ) : (
-                                <div className={`text-lg font-black ${card.color || card.text}`}>
-                                    {loadingContext ? "..." : `KES ${Number(card.val || 0).toLocaleString()}`}
+                                <div className={`text - lg font - black ${card.color || card.text} `}>
+                                    {loadingContext ? "..." : `KES ${Number(card.val || 0).toLocaleString()} `}
                                 </div>
                             )}
                         </div>
@@ -486,16 +499,16 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                                         <button
                                             key={type.id}
                                             onClick={() => setSelectedType(type)}
-                                            className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-left
+                                            className={`w - full flex items - center gap - 3 p - 2.5 rounded - lg transition - all text - left
                                                 ${selectedType.id === type.id
                                                     ? 'bg-white shadow-sm ring-1 ring-slate-200 border-l-4 border-slate-900 scale-[1.02]'
                                                     : 'hover:bg-slate-200/50 text-slate-600'
-                                                }`}
+                                                } `}
                                         >
-                                            <div className={`w-7 h-7 rounded flex items-center justify-center text-xs ${type.bg} ${type.color}`}>
+                                            <div className={`w - 7 h - 7 rounded flex items - center justify - center text - xs ${type.bg} ${type.color} `}>
                                                 <type.icon />
                                             </div>
-                                            <span className={`text-[11px] font-bold ${selectedType.id === type.id ? 'text-slate-900' : 'text-slate-500'}`}>
+                                            <span className={`text - [11px] font - bold ${selectedType.id === type.id ? 'text-slate-900' : 'text-slate-500'} `}>
                                                 {type.label}
                                             </span>
                                         </button>
@@ -510,7 +523,7 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                         <div className="flex-1 p-10 overflow-y-auto">
                             <div className="max-w-xl mx-auto space-y-8">
                                 <header className="flex items-center gap-4">
-                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner ${selectedType.bg} ${selectedType.color}`}>
+                                    <div className={`w - 14 h - 14 rounded - 2xl flex items - center justify - center text - 2xl shadow - inner ${selectedType.bg} ${selectedType.color} `}>
                                         <selectedType.icon />
                                     </div>
                                     <div>
@@ -544,7 +557,7 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                                             <div className="grid gap-2">
                                                 {loans.map(loan => (
                                                     <div key={loan.id} onClick={() => setSelectedLoan(loan)}
-                                                        className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex justify-between items-center ${selectedLoan?.id === loan.id ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-slate-200 bg-white'}`}>
+                                                        className={`p - 4 rounded - xl border - 2 transition - all cursor - pointer flex justify - between items - center ${selectedLoan?.id === loan.id ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-slate-200 bg-white'} `}>
                                                         <div>
                                                             <div className="font-black text-slate-800 text-sm">{loan.loan_type} LOAN #{loan.id}</div>
                                                             <div className="text-[10px] font-bold text-slate-400 mt-0.5">Bal: KES {(loan.principal_amount + (loan.outstanding_interest || 0) + (loan.outstanding_penalty || 0)).toLocaleString()}</div>
@@ -606,17 +619,17 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                                     <div className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-200 space-y-4">
                                         {calculationPreview.metrics.map((m, i) => (
                                             <div key={i} className="flex justify-between items-center group">
-                                                <span className={`text-xs font-bold ${m.isBold ? 'text-slate-900 text-sm' : 'text-slate-500'}`}>{m.label}</span>
+                                                <span className={`text - xs font - bold ${m.isBold ? 'text-slate-900 text-sm' : 'text-slate-500'} `}>{m.label}</span>
                                                 <div className="text-right">
                                                     {m.isRisk ? (
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-[10px] text-slate-300 line-through font-bold">{m.before}%</span>
-                                                            <span className={`text-xs font-black ${m.after > m.before ? 'text-red-500' : 'text-green-500'}`}>{m.after}%</span>
+                                                            <span className={`text - xs font - black ${m.after > m.before ? 'text-red-500' : 'text-green-500'} `}>{m.after}%</span>
                                                         </div>
                                                     ) : (
                                                         <>
                                                             <div className="text-[10px] text-slate-300 line-through font-bold">KES {Number(m.before).toLocaleString()}</div>
-                                                            <div className={`text-xs font-black ${m.after > m.before && !m.label.includes('Loan') ? 'text-green-600' : m.after < m.before && m.label.includes('Loan') ? 'text-green-600' : 'text-slate-900'}`}>{m.after < 0 ? '-' : ''}KES {Number(Math.abs(m.after)).toLocaleString()}</div>
+                                                            <div className={`text - xs font - black ${m.after > m.before && !m.label.includes('Loan') ? 'text-green-600' : m.after < m.before && m.label.includes('Loan') ? 'text-green-600' : 'text-slate-900'} `}>{m.after < 0 ? '-' : ''}KES {Number(Math.abs(m.after)).toLocaleString()}</div>
                                                         </>
                                                     )}
                                                 </div>
@@ -641,7 +654,7 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                                             {calculationPreview.rules.map((rule, i) => (
                                                 <div key={i} className="flex justify-between items-center text-xs">
                                                     <span>{rule.label}</span>
-                                                    <span className={`font-black px-2 py-0.5 rounded-full ${rule.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{rule.status}</span>
+                                                    <span className={`font - black px - 2 py - 0.5 rounded - full ${rule.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'} `}>{rule.status}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -657,7 +670,7 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                                     <div className="bg-slate-900 text-white p-6 rounded-3xl space-y-1">
                                         <p className="text-[10px] font-black uppercase text-slate-500">Stability Verdict</p>
                                         <div className="text-sm font-bold flex items-center gap-2">
-                                            <span className={`w-2 h-2 rounded-full animate-pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                                            <span className={`w - 2 h - 2 rounded - full animate - pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-green-500' : 'bg-red-500'} `}></span>
                                             {calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}
                                         </div>
                                     </div>
@@ -672,9 +685,9 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                             <button
                                 type="submit"
                                 disabled={isProcessing || !amount || !calculationPreview || calculationPreview.isRestricted}
-                                className={`w-full py-5 rounded-3xl font-black text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95
+                                className={`w - full py - 5 rounded - 3xl font - black text - white shadow - 2xl transition - all flex items - center justify - center gap - 3 active: scale - 95
                                     ${isProcessing || !calculationPreview || calculationPreview.isRestricted ? 'bg-slate-400' : 'bg-slate-900 hover:bg-black uppercase tracking-widest text-sm'}
-                                `}
+`}
                             >
                                 {isProcessing ? <FaSpinner className="animate-spin" /> : <FaCircleCheck className="text-lg" />}
                                 {isProcessing ? "Processing Vault..." : "APPROVE & POST"}
@@ -683,11 +696,57 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                     </form>
                 </div>
 
+                {/* 🔹 SUCCESS OVERLAY (Z-LAYER) */}
+                {isSuccess && lastTxData && (
+                    <div className="absolute inset-0 z-[110] bg-white flex items-center justify-center animate-in fade-in duration-300">
+                        <div className="max-w-md w-full p-8 text-center space-y-8">
+                            <div className="flex flex-col items-center">
+                                <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-5xl mb-6 shadow-sm border-4 border-white animate-bounce">
+                                    <FaCircleCheck />
+                                </div>
+                                <h1 className="text-4xl font-black text-slate-900 leading-tight">Post Confirmed!</h1>
+                                <p className="text-slate-500 font-bold mt-2 uppercase tracking-widest text-xs">Transaction ID: UKB-TX-{lastTxData.id}</p>
+                            </div>
+
+                            <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 text-left space-y-4">
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-slate-400 font-bold">Transaction Type</span>
+                                    <span className="font-black text-slate-900 uppercase">{lastTxData.type}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-400 font-bold text-sm">Amount Paid</span>
+                                    <span className="text-2xl font-black text-safaricom-green">KES {Number(lastTxData.amount).toLocaleString()}</span>
+                                </div>
+                                <div className="pt-4 border-t border-slate-200 text-xs text-slate-400 font-medium italic">
+                                    "{lastTxData.notes || 'Official table banking entry recorded'}"
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4">
+                                <button
+                                    onClick={() => ReceiptService.generateReceipt(memberContext, lastTxData)}
+                                    className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3 active:scale-95"
+                                >
+                                    <FaFilePdf className="text-xl" /> DOWNLOAD PDF RECEIPT
+                                </button>
+                                <button
+                                    onClick={onClose}
+                                    className="w-full py-5 bg-white border-2 border-slate-200 text-slate-600 rounded-3xl font-black hover:bg-slate-50 transition-all"
+                                >
+                                    DONE & CLOSE
+                                </button>
+                            </div>
+
+                            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Digital Field Operations Terminal • 2026</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* 🔹 ZONE D: GOVERNANCE STRIP */}
                 <div className="bg-slate-200 p-3 px-6 flex justify-between items-center text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] shrink-0">
                     <div className="flex items-center gap-6">
                         <span className="flex items-center gap-1.5"><FaUserShield className="text-slate-400" /> AUTH: {user?.name || 'ADMIN'}</span>
-                        <span className="flex items-center gap-1.5 text-slate-400"><FaBuildingColumns className="text-slate-400" /> STATUS: {activeSession ? `LIVE SESSION #${activeSession.id}` : 'GENERAL LEDGER'}</span>
+                        <span className="flex items-center gap-1.5 text-slate-400"><FaBuildingColumns className="text-slate-400" /> STATUS: {activeSession ? `LIVE SESSION #${activeSession.id} ` : 'GENERAL LEDGER'}</span>
                     </div>
                     <div className="flex items-center gap-3">
                         {!navigator.onLine && (

@@ -64,7 +64,7 @@ const LoanAdvisory = lazyWithRetry(() => import('./pages/LoanAdvisory'));
 const CashControlModule = lazyWithRetry(() => import('./pages/CashControlModule'));
 const GroupsManagement = lazyWithRetry(() => import('./pages/GroupsManagement'));
 const CompanyPartnershipManager = lazyWithRetry(() => import('./pages/CompanyPartnershipManager'));
-const NotificationsPage = lazyWithRetry(() => import('./pages/NotificationsPage'));
+const CommunicationHub = lazyWithRetry(() => import('./pages/CommunicationHub'));
 const ResetPasswordPage = lazyWithRetry(() => import('./pages/ResetPasswordPage'));
 const FinancialReports = lazyWithRetry(() => import('./pages/FinancialReports'));
 const ProjectManager = lazyWithRetry(() => import('./pages/ProjectManager'));
@@ -75,6 +75,7 @@ const OfficialsDirectory = lazyWithRetry(() => import('./pages/OfficialsDirector
 const RiskCommandCenter = lazyWithRetry(() => import('./pages/RiskCommandCenter'));
 const MonthlyReports = lazyWithRetry(() => import('./pages/MonthlyReports'));
 const ReversalCenter = lazyWithRetry(() => import('./pages/ReversalCenter'));
+const CapitalManager = lazyWithRetry(() => import('./pages/CapitalManager'));
 
 
 
@@ -109,7 +110,7 @@ function App() {
               <Route path="/project-manager" element={<ProjectManager />} />
               <Route path="/contribution-compliance" element={<ContributionCompliance />} />
               <Route path="/partnership-manager" element={<CompanyPartnershipManager />} />
-              <Route path="/messaging-hub" element={<NotificationsPage />} />
+              <Route path="/communication-hub" element={<CommunicationHub />} />
               <Route path="/financial-reports" element={<FinancialReports />} />
               <Route path="/monthly-cash-reports" element={<MonthlyReports />} />
             </Route>
@@ -128,6 +129,7 @@ function App() {
               <Route path="/auditor-mode" element={<AuditorMode />} />
               <Route path="/officials-directory" element={<OfficialsDirectory />} />
               <Route path="/risk-command-center" element={<RiskCommandCenter />} />
+              <Route path="/capital-manager" element={<CapitalManager />} />
             </Route>
 
             {/* Catch all redirect */}
