@@ -3,10 +3,10 @@ const router = express.Router();
 const db = require('../db');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 const { logAudit } = require('../utils/logger');
-const MonthlyReportService = require('../services/MonthlyReportService');
+const { runMTELogic } = require('../services/MTEEngine');
 
 /**
- * 🔄 Reversal Management API
+ * 🔄 Institutional Reversal Management API (MTE v2)
  */
 
 // POST /api/reversals/request
@@ -32,85 +32,88 @@ router.post('/request', authenticateToken, (req, res) => {
     });
 });
 
-// POST /api/reversals/approve
-router.post('/approve', authenticateToken, isAdmin, (req, res) => {
+// POST /api/reversals/approve - Institutional MTE Reversal
+router.post('/approve', authenticateToken, isAdmin, async (req, res) => {
     const { request_id } = req.body;
     const approver_id = req.user.id;
+    const convertSql = (s) => { let c = 0; return s.replace(/\?/g, () => `$${++c}`); };
 
-    db.get("SELECT * FROM reversal_requests WHERE id = ?", [request_id], (err, request) => {
-        if (err || !request) return res.status(404).json({ error: "Reversal request not found." });
+    let client = null;
+    try {
+        if (!db.beginTransaction) return res.status(501).json({ error: "MTE v2 requires PostgreSQL." });
+
+        // 1. Get Request & Transaction Details
+        const requestQuery = `
+            SELECT rr.*, t.transaction_type, t.memberId, t.sessionId, 
+            t.savings_amount, t.withdrawals, t.stl_repayment, t.ltl_repayment
+            FROM reversal_requests rr
+            JOIN transactions t ON rr.transaction_id = t.id
+            WHERE rr.id = ?
+        `;
+
+        // Use db.queryStandalone for initial lookup
+        const rResult = await db.queryStandalone(convertSql(requestQuery), [request_id]);
+        const request = rResult.rows[0];
+
+        if (!request) return res.status(404).json({ error: "Reversal request not found." });
         if (request.status !== 'PENDING') return res.status(400).json({ error: "Request already processed." });
+        if (request.requester_id === approver_id) throw new Error("SECURITY ALERT: Cannot approve own request.");
 
-        if (request.requester_id === approver_id) {
-            return res.status(403).json({ error: "SECURITY ALERT: You cannot approve your own reversal request." });
+        client = await db.beginTransaction();
+
+        // 2. Mark Original as REVERSED
+        await client.query(convertSql("UPDATE transactions SET status = 'REVERSED' WHERE id = ?"), [request.transaction_id]);
+
+        // 3. Determine Reversal Type & Amount
+        let mteType = '';
+        let mteAmount = 0;
+
+        if (request.savings_amount > 0) {
+            mteType = 'SAVINGS_REVERSAL';
+            mteAmount = request.savings_amount;
+        } else if (request.withdrawals > 0) {
+            mteType = 'WITHDRAWAL_REVERSAL';
+            mteAmount = request.withdrawals;
+        } else if (request.stl_repayment > 0 || request.ltl_repayment > 0) {
+            mteType = 'LOAN_REPAYMENT_REVERSAL';
+            mteAmount = (request.stl_repayment || 0) + (request.ltl_repayment || 0);
+        } else {
+            // Fallback to type mapping if exact amounts aren't in those legacy fields
+            const typeKey = request.transaction_type.toUpperCase();
+            if (typeKey === 'SAVINGS') mteType = 'SAVINGS_REVERSAL';
+            else if (typeKey === 'WITHDRAWAL') mteType = 'WITHDRAWAL_REVERSAL';
+            else if (typeKey === 'LOAN_REPAYMENT') mteType = 'LOAN_REPAYMENT_REVERSAL';
+            else throw new Error(`Unsupported transaction type for MTE reversal: ${request.transaction_type}`);
+
+            // In MTE v2, we should probably look up the amount from ledger_entries if needed, 
+            // but here we assume the legacy transaction table has it.
         }
 
-        db.get("SELECT * FROM transactions WHERE id = ?", [request.transaction_id], (err, trans) => {
-            if (!trans) return res.status(404).json({ error: "Transaction no longer exists" });
+        const txRef = `REV-${request.transaction_id}-${Date.now()}`;
 
-            db.serialize(() => {
-                db.run("BEGIN TRANSACTION");
+        // 4. Execute MTE Reversal
+        await runMTELogic(client, {
+            memberId: request.memberId,
+            sessionId: request.sessionId || null,
+            transaction_type: mteType,
+            amount: mteAmount || 0,
+            description: `Auto-Reversal: ${request.reason}`,
+            txRef
+        }, approver_id);
 
-                db.run("UPDATE transactions SET status = 'REVERSED' WHERE id = ?", [request.transaction_id]);
+        // 5. Update Request Status
+        await client.query(convertSql("UPDATE reversal_requests SET status = 'APPROVED', approver_id = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?"), [approver_id, request_id]);
 
-                const stmt = db.prepare(`
-                    INSERT INTO transactions (
-                        sessionId, memberId, transaction_type, description, savings_amount, withdrawals, stl_repayment, ltl_repayment, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
-                `);
+        await db.commit(client);
 
-                const invType = `REVERSAL of ${trans.transaction_type}`;
-                const invSavings = trans.savings_amount ? -trans.savings_amount : 0;
-                const invWithdrawals = trans.withdrawals ? -trans.withdrawals : 0;
-                const invStl = trans.stl_repayment ? -trans.stl_repayment : 0;
-                const invLtl = trans.ltl_repayment ? -trans.ltl_repayment : 0;
+        logAudit(`Reversal Approved: TXN ${request.transaction_id}`, 'security', { request_id, approver_id });
+        res.json({ success: true, message: "✅ Institutional Reversal Successful. Ledger and Member balances adjusted." });
 
-                stmt.run(trans.sessionId, trans.memberId, invType, `Approved Reversal: ${request.reason}`, invSavings, invWithdrawals, invStl, invLtl, function (err) {
-                    if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-
-                    db.run("UPDATE reversal_requests SET status = 'APPROVED', approver_id = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        [approver_id, request_id], (err) => {
-                            if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-
-                            if (trans.savings_amount) {
-                                db.run("UPDATE members SET current_savings = current_savings - ? WHERE id = ?", [trans.savings_amount, trans.memberId]);
-                            }
-                            if (trans.withdrawals) {
-                                db.run("UPDATE members SET current_savings = current_savings + ? WHERE id = ?", [trans.withdrawals, trans.memberId]);
-                            }
-                            if (trans.loans_issued) {
-                                db.run("UPDATE members SET active_loan_balance = active_loan_balance - ? WHERE id = ?", [trans.loans_issued, trans.memberId]);
-                            }
-                            if (trans.stl_repayment || trans.ltl_repayment) {
-                                db.run("UPDATE members SET active_loan_balance = active_loan_balance + ? WHERE id = ?", [(Number(trans.stl_repayment || 0) + Number(trans.ltl_repayment || 0)), trans.memberId]);
-                            }
-
-                            db.run("COMMIT", async (err) => {
-                                if (err) return res.status(500).json({ error: err.message });
-
-                                logAudit(`Reversal Approved: ${request.transaction_id}`, 'security', { request_id, approver_id }, approver_id, req.user.name, req);
-
-                                // 🏛️ RE-TRIGGER MONTHLY ROLLUP
-                                try {
-                                    // We need group_id and date from the transaction/session
-                                    db.get("SELECT s.group_id, s.meeting_date FROM cash_sessions s JOIN transactions t ON t.sessionId = s.id WHERE t.id = ?", [request.transaction_id], async (err, context) => {
-                                        if (context) {
-                                            const [y, m, d] = context.meeting_date.split('-');
-                                            await MonthlyReportService.recalculate(context.group_id, parseInt(m), parseInt(y));
-                                        }
-                                    });
-                                } catch (recalcErr) {
-                                    console.error("Post-Reversal Rollup Failure:", recalcErr);
-                                }
-
-                                res.json({ success: true, message: "Transaction reversed, balances adjusted, and monthly report synced." });
-                            });
-                        });
-                });
-                stmt.finalize();
-            });
-        });
-    });
+    } catch (error) {
+        if (client) await db.rollback(client);
+        console.error('[REVERSAL ERROR]:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // GET /api/reversals/requests
@@ -147,14 +150,8 @@ router.post('/unlock-session', authenticateToken, isAdmin, (req, res) => {
             [sessionId],
             function (err) {
                 if (err) return res.status(500).json({ error: err.message });
-
                 logAudit(`Session Force-Unlocked: ${sessionId}`, 'security', { sessionId, reason, adminId }, adminId, req.user.name, req);
-
-                res.json({
-                    success: true,
-                    message: "Institutional Session Unlocked. Status reverted to OPEN.",
-                    details: "Reconciliation and modifications are now permitted."
-                });
+                res.json({ success: true, message: "Session Unlocked." });
             }
         );
     });

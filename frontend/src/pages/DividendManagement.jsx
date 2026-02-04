@@ -62,7 +62,10 @@ const DividendManagement = () => {
         if (!previewData) return;
         setProcessing(true);
         try {
-            await api.postDividends({ runData: previewData });
+            await api.postDividends({
+                runData: previewData,
+                officerId: user.id
+            });
             toast.success("✅ Dividends Distributed Successfully!");
             setPreviewData(null);
             loadHistory();
@@ -111,7 +114,7 @@ const DividendManagement = () => {
                                     className="w-full p-3 bg-gray-50 rounded-xl font-bold text-gray-700 border-none focus:ring-2 focus:ring-safaricom-green/20"
                                 >
                                     {groups.map(g => (
-                                        <option key={g.id} value={g.id}>{g.group_name}</option>
+                                        <option key={g.id} value={g.id}>{g.name}</option>
                                     ))}
                                 </select>
                             </div>

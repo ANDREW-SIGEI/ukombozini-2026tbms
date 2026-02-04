@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { mockGroups, mockLedgerEntries } from "../data/mockData";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { api } from "../services/api";
 import { validateCashReport, checkSystemAccessBlock } from '../utils/cashReportEnforcement';
 import { useAuth } from '../context/AuthContext';
 
@@ -22,7 +22,7 @@ const InputRow = ({ label, value, onChange, status }) => (
             <span className="text-sm">KES</span>
             <input
                 type="number"
-                value={value || ""}
+                value={value !== null && value !== undefined ? value : ""}
                 min="0"
                 disabled={status === "APPROVED"}
                 onChange={(e) => onChange(e.target.value)}
@@ -34,54 +34,95 @@ const InputRow = ({ label, value, onChange, status }) => (
 
 export default function DailyReports() {
     const { user } = useAuth();
-    const OPENING_BALANCE = 15450;
 
     const [status, setStatus] = useState("DRAFT");
     const [approvedBy, setApprovedBy] = useState(null);
-    const [selectedGroup, setSelectedGroup] = useState("Victory Women Group");
+    const [groups, setGroups] = useState([]);
+    const [selectedGroupId, setSelectedGroupId] = useState("");
+    const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
     const [varianceExplanation, setVarianceExplanation] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
 
-    // Auto-aggregate from Ledgers (Step 5 logic)
-    const aggregatedIn = useMemo(() => {
-        const result = {
-            banking: 0,
-            shortTermRepayment: 0,
-            longTermRepayment: 0,
-            savings: 0,
-            welfare: 0,
-            education: 0,
-            agriculture: 0,
-            ukombozini: 0,
-            applicationFee: 0,
-            appreciationFee: 0,
+    // Opening Balance & Financial Totals from API
+    const [openingBalance, setOpeningBalance] = useState(0);
+    const [cashIn, setCashIn] = useState({
+        banking: 0,
+        shortTermRepayment: 0,
+        longTermRepayment: 0,
+        savings: 0,
+        welfare: 0,
+        education: 0,
+        agriculture: 0,
+        ukombozini: 0,
+        applicationFee: 0,
+        appreciationFee: 0
+    });
+    const [cashOut, setCashOut] = useState({
+        serviceFee: 0,
+        welfarePayout: 0,
+        loanToUkombozini: 0,
+        shortTermIssued: 0,
+        longTermIssued: 0
+    });
+
+    const [manualPhysicalBalance, setManualPhysicalBalance] = useState(null);
+
+    // Initial Fetch: Groups
+    useEffect(() => {
+        const fetchGroups = async () => {
+            const data = await api.getGroups();
+            setGroups(data);
+            if (data.length > 0 && !selectedGroupId) {
+                setSelectedGroupId(data[0].id);
+            }
         };
-
-        mockLedgerEntries.filter(e => e.type === 'Credit').forEach(entry => {
-            if (entry.description.toLowerCase().includes('saving')) result.savings += entry.amount;
-            if (entry.description.toLowerCase().includes('repayment')) result.shortTermRepayment += entry.amount;
-            if (entry.description.toLowerCase().includes('welfare')) result.welfare += entry.amount;
-            if (entry.description.toLowerCase().includes('fee')) result.applicationFee += entry.amount;
-        });
-        return result;
+        fetchGroups();
     }, []);
 
-    const aggregatedOut = useMemo(() => {
-        const result = {
-            serviceFee: 0,
-            welfarePayout: 0,
-            loanToUkombozini: 0,
-            shortTermIssued: 0,
-            longTermIssued: 0,
-        };
-        mockLedgerEntries.filter(e => e.type === 'Debit').forEach(entry => {
-            if (entry.description.toLowerCase().includes('loan')) result.shortTermIssued += entry.amount;
-            if (entry.description.toLowerCase().includes('welfare')) result.welfarePayout += entry.amount;
-        });
-        return result;
-    }, []);
+    // Fetch Report Context on Group/Date Change
+    useEffect(() => {
+        if (!selectedGroupId || !reportDate) return;
 
-    const [cashIn, setCashIn] = useState(aggregatedIn);
-    const [cashOut, setCashOut] = useState(aggregatedOut);
+        const fetchContext = async () => {
+            setIsLoading(true);
+            try {
+                const context = await api.getDailyReportContext(selectedGroupId, reportDate);
+                if (context) {
+                    setOpeningBalance(context.opening_balance || 0);
+
+                    // Map API inflows to our structure
+                    setCashIn({
+                        banking: 0, // Not explicitly in context yet
+                        shortTermRepayment: context.inflows?.repayments || 0,
+                        longTermRepayment: 0,
+                        savings: context.inflows?.savings || 0,
+                        welfare: context.inflows?.welfare || 0,
+                        education: 0,
+                        agriculture: 0,
+                        ukombozini: context.inflows?.projects || 0,
+                        applicationFee: context.inflows?.fines || 0, // Using fines as proxy for fees if needed
+                        appreciationFee: 0
+                    });
+
+                    // Map API outflows
+                    setCashOut({
+                        serviceFee: 0,
+                        welfarePayout: 0,
+                        loanToUkombozini: 0,
+                        shortTermIssued: context.outflows?.disbursements || 0,
+                        longTermIssued: 0
+                    });
+
+                    setManualPhysicalBalance(null); // Reset override on context change
+                }
+            } catch (err) {
+                console.error("Failed to fetch report context", err);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchContext();
+    }, [selectedGroupId, reportDate]);
 
     const totalCashIn = useMemo(
         () => Object.values(cashIn).reduce((a, b) => a + Number(b || 0), 0),
@@ -93,18 +134,18 @@ export default function DailyReports() {
         [cashOut]
     );
 
-    const expectedClosing = OPENING_BALANCE + totalCashIn - totalCashOut;
-    const closingBalance = expectedClosing;
-    const variance = closingBalance - expectedClosing;
+    const expectedClosing = openingBalance + totalCashIn - totalCashOut;
+    const physicalBalance = manualPhysicalBalance !== null ? manualPhysicalBalance : expectedClosing;
+    const variance = physicalBalance - expectedClosing;
 
-    const handleStatusChange = (newStatus) => {
+    const handleStatusChange = async (newStatus) => {
         if (newStatus === "SUBMITTED") {
             const validation = validateCashReport({
-                openingBalance: OPENING_BALANCE,
+                openingBalance: openingBalance,
                 cashCollected: totalCashIn,
                 cashIssued: totalCashOut,
                 expectedClosing: expectedClosing,
-                actualClosing: closingBalance,
+                actualClosing: physicalBalance,
                 variance: variance,
                 varianceExplanation: varianceExplanation,
                 requireVarianceExplanation: Math.abs(variance) > 0,
@@ -114,21 +155,58 @@ export default function DailyReports() {
                 alert(validation.errors.join('\n'));
                 return;
             }
+
+            // Prepare Payload
+            const reportData = {
+                group_id: selectedGroupId,
+                officer_id: user?.id || 1, // Fallback for dev
+                report_date: reportDate,
+                morning_balance: openingBalance,
+                total_cash_in: totalCashIn,
+                total_cash_out: totalCashOut,
+                expected_closing_balance: expectedClosing,
+                physical_cash_counted: physicalBalance,
+                variance: variance,
+                status: 'submitted',
+                officer_declaration: true,
+                transactions: [] // Optional: if we want to send specific line items in future
+            };
+
+            setIsLoading(true);
+            try {
+                await api.submitDailyReport(reportData);
+                setStatus("SUBMITTED");
+            } catch (error) {
+                console.error("Submission failed", error);
+                alert("Failed to submit report. Please try again.");
+                return;
+            } finally {
+                setIsLoading(false);
+            }
+        } else {
+            setStatus(newStatus);
         }
-        setStatus(newStatus);
     };
 
 
 
     return (
-        <div className="max-w-5xl mx-auto p-6 bg-white shadow rounded space-y-6">
+        <div className="max-w-5xl mx-auto p-6 bg-white shadow rounded space-y-6 relative">
+            {isLoading && (
+                <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-50 flex items-center justify-center rounded">
+                    <div className="flex flex-col items-center">
+                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="mt-2 font-bold text-blue-600">Syncing Data...</p>
+                    </div>
+                </div>
+            )}
 
             {/* Header */}
             <div className="flex justify-between items-start">
                 <div>
                     <h1 className="text-2xl font-bold">Ukombozi TBMS</h1>
                     <p className="text-gray-600">
-                        Field Officer Portal • {new Date().toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        Field Officer Portal • {new Date(reportDate).toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                     </p>
                     <div className="mt-2 flex gap-2">
                         <span className={`inline-block px-3 py-1 rounded text-sm font-bold ${status === "DRAFT" ? "bg-yellow-100 text-yellow-700" :
@@ -147,33 +225,43 @@ export default function DailyReports() {
                 </button>
             </div>
 
-            {/* Officer & Group Info */}
-            <div className="grid grid-cols-2 gap-4 border-t pt-4">
+            {/* Officer, Group & Date Info */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
                 <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Select Group</label>
                     <select
                         className="border p-2 rounded w-full bg-gray-50"
-                        value={selectedGroup}
+                        value={selectedGroupId}
                         disabled={status === "APPROVED"}
-                        onChange={(e) => setSelectedGroup(e.target.value)}
+                        onChange={(e) => setSelectedGroupId(e.target.value)}
                     >
-                        {mockGroups.map((g) => (
-                            <option key={g.id} value={g.name}>{g.name}</option>
+                        {groups.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name || g.group_name}</option>
                         ))}
                     </select>
                 </div>
                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Report Date</label>
+                    <input
+                        type="date"
+                        className="border p-2 rounded w-full bg-gray-50"
+                        value={reportDate}
+                        disabled={status === "APPROVED"}
+                        onChange={(e) => setReportDate(e.target.value)}
+                    />
+                </div>
+                <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Field Officer</label>
-                    <div className="p-2 bg-gray-50 rounded border">Hilda Sigei (ID #4052)</div>
+                    <div className="p-2 bg-gray-50 rounded border">{user?.name || "Hilda Sigei"} (ID #{user?.id || "4052"})</div>
                 </div>
             </div>
 
             {/* Dashboard Widgets */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Widget title="Opening Balance" value={OPENING_BALANCE} />
+                <Widget title="Opening Balance" value={openingBalance} />
                 <Widget title="Cash In" value={totalCashIn} green />
                 <Widget title="Cash Out" value={totalCashOut} red />
-                <Widget title="Closing Balance" value={closingBalance} />
+                <Widget title="Expected Closing" value={expectedClosing} />
             </div>
 
             {/* MAIN CONTENT GRID */}
@@ -218,10 +306,23 @@ export default function DailyReports() {
             {/* TRF Control Section */}
             <section className="bg-gray-50 p-4 rounded border">
                 <h2 className="text-lg font-semibold mb-2 text-blue-700">C. TRF (Control Section)</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="flex justify-between md:flex-col items-center md:items-start border-b md:border-b-0 md:border-r pb-2 md:pb-0">
+                        <span className="text-sm text-gray-500 font-bold uppercase text-[10px]">Physical Cash Count</span>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-bold text-gray-400">KES</span>
+                            <input
+                                type="number"
+                                value={physicalBalance}
+                                onChange={(e) => setManualPhysicalBalance(Number(e.target.value))}
+                                disabled={status === "APPROVED"}
+                                className="w-32 border-b-2 border-blue-600 outline-none font-bold text-lg bg-transparent"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-between md:flex-col items-center md:items-start border-b md:border-b-0 md:border-r pb-2 md:pb-0 px-0 md:px-4">
                         <span className="text-sm text-gray-500">Balance of A/c</span>
-                        <strong className="text-lg">KES {closingBalance.toLocaleString()}</strong>
+                        <strong className="text-lg">KES {expectedClosing.toLocaleString()}</strong>
                     </div>
                     <div className="flex justify-between md:flex-col items-center md:items-start border-b md:border-b-0 md:border-r pb-2 md:pb-0 px-0 md:px-4">
                         <span className="text-sm text-gray-500">STL Arrears</span>

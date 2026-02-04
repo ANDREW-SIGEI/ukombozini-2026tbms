@@ -54,7 +54,7 @@ const NotificationsPage = () => {
         try {
             const res = await NotificationService.sendBulk({
                 target: targetType,
-                targetIds: targetType === 'ROLES' ? selectedRoles : selectedGroups,
+                targetIds: targetType === 'GROUPS' ? selectedGroups : selectedRoles,
                 message,
                 method
             });

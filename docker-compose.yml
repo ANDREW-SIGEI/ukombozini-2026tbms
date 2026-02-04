@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  ukombozi-db:
+    image: postgres:15-alpine
+    container_name: ukombozi-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-ukombozi_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ukombozi_pass}
+      POSTGRES_DB: ${DB_NAME:-ukombozi_tbms}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ukombozi-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ukombozi_user -d ukombozi_tbms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ukombozi-redis:
+    image: redis:7-alpine
+    container_name: ukombozi-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - ukombozi-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: ukombozi-api
+    depends_on:
+      ukombozi-db:
+        condition: service_healthy
+      ukombozi-redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-ukombozi_user}:${DB_PASSWORD:-ukombozi_pass}@ukombozi-db:5432/${DB_NAME:-ukombozi_tbms}
+      - REDIS_URL=redis://ukombozi-redis:6379
+      - NODE_ENV=production
+    networks:
+      - ukombozi-net
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: ukombozi-ui
+    depends_on:
+      - backend
+    networks:
+      - ukombozi-net
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: ukombozi-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - ukombozi-net
+
+networks:
+  ukombozi-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

@@ -29,25 +29,8 @@ class AuditService {
             db.all(memberQuery, params, async (err, members) => {
                 if (err) return reject(err);
 
-                const snapshotResults = {
-                    date: auditDate,
-                    total_savings: 0,
-                    total_loans: 0,
-                    member_details: []
-                };
-
-                // Fetch transactions up to the audit date
+                // Fetch transactions and project savings up to the audit date in parallel
                 const txQuery = `
-                    SELECT 
-                        t.*, COALESCE(s.date, date(t.created_at)) as tx_date
-                    FROM transactions t
-                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
-                    HAVING tx_date <= ?
-                `;
-                // Note: SQLite doesn't support HAVING like this easily if tx_date is an alias in some versions, 
-                // but we can use a subquery or CTE.
-
-                const txQueryFixed = `
                     SELECT * FROM (
                         SELECT 
                             t.*, COALESCE(s.date, date(t.created_at)) as tx_date
@@ -56,42 +39,60 @@ class AuditService {
                     ) WHERE tx_date <= ?
                 `;
 
-                db.all(txQueryFixed, [auditDate], (err, txs) => {
+                const projectQuery = `
+                    SELECT ps.amount, pr.member_id, date(ps.date) as tx_date
+                    FROM project_savings ps
+                    JOIN project_registrations pr ON ps.registration_id = pr.id
+                    WHERE date(ps.date) <= ?
+                `;
+
+                db.all(txQuery, [auditDate], (err, txs) => {
                     if (err) return reject(err);
 
-                    // Group transactions by member
-                    const txMap = {};
-                    txs.forEach(t => {
-                        if (!txMap[t.memberId]) txMap[t.memberId] = [];
-                        txMap[t.memberId].push(t);
-                    });
+                    db.all(projectQuery, [auditDate], (err, projects) => {
+                        if (err) return reject(err);
 
-                    members.forEach(m => {
-                        const mtxs = txMap[m.id] || [];
-
-                        let savings = m.opening_balance_savings || 0;
-                        let loans = (m.opening_balance_ltl || 0) + (m.opening_balance_stl || 0);
-
-                        mtxs.forEach(t => {
-                            savings += (t.savings_amount || 0) - (t.withdrawals || 0);
-                            loans += (t.loans_issued || 0) - (t.stl_repayment || 0) - (t.ltl_repayment || 0);
+                        // Group transactions by member
+                        const txMap = {};
+                        txs.forEach(t => {
+                            if (!txMap[t.memberId]) txMap[t.memberId] = [];
+                            txMap[t.memberId].push(t);
                         });
 
-                        const memberSnapshot = {
-                            id: m.id,
-                            name: m.name,
-                            group_id: m.group_id,
-                            group_name: m.group_name,
-                            savings: savings,
-                            loans: loans
-                        };
+                        // Group project savings by member
+                        const projectMap = {};
+                        projects.forEach(p => {
+                            if (!projectMap[p.member_id]) projectMap[p.member_id] = 0;
+                            projectMap[p.member_id] += (p.amount || 0);
+                        });
 
-                        snapshotResults.member_details.push(memberSnapshot);
-                        snapshotResults.total_savings += savings;
-                        snapshotResults.total_loans += loans;
+                        const memberSnapshots = members.map(m => {
+                            const mtxs = txMap[m.id] || [];
+
+                            let savings = m.opening_balance_savings || 0;
+                            let welfare = 0;
+                            let loans = (m.opening_balance_ltl || 0) + (m.opening_balance_stl || 0);
+                            let project = projectMap[m.id] || 0;
+
+                            mtxs.forEach(t => {
+                                savings += (t.savings_amount || 0) - (t.withdrawals || 0);
+                                welfare += (t.welfare || 0);
+                                loans += (t.loans_issued || 0) - (t.stl_repayment || 0) - (t.ltl_repayment || 0);
+                            });
+
+                            return {
+                                id: m.id,
+                                name: m.name,
+                                group_name: m.group_name,
+                                historical_savings: savings,
+                                historical_project: project,
+                                historical_welfare: welfare,
+                                historical_loan_balance: loans
+                            };
+                        });
+
+                        resolve(memberSnapshots);
                     });
-
-                    resolve(snapshotResults);
                 });
             });
         });

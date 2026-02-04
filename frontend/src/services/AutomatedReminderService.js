@@ -26,40 +26,27 @@ class AutomatedReminderService {
      * Should be run at start of each month
      */
     async sendMonthlyContributionReminders(members, currentMonth) {
-        const reminders = [];
         const unpaidMembers = members.filter(m => !m.paidThisMonth);
+        const recipients = unpaidMembers.map(member => ({
+            phone: member.phone,
+            message: this.generateContributionReminderMessage(member, currentMonth),
+            memberId: member.id
+        }));
 
-        for (const member of unpaidMembers) {
-            const message = this.generateContributionReminderMessage(member, currentMonth);
-
-            try {
-                await this.smsService.sendSMS(member.phone, message);
-                reminders.push({
-                    memberId: member.id,
-                    memberName: member.name,
-                    type: 'Contribution Reminder',
-                    status: 'Sent',
-                    sentAt: new Date().toISOString()
-                });
-            } catch (error) {
-                reminders.push({
-                    memberId: member.id,
-                    memberName: member.name,
-                    type: 'Contribution Reminder',
-                    status: 'Failed',
-                    error: error.message
-                });
-            }
-
-            // Delay to avoid rate limiting (1 second between messages)
-            await this.delay(1000);
+        if (recipients.length === 0) {
+            return { totalSent: 0, totalFailed: 0, details: [] };
         }
 
-        return {
-            totalSent: reminders.filter(r => r.status === 'Sent').length,
-            totalFailed: reminders.filter(r => r.status === 'Failed').length,
-            details: reminders
-        };
+        try {
+            const result = await SMSService.sendBulk('Contribution Reminder', recipients);
+            return {
+                totalSent: result.sent,
+                totalFailed: result.failed,
+                details: result.logs
+            };
+        } catch (error) {
+            return { totalSent: 0, totalFailed: recipients.length, error: error.message };
+        }
     }
 
     /**

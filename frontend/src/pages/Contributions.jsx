@@ -71,7 +71,7 @@ const Contributions = () => {
 
     const filteredGroups = useMemo(() => {
         return groups.filter(g =>
-            g.group_name.toLowerCase().includes(groupSearchTerm.toLowerCase()) ||
+            (g.group_name || g.name || '').toLowerCase().includes(groupSearchTerm.toLowerCase()) ||
             (g.location && g.location.toLowerCase().includes(groupSearchTerm.toLowerCase()))
         );
     }, [groups, groupSearchTerm]);
@@ -80,7 +80,7 @@ const Contributions = () => {
         if (!selectedGroupId) return [];
         return members.filter(m => {
             const matchesGroup = m.group_id === parseInt(selectedGroupId);
-            const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesSearch = (m.name || m.full_name || '').toLowerCase().includes(searchTerm.toLowerCase());
             return matchesGroup && matchesSearch;
         }).map(m => ({
             ...m,

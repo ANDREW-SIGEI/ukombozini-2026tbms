@@ -2,32 +2,23 @@ const axios = require('axios');
 
 async function verify() {
     try {
-        console.log("Logging in as Director...");
+        console.log("Logging in as Admin...");
         const loginRes = await axios.post('http://localhost:5000/api/auth/login', {
-            email: 'andrewsigei6@gmail.com',
-            password: 'Teddymark11$'
+            email: 'andrewsigei684@gmail.com', // Match seeded data
+            password: 'Teddymark1' // Match seeded data
         });
         const token = loginRes.data.token;
         console.log("Login successful.");
 
         const headers = { Authorization: `Bearer ${token}` };
 
-        console.log("\n--- GET /api/officials ---");
-        const officialsRes = await axios.get('http://localhost:5000/api/officials', { headers });
-        console.log(JSON.stringify(officialsRes.data, null, 2));
+        console.log("\n--- GET /api/groups ---");
+        const groupsRes = await axios.get('http://localhost:5000/api/groups', { headers });
+        console.log(`Found ${groupsRes.data.length} groups.`);
 
-        console.log("\n--- POST /api/notifications/bulk (Testing Roles) ---");
-        const bulkRes = await axios.post('http://localhost:5000/api/notifications/bulk', {
-            target: 'ROLES',
-            targetIds: ['Chairman', 'Secretary'],
-            message: 'Verification broadcast for officials hub.',
-            method: 'SMS'
-        }, { headers });
-        console.log(JSON.stringify(bulkRes.data, null, 2));
-
-        console.log("\n--- GET /api/notifications/logs ---");
-        const logsRes = await axios.get('http://localhost:5000/api/notifications/logs', { headers });
-        console.log(JSON.stringify(logsRes.data, null, 2));
+        console.log("\n--- GET /api/loan-products ---");
+        const productsRes = await axios.get('http://localhost:5000/api/loan-products', { headers });
+        console.log(`Found ${productsRes.data.length} loan products.`);
 
     } catch (err) {
         console.error("Verification failed:", err.response ? err.response.data : err.message);

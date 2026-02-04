@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FaTimes, FaPiggyBank, FaSearch, FaCheckCircle, FaExchangeAlt, FaShieldAlt, FaInfoCircle, FaWallet, FaUsers, FaLock, FaBan, FaExclamationTriangle, FaCalendarAlt, FaMoneyBillWave } from 'react-icons/fa';
+import { FaTimes, FaPiggyBank, FaSearch, FaCheckCircle, FaShieldAlt, FaInfoCircle, FaLock, FaBan, FaExclamationTriangle, FaCalendarAlt } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
@@ -156,40 +156,57 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
     };
 
     const handleFinalSubmit = async () => {
-        const allocation = {
+        // Map UI type names to backend normalized types
+        const typeMapping = {
+            'Monthly Saving': 'savings',
+            'Special Contribution': 'savings',
+            'Welfare': 'welfare',
+            'Project': 'project',
+            'Application Fee': 'registration',
+            'Appreciation Fee': 'appreciation'
+        };
+
+        const contributionData = {
             memberId: selectedMember.id,
             groupId: selectedGroupId,
-            meetingId: activeMeeting.id,
-            memberName: selectedMember.name,
+            sessionId: activeMeeting?.id || null,
+            contributionType: typeMapping[type] || 'savings',
             amount: numAmount,
-            type: type,
-            created_at: new Date().toISOString(), // Use created_at for consistency
-            date: new Date().toISOString().split('T')[0],
-            paymentMethod,
-            meetingReference: activeMeeting.session_number,
-            reference: `TRX-C${Math.floor(1000 + Math.random() * 9000)}`,
-            officerId: 1, // Replace with actual officer ID
-            contributionRule: currentRule
+            paymentMethod: paymentMethod,
+            description: `${type} - Meeting #${activeMeeting?.session_number || 'N/A'}`
         };
 
         try {
             setSendingSMS(true);
 
-            if (navigator.onLine) {
-                // ONLINE MODE: Post directly to server
-                // Success message handled by parent via onSuccess
-            } else {
-                // OFFLINE MODE: Save locally
-                toast.info(`💾 Offline mode not active for this transaction type.`);
-            }
+            // Call backend API for atomic posting
+            const result = await api.postContribution(contributionData);
 
-            // Common success handler
-            onSuccess(allocation);
-            setShowConfirmation(false);
-            onClose();
+            if (result && result.success) {
+                toast.success(`✅ Contribution posted: ${result.transaction_ref}`);
+
+                // Build allocation object for parent callback
+                const allocation = {
+                    ...contributionData,
+                    memberName: selectedMember.name,
+                    type: type,
+                    created_at: new Date().toISOString(),
+                    date: new Date().toISOString().split('T')[0],
+                    meetingReference: activeMeeting?.session_number,
+                    reference: result.transaction_ref,
+                    ledgerId: result.ledger_id,
+                    contributionRule: currentRule
+                };
+
+                onSuccess(allocation);
+                setShowConfirmation(false);
+                onClose();
+            } else {
+                toast.error(`❌ ${result?.error || 'Failed to post contribution'}`);
+            }
         } catch (error) {
-            console.error('Error:', error);
-            toast.error("❌ Failed to process contribution");
+            console.error('Contribution posting error:', error);
+            toast.error("❌ Failed to process contribution - please try again");
         } finally {
             setSendingSMS(false);
         }

@@ -229,9 +229,31 @@ const init = async () => {
             expected_interest REAL NOT NULL,
             expected_shares REAL NOT NULL,
             paid_amount REAL DEFAULT 0,
+            actual_payment REAL DEFAULT 0,
+            payment_date TEXT,
             status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'partial', 'paid', 'overdue')),
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE
+        )`);
+
+        // 7c. LOAN PAYMENTS - Tracks individual payment transactions
+        await run(`CREATE TABLE IF NOT EXISTS loan_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loan_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            session_id INTEGER,
+            amount_paid REAL NOT NULL,
+            principal_paid REAL DEFAULT 0,
+            interest_paid REAL DEFAULT 0,
+            payment_method TEXT DEFAULT 'cash',
+            payment_ref TEXT UNIQUE,
+            payment_date TEXT DEFAULT CURRENT_TIMESTAMP,
+            posted_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE,
+            FOREIGN KEY (member_id) REFERENCES members(id),
+            FOREIGN KEY (session_id) REFERENCES meeting_sessions(id),
+            FOREIGN KEY (posted_by) REFERENCES officers(id)
         )`);
 
         // 8. LOAN APPLICATIONS

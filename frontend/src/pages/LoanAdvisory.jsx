@@ -246,9 +246,82 @@ const LoanAdvisory = () => {
         };
     }, [selectedMember, activeTab, stlAmount, ltlSelection]);
 
-    const handlePrint = () => {
+    const handlePrint = async () => {
+        if (!selectedMember) {
+            toast.warn("Select a member first");
+            return;
+        }
+
         toast.info("Generating Repayment Advisory PDF...");
-        // PDF logic integration point
+
+        try {
+            let schedule = [];
+            let amount = 0;
+            let duration = 0;
+            let totalRepayment = 0;
+            let monthlyInstallment = 0;
+            let interestRate = activeProduct?.interest_rate || 0;
+
+            if (activeTab === 'STL') {
+                schedule = stlSchedule.breakdown.map(row => ({
+                    ...row,
+                    balanceStart: Math.round(row.balanceStart),
+                    principal: Math.round(row.principal),
+                    interest: Math.round(row.interest),
+                    totalPayment: Math.round(row.totalPayment)
+                }));
+                amount = stlAmount;
+                duration = stlDuration;
+                totalRepayment = stlSchedule.totalPaid;
+                monthlyInstallment = Math.round(totalRepayment / duration);
+            } else {
+                if (!ltlSelection) {
+                    toast.warn("Select an LTL amount from the table");
+                    return;
+                }
+                amount = ltlSelection.amount;
+                duration = parseInt(ltlSelection.period.split(' ')[0]);
+                totalRepayment = ltlSelection.installment * duration;
+                monthlyInstallment = ltlSelection.installment;
+
+                // Generate a simple schedule for LTL for visualization in PDF
+                let balance = amount;
+                for (let i = 1; i <= duration; i++) {
+                    schedule.push({
+                        month: i,
+                        balanceStart: Math.round(balance),
+                        principal: ltlSelection.principal,
+                        interest: ltlSelection.interest,
+                        totalPayment: ltlSelection.installment
+                    });
+                    balance -= ltlSelection.principal;
+                }
+            }
+
+            const advisoryData = {
+                memberName: selectedMember.name,
+                memberId: selectedMember.id,
+                groupName: groups.find(g => g.id === selectedMember.group_id)?.name || "N/A",
+                loanType: activeTab,
+                amount,
+                interestRate,
+                duration,
+                schedule,
+                totalRepayment,
+                monthlyInstallment,
+                guarantors: [
+                    members.find(m => m.id === parseInt(guarantor1Id))?.name,
+                    members.find(m => m.id === parseInt(guarantor2Id))?.name
+                ].filter(Boolean),
+                gap: coverage?.gap || 0
+            };
+
+            await api.downloadLoanAdvisoryPDF(advisoryData);
+            toast.success("✅ Advisory Report Downloaded!");
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to generate PDF report");
+        }
     };
 
     return (
@@ -548,7 +621,15 @@ const LoanAdvisory = () => {
                         </div>
 
                         {/* ACTION BUTTON */}
-                        <div className="relative z-10 mt-6 pt-6 border-t border-gray-700 flex justify-end">
+                        <div className="relative z-10 mt-6 pt-6 border-t border-gray-700 flex justify-end gap-3">
+                            <button
+                                onClick={handlePrint}
+                                disabled={isSubmitting || (activeTab === 'LTL' && !ltlSelection)}
+                                className="px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all bg-gray-700 hover:bg-gray-600 text-white shadow-lg"
+                            >
+                                <FaFilePdf className="text-red-400" />
+                                Export PDF
+                            </button>
                             <button
                                 onClick={handleApply}
                                 disabled={isSubmitting || (activeTab === 'LTL' && !ltlSelection)}

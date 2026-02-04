@@ -1,100 +1,83 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useNavigate, Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
 import ProtectedLayout from './components/ProtectedLayout'; // Import Protection
 import LoginPage from './pages/LoginPage';
 
 // App Version: 2.1.0-PREMIUM-AUTH (Force Refresh)
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
-const DailyReports = lazy(() => import('./pages/DailyReports'));
-const Members = lazy(() => import('./pages/Members'));
-const Contributions = lazy(() => import('./pages/Contributions'));
-const Loans = lazy(() => import('./pages/Loans'));
-const DividendManagement = lazy(() => import('./pages/DividendManagement'));
-const Officers = lazy(() => import('./pages/Officers'));
-const Reconciliation = lazy(() => import('./pages/Reconciliation'));
-// const MemberProfile = lazy(() => import('./pages/MemberProfile'));
-// const AdminPanel = lazy(() => import('./pages/AdminPanel'));
-const DailyMeetingReport = lazy(() => import('./pages/DailyMeetingReport'));
-// const GroupMonthly = lazy(() => import('./pages/GroupMonthly'));
-const ProfilePage = lazy(() => import('./pages/ProfilePage'));
-const MemberLedger = lazy(() => import('./pages/MemberLedger'));
-const LoanApprovals = lazy(() => import('./pages/LoanApprovals'));
-const MeetingSessions = lazy(() => import('./pages/MeetingSessions'));
-const CashReconciliation = lazy(() => import('./pages/CashReconciliation'));
-const SMSReports = lazy(() => import('./pages/SMSReports'));
-const ContributionCompliance = lazy(() => import('./pages/ContributionCompliance'));
-const LoanRepaymentTracking = lazy(() => import('./pages/LoanRepaymentTracking'));
-const SMSAutomationTest = lazy(() => import('./pages/SMSAutomationTest'));
-const AdminPanel = lazy(() => import('./pages/AdminPanel'));
-const LoanAdvisory = lazy(() => import('./pages/LoanAdvisory'));
-const DailyCashReport = lazy(() => import('./pages/DailyCashReport'));
-const GroupsManagement = lazy(() => import('./pages/GroupsManagement'));
-const CompanyPartnershipManager = lazy(() => import('./pages/CompanyPartnershipManager'));
-const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
-const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
-const FinancialReports = lazy(() => import('./pages/FinancialReports'));
-const ProjectManager = lazy(() => import('./pages/ProjectManager'));
-const GroupLedger = lazy(() => import('./pages/GroupLedger'));
-const GovernanceHub = lazy(() => import('./pages/GovernanceHub'));
-const AuditorMode = lazy(() => import('./pages/AuditorMode'));
-const OfficialsDirectory = lazy(() => import('./pages/OfficialsDirectory'));
-const RiskCommandCenter = lazy(() => import('./pages/RiskCommandCenter'));
+import OfflineIndicator from './components/OfflineIndicator';
+
+/**
+ * Lazy Load with Retry - Fixes "ChunkLoadError" after new deployments
+ * Forces a page reload one time if loading a chunk fails.
+ */
+const lazyWithRetry = (componentImport) =>
+  lazy(async () => {
+    const pageHasAlreadyBeenForceRefreshed = JSON.parse(
+      window.sessionStorage.getItem('ukombozi-retry-refreshed') || 'false'
+    );
+
+    try {
+      const component = await componentImport();
+      window.sessionStorage.setItem('ukombozi-retry-refreshed', 'false');
+      return component;
+    } catch (error) {
+      if (!pageHasAlreadyBeenForceRefreshed) {
+        console.log('🔄 ChunkLoadError detected. Force refreshing...');
+        window.sessionStorage.setItem('ukombozi-retry-refreshed', 'true');
+        window.location.reload();
+        // Return pending promise to keep Suspense showing fallback during reload
+        return new Promise(() => { });
+      }
+      throw error;
+    }
+  });
+
+const DailyReports = lazyWithRetry(() => import('./pages/DailyReports'));
+
+const Members = lazyWithRetry(() => import('./pages/Members'));
+const Contributions = lazyWithRetry(() => import('./pages/Contributions'));
+const Loans = lazyWithRetry(() => import('./pages/Loans'));
+const DividendManagement = lazyWithRetry(() => import('./pages/DividendManagement'));
+const Officers = lazyWithRetry(() => import('./pages/Officers'));
+const Reconciliation = lazyWithRetry(() => import('./pages/Reconciliation'));
+// const MemberProfile = lazyWithRetry(() => import('./pages/MemberProfile'));
+// const AdminPanel = lazyWithRetry(() => import('./pages/AdminPanel'));
+const DailyMeetingReport = lazyWithRetry(() => import('./pages/DailyMeetingReport'));
+// const GroupMonthly = lazyWithRetry(() => import('./pages/GroupMonthly'));
+const ProfilePage = lazyWithRetry(() => import('./pages/ProfilePage'));
+const MemberLedger = lazyWithRetry(() => import('./pages/MemberLedger'));
+const LoanApprovals = lazyWithRetry(() => import('./pages/LoanApprovals'));
+const MeetingSessions = lazyWithRetry(() => import('./pages/MeetingSessions'));
+const CashReconciliation = lazyWithRetry(() => import('./pages/CashReconciliation'));
+const SMSReports = lazyWithRetry(() => import('./pages/SMSReports'));
+const ContributionCompliance = lazyWithRetry(() => import('./pages/ContributionCompliance'));
+const LoanRepaymentTracking = lazyWithRetry(() => import('./pages/LoanRepaymentTracking'));
+const SMSAutomationTest = lazyWithRetry(() => import('./pages/SMSAutomationTest'));
+const AdminPanel = lazyWithRetry(() => import('./pages/AdminPanel'));
+const LoanAdvisory = lazyWithRetry(() => import('./pages/LoanAdvisory'));
+const CashControlModule = lazyWithRetry(() => import('./pages/CashControlModule'));
+const GroupsManagement = lazyWithRetry(() => import('./pages/GroupsManagement'));
+const CompanyPartnershipManager = lazyWithRetry(() => import('./pages/CompanyPartnershipManager'));
+const NotificationsPage = lazyWithRetry(() => import('./pages/NotificationsPage'));
+const ResetPasswordPage = lazyWithRetry(() => import('./pages/ResetPasswordPage'));
+const FinancialReports = lazyWithRetry(() => import('./pages/FinancialReports'));
+const ProjectManager = lazyWithRetry(() => import('./pages/ProjectManager'));
+const GroupLedger = lazyWithRetry(() => import('./pages/GroupLedger'));
+const GovernanceHub = lazyWithRetry(() => import('./pages/GovernanceHub'));
+const AuditorMode = lazyWithRetry(() => import('./pages/AuditorMode'));
+const OfficialsDirectory = lazyWithRetry(() => import('./pages/OfficialsDirectory'));
+const RiskCommandCenter = lazyWithRetry(() => import('./pages/RiskCommandCenter'));
+const MonthlyReports = lazyWithRetry(() => import('./pages/MonthlyReports'));
+const ReversalCenter = lazyWithRetry(() => import('./pages/ReversalCenter'));
 
 
-// Profile component
-const Profile = () => {
-  const { user } = useAuth();
 
-  // Generate initials from the user's name
-  const getInitials = (name) => {
-    if (!name) return 'U';
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 2);
-  };
-
-  return (
-    <div className="p-8 min-h-screen bg-gray-50">
-      <h1 className="text-2xl font-bold mb-6">My Profile</h1>
-      <div className="max-w-md bg-white p-8 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center">
-        <div className="w-24 h-24 rounded-full bg-safaricom-green text-white flex items-center justify-center text-4xl font-bold mb-4 shadow-lg shadow-green-900/20">
-          {getInitials(user?.name)}
-        </div>
-        <h2 className="text-xl font-bold text-gray-800">{user?.name || 'User'}</h2>
-        <p className="text-gray-500 mb-6">{user?.email || ''}</p>
-
-        <div className="w-full space-y-4">
-          <div className="flex justify-between">
-            <span className="text-gray-500">Role:</span>
-            <span className="font-medium text-gray-800">{user?.role || 'Guest'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Member Since:</span>
-            <span className="font-medium text-gray-800">Jan 2023</span>
-          </div>
-        </div>
-
-        <button className="mt-8 w-full bg-safaricom-green hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
-          Edit Profile
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// Example protected route wrapper
-const ProtectedRoute = ({ children, isAdmin }) => {
-  const userIsAdmin = true; // replace with real auth check
-  return isAdmin && !userIsAdmin ? <Navigate to='/' /> : children;
-};
 
 function App() {
   return (
@@ -121,13 +104,14 @@ function App() {
               <Route path="/meeting-sessions" element={<MeetingSessions />} />
               <Route path="/cash-reconciliation" element={<CashReconciliation />} />
               <Route path="/daily-reports" element={<DailyReports />} />
-              <Route path="/daily-cash-report" element={<DailyCashReport />} />
+              <Route path="/daily-cash-report" element={<CashControlModule />} />
               <Route path="/daily-meeting-report" element={<DailyMeetingReport />} />
               <Route path="/project-manager" element={<ProjectManager />} />
               <Route path="/contribution-compliance" element={<ContributionCompliance />} />
               <Route path="/partnership-manager" element={<CompanyPartnershipManager />} />
               <Route path="/messaging-hub" element={<NotificationsPage />} />
               <Route path="/financial-reports" element={<FinancialReports />} />
+              <Route path="/monthly-cash-reports" element={<MonthlyReports />} />
             </Route>
 
             {/* Admin & Director Only Routes */}
@@ -140,6 +124,7 @@ function App() {
               <Route path="/sms-reports" element={<SMSReports />} />
               <Route path="/sms-automation-test" element={<SMSAutomationTest />} />
               <Route path="/governance-hub" element={<GovernanceHub />} />
+              <Route path="/reversal-center" element={<ReversalCenter />} />
               <Route path="/auditor-mode" element={<AuditorMode />} />
               <Route path="/officials-directory" element={<OfficialsDirectory />} />
               <Route path="/risk-command-center" element={<RiskCommandCenter />} />
@@ -149,6 +134,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <ToastContainer position="top-right" autoClose={3000} />
+          <OfflineIndicator />
         </Suspense>
       </AuthProvider>
     </Router>

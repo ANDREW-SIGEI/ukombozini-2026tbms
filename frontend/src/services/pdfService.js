@@ -1,17 +1,23 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// Dynamic imports used in methods instead
+// import jsPDF from 'jspdf';
+// import autoTable from 'jspdf-autotable';
 
 // BRAND COLORS
 const SAFARICOM_GREEN = [67, 176, 42]; // #43B02A
 const DARK_GREY = [60, 60, 60];
-const LIGHT_GREY = [240, 240, 240];
+
+
 
 const PdfService = {
 
     /**
      * Initialize Layout with Premium Header/Footer
      */
-    initDoc(title, subtitle, orientation = 'portrait') {
+    async initDoc(title, subtitle, orientation = 'portrait') {
+        // Optimizing bundle size: Load libraries only when needed
+        const { default: jsPDF } = await import('jspdf');
+        await import('jspdf-autotable');
+
         const doc = new jsPDF(orientation);
         const PageWidth = doc.internal.pageSize.width;
         const PageHeight = doc.internal.pageSize.height;
@@ -78,8 +84,8 @@ const PdfService = {
     /**
      * GENERATE MEMBER STATEMENT
      */
-    generateMemberStatement(member, transactions, dateRange) {
-        const { doc, addFooter } = this.initDoc("Account Statement", `Member: ${member.name} (${member.id}) | Period: ${dateRange}`);
+    async generateMemberStatement(member, transactions, dateRange) {
+        const { doc, addFooter } = await this.initDoc("Account Statement", `Member: ${member.name} (${member.id}) | Period: ${dateRange}`);
 
         // Summary Card
         // Box Calculation
@@ -142,7 +148,7 @@ const PdfService = {
             ];
         });
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: startY + 35,
             head: headers,
             body: data,
@@ -178,8 +184,8 @@ const PdfService = {
     /**
      * GENERATE GROUP STATEMENT (Consolidated)
      */
-    generateGroupStatement(group, transactions, dateRange) {
-        const { doc, addFooter } = this.initDoc("Group Ledger", `Group: ${group.name} | Period: ${dateRange}`);
+    async generateGroupStatement(group, transactions, dateRange) {
+        const { doc, addFooter } = await this.initDoc("Group Ledger", `Group: ${group.name} | Period: ${dateRange}`);
 
         // Summary Card
         const startY = 60;
@@ -236,7 +242,7 @@ const PdfService = {
             ];
         });
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: startY + 35,
             head: headers,
             body: data,
@@ -271,8 +277,8 @@ const PdfService = {
     /**
      * GENERATE DIVIDEND VOUCHER
      */
-    generateDividendVoucher(run, allocation) {
-        const { doc, addFooter, PageWidth } = this.initDoc("DIVIDEND VOUCHER", `FY: ${run.year} | Ref: DIV-${run.year}-${allocation.memberId}`, 'landscape');
+    async generateDividendVoucher(run, allocation) {
+        const { doc, addFooter, PageWidth } = await this.initDoc("DIVIDEND VOUCHER", `FY: ${run.year} | Ref: DIV-${run.year}-${allocation.memberId}`, 'landscape');
         // Landscape for voucher to look like a check/certificate
 
         // Fancy Border
@@ -332,8 +338,8 @@ const PdfService = {
     /**
      * GENERATE LOAN SCHEDULE
      */
-    generateLoanSchedule(loans, stats) {
-        const { doc, addFooter } = this.initDoc("Loan Portfolio Schedule", "Active & Defaulted Loans");
+    async generateLoanSchedule(loans, stats) {
+        const { doc, addFooter } = await this.initDoc("Loan Portfolio Schedule", "Active & Defaulted Loans");
 
         // Summary Statistics
         doc.setFontSize(12);
@@ -363,7 +369,7 @@ const PdfService = {
             new Date(l.created_at).toLocaleDateString()
         ]);
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: 80,
             head: [['ID', 'Member', 'Principal', 'Repayable', 'Term', 'Status', 'Issued']],
             body: data,
@@ -394,8 +400,8 @@ const PdfService = {
     /**
      * GENERATE PROJECT MATRIX
      */
-    generateProjectMatrix(groupMatrix, groupName) {
-        const { doc, addFooter } = this.initDoc("Project Savings Matrix", `Group: ${groupName}`);
+    async generateProjectMatrix(groupMatrix, groupName) {
+        const { doc, addFooter } = await this.initDoc("Project Savings Matrix", `Group: ${groupName}`);
 
         // Summary Statistics
         const totalSaved = groupMatrix.reduce((sum, m) => sum + (m.edu_saved || 0) + (m.agri_saved || 0), 0);
@@ -423,7 +429,7 @@ const PdfService = {
             ];
         });
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: 80,
             head: [['Member Name', 'Education', 'Agriculture', 'Total Invested', 'Jan Payout (150%)', 'Status']],
             body: data,
@@ -445,9 +451,9 @@ const PdfService = {
     /**
      * GENERATE DAILY CASH CLOSING SLIP
      */
-    generateDailyClosingSlip(report, summary, user, groupName) {
+    async generateDailyClosingSlip(report, summary, user, groupName) {
         // Use A4 for detailed report
-        const { doc, addFooter, PageWidth } = this.initDoc("Daily Cash Closing Slip", `Group: ${groupName} | Date: ${report.date}`);
+        const { doc, addFooter, PageWidth } = await this.initDoc("Daily Cash Closing Slip", `Group: ${groupName} | Date: ${report.date}`);
 
         let y = 60;
 
@@ -491,7 +497,7 @@ const PdfService = {
             ["Banked Amount (Treasury)", `KES ${summary.banked.toLocaleString()}`]
         ];
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: y,
             head: [['Description', 'Amount']],
             body: summaryData,
@@ -537,7 +543,7 @@ const PdfService = {
         ].map(r => [r[0], `KES ${r[1].toLocaleString()}`]);
 
         // Draw Side-by-Side Tables manually or using autoTable with specific margins
-        autoTable(doc, {
+        doc.autoTable({
             startY: y,
             head: [['Type', 'Amount']],
             body: cashInData,
@@ -550,7 +556,7 @@ const PdfService = {
 
         const finalY1 = doc.lastAutoTable.finalY;
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: y,
             head: [['Type', 'Amount']],
             body: cashOutData,
@@ -577,7 +583,7 @@ const PdfService = {
             ['Coins', '', '']
         ];
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: y,
             head: [['Note/Coin', 'Count', 'Total Value']],
             body: denoms,
@@ -636,8 +642,8 @@ const PdfService = {
     /**
      * GENERATE CONTACT LIST (Officials)
      */
-    generateContactList(title, contacts) {
-        const { doc, addFooter } = this.initDoc("Contact Directory", title);
+    async generateContactList(title, contacts) {
+        const { doc, addFooter } = await this.initDoc("Contact Directory", title);
 
         const headers = [["Name", "Role", "Group", "Phone Number"]];
         const data = contacts.map(c => [
@@ -647,7 +653,7 @@ const PdfService = {
             c.phone
         ]);
 
-        autoTable(doc, {
+        doc.autoTable({
             startY: 60,
             head: headers,
             body: data,

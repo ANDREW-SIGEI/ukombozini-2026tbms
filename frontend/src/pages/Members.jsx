@@ -12,6 +12,7 @@ import { api } from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
 import { useAuth } from '../context/AuthContext';
 import SmartTransactionPanel from '../components/SmartTransactionPanel';
+import offlineManager from '../services/OfflineManager';
 
 const RELATIONSHIP_OPTIONS = [
     'Spouse', 'Parent', 'Child', 'Sibling', 'Grandparent', 'Grandchild', 'Cousin', 'Business Partner', 'Other'
@@ -24,7 +25,7 @@ const Members = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showEditModal, setShowEditModal] = useState(false);
     const [editFormData, setEditFormData] = useState({
-        id: '', name: '', phone: '', groupId: '', status: 'active',
+        id: '', name: '', phone: '', national_id: '', groupId: '', status: 'active',
         nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: ''
     });
     // ... existing ...
@@ -61,7 +62,8 @@ const Members = () => {
         nextOfKinName: '',
         nextOfKinPhone: '',
         nextOfKinRelationship: '',
-        nextOfKinMemberId: ''
+        nextOfKinMemberId: '',
+        national_id: ''
     });
     const [phoneError, setPhoneError] = useState('');
 
@@ -108,11 +110,23 @@ const Members = () => {
                 api.getGroups()
             ]);
 
-            if (membersData) setMembers(membersData);
+            if (membersData) {
+                setMembers(membersData);
+                // Proactive Caching for Offline Access
+                await offlineManager.cacheMembers(membersData);
+            }
             if (groupsData) setGroups(groupsData);
         } catch (error) {
-            console.error(error);
-            toast.error("Failed to load members data");
+            console.error("Fetch failed, checking offline cache:", error);
+
+            // Try Loading from Offline Cache
+            const cachedMembers = await offlineManager.getCachedMembers();
+            if (cachedMembers && cachedMembers.length > 0) {
+                setMembers(cachedMembers);
+                toast.info("📱 Operating from local cache (Offline)");
+            } else {
+                toast.error("Failed to load members data");
+            }
         } finally {
             setLoading(false);
         }
@@ -256,7 +270,8 @@ const Members = () => {
                 next_of_kin_name: newMember.nextOfKinName,
                 next_of_kin_phone: newMember.nextOfKinPhone,
                 next_of_kin_relationship: newMember.nextOfKinRelationship,
-                next_of_kin_member_id: newMember.nextOfKinMemberId ? parseInt(newMember.nextOfKinMemberId) : null
+                next_of_kin_member_id: newMember.nextOfKinMemberId ? parseInt(newMember.nextOfKinMemberId) : null,
+                national_id: newMember.national_id
             };
 
             await api.createMember(payload);
@@ -265,7 +280,8 @@ const Members = () => {
             setNewMember({
                 name: '', phone: '', groupId: '', opening_balance_savings: 0,
                 opening_balance_reason: '', opening_balance_ltl: 0, opening_balance_stl: 0,
-                nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: '', nextOfKinMemberId: ''
+                nextOfKinName: '', nextOfKinPhone: '', nextOfKinRelationship: '', nextOfKinMemberId: '',
+                national_id: ''
             });
             fetchData(); // Refresh list
         } catch (error) {
@@ -301,7 +317,8 @@ const Members = () => {
             status: member.status || 'active',
             nextOfKinName: member.next_of_kin_name || '',
             nextOfKinPhone: member.next_of_kin_phone || '',
-            nextOfKinRelationship: member.next_of_kin_relationship || ''
+            nextOfKinRelationship: member.next_of_kin_relationship || '',
+            national_id: member.national_id || ''
         });
         setShowEditModal(true);
     };
@@ -320,7 +337,8 @@ const Members = () => {
                 status: editFormData.status,
                 next_of_kin_name: editFormData.nextOfKinName,
                 next_of_kin_phone: editFormData.nextOfKinPhone,
-                next_of_kin_relationship: editFormData.nextOfKinRelationship
+                next_of_kin_relationship: editFormData.nextOfKinRelationship,
+                national_id: editFormData.national_id
             });
             toast.success("✅ Profile updated successfully!");
             setShowEditModal(false);
@@ -713,6 +731,17 @@ const Members = () => {
                                                 <FaTriangleExclamation /> {phoneError}
                                             </p>
                                         )}
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">National ID / Identity Number *</label>
+                                            <input
+                                                type="text"
+                                                value={newMember.national_id}
+                                                onChange={(e) => setNewMember({ ...newMember, national_id: e.target.value.replace(/\D/g, '') })}
+                                                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
+                                                placeholder="e.g. 12345678"
+                                                required
+                                            />
+                                        </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group *</label>
                                             <select
@@ -1198,9 +1227,20 @@ const Members = () => {
                                                         <tbody className="divide-y divide-gray-50">
                                                             {profileData.transactions.filter(t => t.type === 'Savings' || t.type === 'Withdrawal').length > 0 ? (
                                                                 profileData.transactions.filter(t => t.type === 'Savings' || t.type === 'Withdrawal').map(t => (
-                                                                    <tr key={t.id} className="hover:bg-gray-50/50">
+                                                                    <tr key={t.id} className="hover:bg-gray-50/50 group">
                                                                         <td className="px-6 py-4 text-sm font-bold text-gray-500">{new Date(t.date).toLocaleDateString()}</td>
-                                                                        <td className="px-6 py-4 text-sm font-bold text-gray-800">{t.type} {t.meeting_id ? `#${t.meeting_id}` : ''}</td>
+                                                                        <td className="px-6 py-4 text-sm font-bold text-gray-800">
+                                                                            <div className="flex items-center gap-2">
+                                                                                {t.type} {t.meeting_id ? `#${t.meeting_id}` : ''}
+                                                                                <button
+                                                                                    onClick={() => api.downloadReceiptPDF(t.id)}
+                                                                                    title="Download Digital Receipt"
+                                                                                    className="opacity-0 group-hover:opacity-100 p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-all"
+                                                                                >
+                                                                                    <FaFilePdf size={10} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </td>
                                                                         <td className="px-6 py-4 text-sm font-bold text-emerald-600 text-right">{t.amount > 0 ? `+${t.amount.toLocaleString()}` : '-'}</td>
                                                                         <td className="px-6 py-4 text-sm font-bold text-red-500 text-right">{t.amount < 0 ? `${Math.abs(t.amount).toLocaleString()}` : '-'}</td>
                                                                     </tr>
@@ -1221,13 +1261,19 @@ const Members = () => {
                                                     {profileData.loans.length > 0 ? (
                                                         profileData.loans.map(loan => (
                                                             <div key={loan.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
-                                                                <div>
-                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                <div className="flex items-center justify-between gap-4 mb-2">
+                                                                    <div className="flex items-center gap-2">
                                                                         <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide ${loan.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{loan.status}</span>
                                                                         <span className="text-sm font-bold text-gray-800">{loan.loan_type} Loan #{loan.id}</span>
                                                                     </div>
-                                                                    <p className="text-xs text-gray-400 font-bold">Issued: {new Date(loan.date_issued).toLocaleDateString()}</p>
+                                                                    <button
+                                                                        onClick={() => api.downloadLoanStatementPDF(loan.id)}
+                                                                        className="p-2 bg-gray-50 text-gray-500 hover:text-blue-600 rounded-xl transition-all border border-gray-100 hover:border-blue-100 flex items-center gap-2 text-[10px] font-black uppercase"
+                                                                    >
+                                                                        <FaFilePdf /> Statement
+                                                                    </button>
                                                                 </div>
+                                                                <p className="text-xs text-gray-400 font-bold">Issued: {new Date(loan.date_issued).toLocaleDateString()}</p>
                                                                 <div className="flex gap-8 text-right">
                                                                     <div>
                                                                         <div className="text-[10px] font-black text-gray-400 uppercase">Principal</div>
@@ -1265,16 +1311,44 @@ const Members = () => {
                                                         </div>
                                                     </div>
 
-                                                    <div className="space-y-3">
-                                                        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
-                                                            <span className="font-bold text-gray-600">Leverage Ratio (Loan / Savings)</span>
-                                                            <span className={`font-black ${(profileData.member.activeLoans / profileData.member.savings) > 1 ? 'text-red-500' : 'text-green-500'}`}>
+                                                    <div className="space-y-4">
+                                                        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                                            <div>
+                                                                <span className="font-bold text-gray-600 block">Leverage Ratio</span>
+                                                                <span className="text-[10px] text-gray-400 font-bold uppercase">Total Loans vs Total Savings</span>
+                                                            </div>
+                                                            <span className={`font-black text-lg ${(profileData.member.activeLoans / profileData.member.savings) > 1 ? 'text-red-500' : 'text-green-500'}`}>
                                                                 {profileData.member.savings > 0 ? ((profileData.member.activeLoans / profileData.member.savings) * 100).toFixed(1) : '∞'}%
                                                             </span>
                                                         </div>
-                                                        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
-                                                            <span className="font-bold text-gray-600">Net Exposure</span>
-                                                            <span className={`font-black ${(profileData.member.savings - profileData.member.activeLoans) < 0 ? 'text-red-500' : 'text-green-500'}`}>
+
+                                                        {/* Debt Capacity Visualization */}
+                                                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                                            <div className="flex justify-between items-center mb-2">
+                                                                <span className="font-bold text-gray-600">Debt Capacity Utilization</span>
+                                                                <span className="text-[10px] font-black p-1 bg-white rounded shadow-sm text-blue-600 tracking-tighter">BANK-GRADE SCORE</span>
+                                                            </div>
+                                                            <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden flex">
+                                                                <div
+                                                                    className={`h-full transition-all duration-1000 ${(profileData.member.activeLoans / profileData.member.savings) > 0.8 ? 'bg-red-500' :
+                                                                            (profileData.member.activeLoans / profileData.member.savings) > 0.5 ? 'bg-amber-500' : 'bg-green-500'
+                                                                        }`}
+                                                                    style={{ width: `${Math.min((profileData.member.activeLoans / (profileData.member.savings || 1)) * 100, 100)}%` }}
+                                                                ></div>
+                                                            </div>
+                                                            <div className="flex justify-between mt-2 text-[9px] font-black text-gray-400 uppercase">
+                                                                <span>Secure (0-50%)</span>
+                                                                <span>Leveraged (50-80%)</span>
+                                                                <span>Critical (80%+)</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                                            <div>
+                                                                <span className="font-bold text-gray-600 block">Net Liquidity Position</span>
+                                                                <span className="text-[10px] text-gray-400 font-bold uppercase">Cash Buffer after clearing all debt</span>
+                                                            </div>
+                                                            <span className={`font-black text-lg ${(profileData.member.savings - profileData.member.activeLoans) < 0 ? 'text-red-500' : 'text-green-500'}`}>
                                                                 KES {(profileData.member.savings - profileData.member.activeLoans).toLocaleString()}
                                                             </span>
                                                         </div>

@@ -762,7 +762,7 @@ const AdminPanel = () => {
                     }}
                     onSubmit={handleCreateGroup}
                     maxWidth="max-w-4xl"
-                    loading={loading}
+                    isProcessing={loading}
                 >
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         {/* Basic Info */}
@@ -896,7 +896,7 @@ const AdminPanel = () => {
                     title="Add New Officer"
                     onClose={() => setShowOfficerModal(false)}
                     onSubmit={handleCreateOfficer}
-                    loading={loading}
+                    isProcessing={loading}
                 >
                     <div className="space-y-4">
                         <InputField
@@ -941,7 +941,7 @@ const AdminPanel = () => {
                     title={newProduct.id ? "Edit Loan Product" : "Create Loan Product"}
                     onClose={() => setShowProductModal(false)}
                     onSubmit={handleCreateProduct}
-                    loading={loading}
+                    isProcessing={loading}
                 >
                     <div className="space-y-4">
                         <InputField
@@ -1076,7 +1076,7 @@ const AuditLogRow = ({ time, user, action, details }) => (
     </tr>
 );
 
-const Modal = ({ title, onClose, onSubmit, children, maxWidth = 'max-w-md', loading = false }) => (
+const Modal = ({ title, onClose, onSubmit, children, maxWidth = 'max-w-md', isProcessing = false }) => (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
         <div className={`bg-white rounded-[2.5rem] shadow-2xl ${maxWidth} w-full p-8 animate-in fade-in zoom-in duration-300 my-8 relative`}>
             {/* Close Button Icon */}
@@ -1109,10 +1109,10 @@ const Modal = ({ title, onClose, onSubmit, children, maxWidth = 'max-w-md', load
                     <button
                         type="submit"
                         className="flex-1 px-6 py-4 bg-safaricom-green text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-green-700 transition-all shadow-lg shadow-green-100 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={loading}
+                        disabled={isProcessing}
                     >
-                        {loading ? <FaSpinner className="animate-spin" /> : <FaFloppyDisk />}
-                        {loading ? 'Saving...' : 'Save Changes'}
+                        {isProcessing ? <FaSpinner className="animate-spin" /> : <FaFloppyDisk />}
+                        {isProcessing ? 'Saving...' : 'Save Changes'}
                     </button>
                 </div>
             </form>

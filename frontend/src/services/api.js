@@ -7,9 +7,9 @@ import { toast } from 'react-toastify';
  * Decoupled from Supabase, now using Local Node.js / SQLite backend.
  */
 
-const API_URL = 'http://localhost:5001/api';
+const API_URL = 'http://127.0.0.1:5000/api';
 
-const axiosInstance = axios.create({
+export const axiosInstance = axios.create({
     baseURL: API_URL,
     headers: {
         'Content-Type': 'application/json'
@@ -76,6 +76,15 @@ export const api = {
     async getAuditSnapshot(date, groupId = null) {
         try {
             const response = await axiosInstance.get('/audit/snapshot', { params: { date, groupId } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getOfficials() {
+        try {
+            const response = await axiosInstance.get('/governance/officials');
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -599,6 +608,26 @@ export const api = {
         }
     },
 
+    async getAuditLogs() {
+        try {
+            const response = await axiosInstance.get('/governance/audit-logs');
+            return response.data;
+        } catch (error) {
+            console.error('getAuditLogs error:', error);
+            return [];
+        }
+    },
+
+    async getSMSLogs() {
+        try {
+            const response = await axiosInstance.get('/sms/logs');
+            return response.data;
+        } catch (error) {
+            console.error('getSMSLogs error:', error);
+            return [];
+        }
+    },
+
     // ========================================
     // CASH CONTROL & RECONCILIATION (Bank-Grade)
     // ========================================
@@ -629,15 +658,7 @@ export const api = {
         }
     },
 
-    async getLatestCashSession(groupId) {
-        try {
-            const response = await axiosInstance.get(`/cash-sessions/latest/${groupId}`);
-            return response.data;
-        } catch (error) {
-            console.error('getLatestCashSession error:', error);
-            return null;
-        }
-    },
+
 
     async getMonthlyReports(filters = {}) {
         try {
@@ -781,8 +802,39 @@ export const api = {
     },
 
 
-    // ========================================
-    // MEMBER MANAGEMENT
+    async downloadLoanStatementPDF(loanId) {
+        try {
+            const response = await axiosInstance.get(`/reports/receipt/loan-statement/${loanId}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `loan_statement_${loanId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async downloadReceiptPDF(transactionId) {
+        try {
+            const response = await axiosInstance.get(`/reports/receipt/${transactionId}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `receipt_${transactionId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
     // ========================================
 
     /**
@@ -981,18 +1033,7 @@ export const api = {
         }
     },
 
-    /**
-     * Get loans (Supabase Integrated)
-     */
-    async getLoans(memberId = null) {
-        try {
-            const url = memberId ? `/loans?memberId=${memberId}` : '/loans';
-            const response = await axiosInstance.get(url);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
+    // getLoans moved to later section (Unified API) - Line 1983
 
     async getLoanSchedule(loanId) {
         try {
@@ -1382,7 +1423,22 @@ export const api = {
 
     async getDailyReports(filters = {}) {
         // Return meeting summaries as daily reports
-        return await this.getMeetingSessions();
+        try {
+            const response = await axiosInstance.get('/daily-reports', { params: filters });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async submitDailyReport(reportData) {
+        try {
+            const response = await axiosInstance.post('/daily-reports', reportData);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+            throw error;
+        }
     },
 
     async getDailyReportContext(groupId, date) {
@@ -1398,35 +1454,50 @@ export const api = {
     // DIVIDEND ENGINE (Supabase Native)
     // ========================================
 
-    async generateDividendReport(groupId, year) {
-        // Fetch raw data for frontend calculation or trigger DB function
-        // For now, returning mock structure populated with DB data where possible
-        return {
-            financials: {
-                bankInterest: 0, // Needs manual input or separate table
-                stlInterest: 0,
-                ltlInterest: 0,
-                total_income: 0
-            },
-            members: [] // Populate via getMembers() in UI
-        };
+    async previewDividends(params) {
+        const { year, groupId, expenses = 0 } = params;
+        try {
+            const response = await axiosInstance.post('/dividend-runs/calculate', { year, groupId, expenses });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
-    async getDividendRuns(financialYear = null) {
-        return [];
+    async getDividendRuns(groupId = null) {
+        try {
+            const response = await axiosInstance.get('/dividend-runs', { params: { groupId } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
     async createDividendRun(runData) {
-        return { success: true };
+        try {
+            const response = await axiosInstance.post('/dividend-runs', runData);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
-    async updateDividendRun(runId, updates) {
-        return { success: true };
+    async approveDividendRun(runId) {
+        try {
+            const response = await axiosInstance.post(`/dividend-runs/${runId}/approve`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
-
 
     async getDividendAllocations(runId) {
-        return [];
+        try {
+            const response = await axiosInstance.get(`/dividend-runs/${runId}/allocations`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
     // ========================================
@@ -1461,8 +1532,46 @@ export const api = {
         }
     },
 
-    async postDividendRun(runId) {
-        return { success: true };
+    async postDividends({ runData, officerId }) {
+        try {
+            // 1. Create Run as DRAFT
+            const saveRes = await axiosInstance.post('/dividend-runs', {
+                financial_year: runData.year,
+                group_id: runData.groupId,
+                run_number: `DIV-${runData.year}-${Date.now()}`,
+                banking_interest: runData.trf, // Simplified mapping
+                allocable_profit: runData.ap,
+                profit_share_percentage: runData.ratio * 100,
+                dividend_rate: runData.dividendRate,
+                total_payout: runData.profitToShare,
+                allocations: runData.allocations.map(a => ({
+                    memberId: a.memberId,
+                    averageShares: a.averageShares,
+                    grossDividend: a.grossDividend,
+                    netDividend: a.netDividend
+                }))
+            });
+
+            if (!saveRes.data.success) throw new Error("Failed to save dividend run");
+            const runId = saveRes.data.id;
+
+            // 2. Approve Run
+            await axiosInstance.post(`/dividend-runs/${runId}/approve`);
+
+            // 3. Post (Distribute)
+            return await this.postDividendRun(runId, officerId);
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async postDividendRun(runId, officerId) {
+        try {
+            const response = await axiosInstance.post(`/dividend-runs/${runId}/post`, { officerId });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     },
 
     // ========================================
@@ -1523,6 +1632,32 @@ export const api = {
     // ========================================
     // LOAN PRODUCTS - HELPERS
     // ========================================
+
+    async getLoanProducts() {
+        try {
+            const response = await axiosInstance.get('/loan-products');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async downloadLoanAdvisoryPDF(advisoryData) {
+        try {
+            const response = await axiosInstance.post('/reports/loan-advisory/pdf', advisoryData, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Loan_Advisory_${advisoryData.memberName.replace(/\s+/g, '_')}_${Date.now()}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
 
     async getLoanProductByAmount(amount) {
         return null;
@@ -1922,6 +2057,28 @@ export const api = {
                 amount: parseFloat(t.savings_amount || 0) - parseFloat(t.withdrawals || 0) + parseFloat(t.stl_repayment || 0) + parseFloat(t.ltl_repayment || 0) + parseFloat(t.loan_interest || 0) + parseFloat(t.fines || 0)
             };
         });
+    },
+
+    // ========================================
+    // MESSAGING HUB & SMS API
+    // ========================================
+    async getNotificationLogs(limit = 100) {
+        try {
+            const response = await axiosInstance.get('/sms/logs', { params: { limit } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async sendBulkNotification(data) {
+        try {
+            // data items: { target, targetIds, message, method }
+            const response = await axiosInstance.post('/sms/broadcast', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
     }
 };
 

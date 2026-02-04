@@ -1,80 +1,31 @@
-// =====================================================
-// SMS SERVICE - AFRICA'S TALKING INTEGRATION
-// Kenya's most reliable SMS gateway
-// =====================================================
-
-import axios from 'axios';
-
-const SMS_CONFIG = {
-    username: process.env.REACT_APP_AT_USERNAME || 'sandbox',
-    apiKey: process.env.REACT_APP_AT_API_KEY || '',
-    from: process.env.REACT_APP_AT_SENDER_ID || 'UKOMBOZI',
-    baseUrl: 'https://api.africastalking.com/version1'
-};
+import { axiosInstance } from './api';
 
 class SMSService {
     /**
-     * Send SMS through Africa's Talking
-     * @param {string} to - Phone number (format: +254712345678)
-     * @param {string} message - Message content (max 160 chars for single SMS)
-     * @returns {Promise<Object>} - Gateway response
+     * Send SMS through Central Backend API
+     * @param {string} to - Phone number
+     * @param {string} message - Message content
+     * @param {string} type - Category (Contribution, Loan, etc.)
+     * @param {number} memberId - Optional member ID for logging
+     * @returns {Promise<Object>} - API response
      */
-    static async sendSMS(to, message) {
-        // Mock mode for development
-        if (SMS_CONFIG.username === 'sandbox' || !SMS_CONFIG.apiKey) {
-            console.log('📲 [SMS MOCK] Sending to:', to);
-            console.log('📩 [SMS MOCK] Message:', message);
+    static async sendSMS(to, message, type = 'General', memberId = null) {
+        try {
+            const response = await axiosInstance.post('/sms/reminders', {
+                type,
+                recipients: [{ phone: to, message, memberId }]
+            });
 
             return {
-                success: true,
-                mock: true,
-                messageId: `MOCK-${Date.now()}`,
-                cost: 'KES 0.80',
-                status: 'Success'
+                success: response.data.sent > 0,
+                status: response.data.sent > 0 ? 'Success' : 'Failed',
+                raw: response.data
             };
-        }
-
-        try {
-            const response = await axios.post(
-                `${SMS_CONFIG.baseUrl}/messaging`,
-                new URLSearchParams({
-                    username: SMS_CONFIG.username,
-                    to: to,
-                    message: message,
-                    from: SMS_CONFIG.from
-                }),
-                {
-                    headers: {
-                        'apiKey': SMS_CONFIG.apiKey,
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/json'
-                    }
-                }
-            );
-
-            const data = response.data;
-
-            if (data.SMSMessageData?.Recipients?.[0]) {
-                const recipient = data.SMSMessageData.Recipients[0];
-
-                return {
-                    success: recipient.status === 'Success',
-                    messageId: recipient.messageId,
-                    cost: recipient.cost,
-                    status: recipient.status,
-                    statusCode: recipient.statusCode,
-                    raw: data
-                };
-            }
-
-            throw new Error('Invalid response from SMS gateway');
         } catch (error) {
-            console.error('❌ SMS Error:', error.message);
-
+            console.error('❌ SMS Backend Error:', error.message);
             return {
                 success: false,
-                error: error.message,
-                statusCode: error.response?.status
+                error: error.message
             };
         }
     }
@@ -158,7 +109,7 @@ class SMSService {
      */
     static validateKenyanPhone(phone) {
         // Remove spaces and special characters
-        phone = phone.replace(/[\s\-\(\)]/g, '');
+        phone = phone.replace(/[\s\-()]/g, '');
 
         // Kenya formats: 0712345678, 712345678, +254712345678, 254712345678
         const patterns = [
@@ -189,28 +140,31 @@ class SMSService {
     }
 
     /**
-     * Check SMS balance (if supported by gateway)
+     * Check SMS balance through Central Backend API
      */
     static async checkBalance() {
-        if (SMS_CONFIG.username === 'sandbox') {
-            return { balance: 'UNLIMITED (Sandbox Mode)' };
-        }
-
         try {
-            const response = await axios.get(
-                `${SMS_CONFIG.baseUrl}/user`,
-                {
-                    params: { username: SMS_CONFIG.username },
-                    headers: { 'apiKey': SMS_CONFIG.apiKey }
-                }
-            );
-
-            return {
-                balance: response.data?.UserData?.balance || 'Unknown'
-            };
+            const response = await axiosInstance.get('/sms/balance');
+            return response.data;
         } catch (error) {
             console.error('❌ Balance check error:', error.message);
             return { balance: 'Error', error: error.message };
+        }
+    }
+
+    /**
+     * Send bulk SMS through Central Backend API
+     */
+    static async sendBulk(type, recipients) {
+        try {
+            const response = await axiosInstance.post('/sms/reminders', {
+                type,
+                recipients
+            });
+            return response.data;
+        } catch (error) {
+            console.error('❌ Bulk SMS Backend Error:', error.message);
+            throw error;
         }
     }
 }

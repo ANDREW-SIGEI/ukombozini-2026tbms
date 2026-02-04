@@ -14,6 +14,11 @@ const initSchema = () => {
             if (!err) console.log("Governance: 'status' added to officers");
         });
 
+        // Add Unique Constraint to Group Names
+        db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_name ON groups(name COLLATE NOCASE)", (err) => {
+            if (!err) console.log("Governance: UNIQUE index added to groups(name)");
+        });
+
         // 2. Audit Logs
         db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +59,11 @@ const initSchema = () => {
             member_id INTEGER,
             phone TEXT,
             message TEXT,
+            type TEXT,
             status TEXT DEFAULT 'SENT',
+            transaction_id INTEGER,
+            cost REAL DEFAULT 0,
+            error_message TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
@@ -90,6 +99,62 @@ const initSchema = () => {
             status TEXT DEFAULT 'ACTIVE',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(member_id) REFERENCES members(id)
+        )`);
+
+        // 5. Partnership Tables
+        // ... (existing partnership tables)
+
+        // 7. Dividend Engine Standard Tables
+        db.run(`CREATE TABLE IF NOT EXISTS dividend_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            financial_year INTEGER NOT NULL,
+            snapshot_month TEXT NOT NULL,
+            snapshot_date TEXT NOT NULL,
+            member_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            savings_balance REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(member_id) REFERENCES members(id),
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            UNIQUE(financial_year, snapshot_month, member_id)
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS dividend_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_number TEXT UNIQUE NOT NULL,
+            financial_year INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            banking_interest REAL DEFAULT 0,
+            stl_interest REAL DEFAULT 0,
+            ltl_interest REAL DEFAULT 0,
+            penalties REAL DEFAULT 0,
+            other_income REAL DEFAULT 0,
+            operating_expenses REAL DEFAULT 0,
+            mandatory_reserves REAL DEFAULT 0,
+            risk_buffer REAL DEFAULT 0,
+            reinvested_capital REAL DEFAULT 0,
+            profit_share_percentage REAL DEFAULT 75,
+            dividend_rate REAL DEFAULT 0,
+            allocable_profit REAL DEFAULT 0,
+            total_payout REAL DEFAULT 0,
+            status TEXT DEFAULT 'DRAFT',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(group_id) REFERENCES groups(id)
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS dividend_allocations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dividend_run_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            average_shares REAL DEFAULT 0,
+            gross_dividend REAL DEFAULT 0,
+            arrears_offset REAL DEFAULT 0,
+            net_dividend REAL DEFAULT 0,
+            posted_to_savings INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(dividend_run_id) REFERENCES dividend_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(member_id) REFERENCES members(id),
+            UNIQUE(dividend_run_id, member_id)
         )`);
 
         // 6. Daily Cash Report Audit Extensions

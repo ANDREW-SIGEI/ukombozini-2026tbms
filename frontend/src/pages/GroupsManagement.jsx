@@ -7,10 +7,13 @@ import {
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
+import { useTransactions } from '../context/TransactionContext';
 import api from '../services/api';
+import SmartTransactionPanel from '../components/SmartTransactionPanel';
 
 const GroupsManagement = () => {
     const { user, isAuditor } = useAuth();
+    const { activeSession } = useTransactions();
     const navigate = useNavigate();
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -20,6 +23,8 @@ const GroupsManagement = () => {
     const [selectedGroup, setSelectedGroup] = useState(null);
     const [groupMembers, setGroupMembers] = useState([]);
     const [isUpdating, setIsUpdating] = useState(false);
+    const [showTransactionPanel, setShowTransactionPanel] = useState(false);
+    const [transactionMember, setTransactionMember] = useState(null);
 
     const [newGroup, setNewGroup] = useState({
         group_name: '',
@@ -361,9 +366,30 @@ const GroupsManagement = () => {
                                 <div className="px-6 pb-4 flex justify-between">
                                     <button
                                         onClick={() => navigate(`/groups/${group.id}/ledger`)}
-                                        className="w-full flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 py-2 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors"
+                                        className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 py-2 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors"
                                     >
-                                        <FaBook /> View Ledger
+                                        <FaBook /> Ledger
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (isAuditor) {
+                                                toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
+                                                return;
+                                            }
+                                            // For "Group Level", we might need a dummy member or just use the group ID.
+                                            // The system objective is for Group-Level loans.
+                                            // Let's use a "Group Anchor" member or just pass the group name as member context.
+                                            setTransactionMember({
+                                                id: `group-${group.id}`, // Anchor prefix
+                                                name: `${group.group_name} (Group Level)`,
+                                                group_id: group.id,
+                                                groupName: group.group_name
+                                            });
+                                            setShowTransactionPanel(true);
+                                        }}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-safaricom-green text-white py-2 rounded-xl text-sm font-bold hover:bg-green-700 transition-colors"
+                                    >
+                                        <FaPlus /> Quick Trans
                                     </button>
                                 </div>
                             </div>
@@ -634,6 +660,13 @@ const GroupsManagement = () => {
                     </div>
                 </Modal>
             )}
+            {/* Smart Transaction Panel */}
+            <SmartTransactionPanel
+                isOpen={showTransactionPanel}
+                onClose={() => setShowTransactionPanel(false)}
+                member={transactionMember}
+                onRefresh={fetchGroups}
+            />
         </div>
     );
 };

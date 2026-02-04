@@ -172,7 +172,7 @@ class OfflineManager {
                 let result;
                 switch (transaction.type) {
                     case 'contribution':
-                        result = await api.postContribution(transaction.data);
+                        result = await api.postTransaction(transaction.data);
                         break;
                     case 'loan':
                         result = await api.issueLoan(transaction.data);

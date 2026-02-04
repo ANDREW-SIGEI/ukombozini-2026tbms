@@ -708,109 +708,117 @@ const reportService = {
     },
 
     /**
-     * Generate Partnership Statement (Group vs Company)
+     * Generate Loan Advisory Report PDF
      */
-    generatePartnershipStatement: async (groupId) => {
-        return new Promise((resolve, reject) => {
-            // 1. Fetch Group & Financials
-            db.get("SELECT name FROM groups WHERE id = ?", [groupId], (err, group) => {
-                if (err || !group) return reject("Group not found");
+    generateLoanAdvisory: async (data) => {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const {
+                    memberName,
+                    memberId,
+                    groupName,
+                    loanType,
+                    amount,
+                    interestRate,
+                    duration,
+                    schedule,
+                    totalRepayment,
+                    monthlyInstallment,
+                    guarantors = [],
+                    gap = 0
+                } = data;
 
-                // 2. Fetch Aggregates
-                const queries = {
-                    savings: "SELECT SUM(current_savings) as val FROM members WHERE group_id = ?",
-                    commitments: "SELECT SUM(amount) as val FROM group_commitments WHERE group_id = ? AND status = 'LOCKED'",
-                    topups: "SELECT SUM(amount) as val FROM company_investments WHERE group_id = ? AND status = 'ACTIVE'",
-                    products: "SELECT SUM(financed_amount) as val FROM product_financing pf JOIN members m ON pf.member_id = m.id WHERE m.group_id = ? AND pf.status = 'ACTIVE'"
+                const doc = new PDFDocument({ margin: 40, size: 'A4' });
+                let buffers = [];
+                doc.on('data', buffers.push.bind(buffers));
+                doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+                // --- HEADER & LOGO ---
+                const logoPath = path.join(__dirname, '../assets/logo.png');
+                if (fs.existsSync(logoPath)) {
+                    doc.image(logoPath, 40, 30, { width: 160 });
+                }
+
+                doc.fillColor('#666666').fontSize(10).font('Helvetica-Bold').text('LOAN REPAYMENT ADVISORY', 40, 75, { align: 'right' });
+                doc.moveDown(3);
+
+                // --- MEMBER & LOAN INFO ---
+                doc.fillColor('#111827').fontSize(12).font('Helvetica-Bold').text(`PROPOSAL FOR: ${memberName.toUpperCase()}`);
+                doc.fontSize(10).font('Helvetica').text(`Member ID: UK-MEM-${memberId.toString().padStart(4, '0')}`);
+                doc.text(`Group: ${groupName}`);
+                doc.moveDown();
+
+                doc.rect(40, doc.y, 515, 80).fill('#f3f4f6').stroke('#e5e7eb');
+                const boxY = doc.y + 10;
+                doc.fillColor('#4b5563').fontSize(9).font('Helvetica-Bold').text('LOAN TYPE:', 60, boxY);
+                doc.fillColor('#111827').text(loanType === 'STL' ? 'Short Term Loan' : 'Long Term Loan', 150, boxY);
+
+                doc.fillColor('#4b5563').text('PRINCIPAL:', 300, boxY);
+                doc.fillColor('#111827').text(`KES ${amount.toLocaleString()}`, 400, boxY);
+
+                doc.fillColor('#4b5563').text('DURATION:', 60, boxY + 20);
+                doc.fillColor('#111827').text(`${duration} Months`, 150, boxY + 20);
+
+                doc.fillColor('#4b5563').text('INTEREST RATE:', 300, boxY + 20);
+                doc.fillColor('#111827').text(`${interestRate}% ${loanType === 'STL' ? 'per month (Reducing)' : 'Standard'}`, 400, boxY + 20);
+
+                doc.fillColor('#4b5563').text('TOTAL REPAYABLE:', 60, boxY + 45);
+                doc.fillColor('#76bc21').fontSize(12).text(`KES ${totalRepayment.toLocaleString()}`, 150, boxY + 45);
+
+                doc.moveDown(6);
+
+                // --- GUARANTOR REQUIREMENTS ---
+                if (gap > 0 || guarantors.length > 0) {
+                    doc.fillColor('#b91c1c').fontSize(10).font('Helvetica-Bold').text('GUARANTOR REQUIREMENTS');
+                    doc.fillColor('#4b5563').font('Helvetica').fontSize(9).text(`This loan requires coverage for the gap of KES ${gap.toLocaleString()}.`);
+                    if (guarantors.length > 0) {
+                        doc.text(`Identified Guarantors: ${guarantors.join(', ')}`);
+                    }
+                    doc.moveDown();
+                }
+
+                // --- REPAYMENT SCHEDULE ---
+                const tableRows = schedule.map(row => [
+                    `Month ${row.month}`,
+                    `KES ${row.balanceStart.toLocaleString()}`,
+                    `KES ${row.principal.toLocaleString()}`,
+                    `KES ${row.interest.toLocaleString()}`,
+                    `KES ${row.totalPayment.toLocaleString()}`
+                ]);
+
+                const advisoryTable = {
+                    title: "Repayment Schedule Breakdown",
+                    headers: ["Period", "Balance B/F", "Principal", "Interest", "Total Due"],
+                    rows: tableRows
                 };
 
-                // Run parallel queries (manual promise style for sqlite3)
-                const runQ = (q) => new Promise((res, rej) => db.get(q, [groupId], (e, r) => e ? rej(e) : res(r?.val || 0)));
-
-                Promise.all([
-                    runQ(queries.savings),
-                    runQ(queries.commitments),
-                    runQ(queries.topups),
-                    runQ(queries.products)
-                ]).then(([savings, commitments, topups, products]) => {
-                    const doc = new PDFDocument({ margin: 40, size: 'A4' });
-                    let buffers = [];
-                    doc.on('data', buffers.push.bind(buffers));
-                    doc.on('end', () => resolve(Buffer.concat(buffers)));
-
-                    // BRANDING
-                    const logoPath = path.join(__dirname, '../assets/logo.png');
-                    if (fs.existsSync(logoPath)) {
-                        doc.image(logoPath, 40, 30, { width: 160 });
+                await doc.table(advisoryTable, {
+                    prepareHeader: () => doc.font("Helvetica-Bold").fontSize(9).fillColor('#374151'),
+                    prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+                        doc.font("Helvetica").fontSize(9).fillColor('#4b5563');
+                        if (indexColumn === 4) doc.font("Helvetica-Bold").fillColor('#76bc21');
                     }
-                    doc.fontSize(10).fillColor('#666666').font('Helvetica-Bold').text('PARTNERSHIP POSITIONING STATEMENT', 40, 75, { align: 'right', letterSpacing: 1 });
-                    doc.moveDown(3);
+                });
 
-                    // Watermark setup
-                    const pages = doc.bufferedPageRange();
+                // --- FOOTER ---
+                const pages = doc.bufferedPageRange();
+                for (let i = 0; i < pages.count; i++) {
+                    doc.switchToPage(i);
+                    doc.save();
+                    doc.opacity(0.05);
+                    if (fs.existsSync(logoPath)) doc.image(logoPath, (doc.page.width - 250) / 2, (doc.page.height - 80) / 2, { width: 250 });
+                    doc.restore();
+                }
 
-                    // INFO
-                    doc.fontSize(12).font('Helvetica-Bold').text(`Partner Group: ${group.name}`);
-                    doc.font('Helvetica').text(`Date: ${new Date().toLocaleDateString()}`);
-                    doc.moveDown();
+                doc.moveDown(2);
+                doc.fontSize(8).fillColor('#9ca3af').text('UKOMBOZINI INVESTMENT FINANCIAL CONTROL | LOAN CONSULTATION DOCUMENT', { align: 'center' });
+                doc.text('This is an advisory document and does not constitute a loan agreement. Terms are subject to committee approval.', { align: 'center' });
+                doc.text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
 
-                    // 2-COLUMN LAYOUT
-                    const mid = doc.page.width / 2;
-                    const yStart = doc.y;
-
-                    // LEFT: GROUP POSITION
-                    doc.rect(40, yStart, mid - 50, 200).fillOpacity(0.05).fill('#008524').stroke('#008524').fillOpacity(1);
-                    doc.fillColor('#006400').fontSize(14).font('Helvetica-Bold').text('GROUP FUNDS', 50, yStart + 20);
-                    doc.fontSize(10).font('Helvetica').text('Member Savings:', 50, yStart + 50);
-                    doc.font('Helvetica-Bold').text(`KES ${savings.toLocaleString()}`, 150, yStart + 50);
-
-                    doc.font('Helvetica').text('Commitment Deposit:', 50, yStart + 80);
-                    doc.font('Helvetica-Bold').text(`KES ${commitments.toLocaleString()}`, 150, yStart + 80);
-
-                    doc.moveTo(50, yStart + 110).lineTo(mid - 20, yStart + 110).stroke();
-                    doc.fontSize(12).text('TOTAL SECURITY', 50, yStart + 120);
-                    doc.fontSize(14).text(`KES ${(savings + commitments).toLocaleString()}`, 50, yStart + 135);
-
-
-                    // RIGHT: COMPANY POSITION
-                    doc.rect(mid + 10, yStart, mid - 50, 200).fillOpacity(0.05).fill('#00008B').stroke('#00008B').fillOpacity(1);
-                    doc.fillColor('#00008B').fontSize(14).font('Helvetica-Bold').text('COMPANY FUNDS', mid + 20, yStart + 20);
-
-                    doc.fontSize(10).font('Helvetica').text('Capital Top-Ups:', mid + 20, yStart + 50);
-                    doc.font('Helvetica-Bold').text(`KES ${topups.toLocaleString()}`, mid + 120, yStart + 50);
-
-                    doc.font('Helvetica').text('Product Financing:', mid + 20, yStart + 80);
-                    doc.font('Helvetica-Bold').text(`KES ${products.toLocaleString()}`, mid + 120, yStart + 80);
-
-                    doc.moveTo(mid + 20, yStart + 110).lineTo(doc.page.width - 40, yStart + 110).stroke();
-                    doc.fontSize(12).text('TOTAL EXPOSURE', mid + 20, yStart + 120);
-                    doc.fontSize(14).text(`KES ${(topups + products).toLocaleString()}`, mid + 20, yStart + 135);
-
-                    // NET POSITION
-                    doc.moveDown(8);
-                    const net = (topups + products) - (savings + commitments);
-                    const msg = net > 0 ? "Net Company Risk (Uncovered)" : "Fully Secured (Surplus)";
-                    const color = net > 0 ? 'red' : 'green';
-
-                    doc.fontSize(16).fillColor(color).text(`${msg}: KES ${Math.abs(net).toLocaleString()}`, { align: 'center' });
-
-                    // Footer
-                    doc.fontSize(8).fillColor('gray').text('This statement confirms the mutual partnership standing. UKOMBOZINI INVESTMENT FINANCIAL SERVICES.', 40, 750, { align: 'center' });
-
-                    // Watermark loop
-                    let pc = doc.bufferedPageRange();
-                    for (let i = 0; pc && i < pc.count; i++) {
-                        doc.switchToPage(i);
-                        doc.save();
-                        doc.opacity(0.05);
-                        if (fs.existsSync(logoPath)) doc.image(logoPath, (doc.page.width - 300) / 2, (doc.page.height - 100) / 2, { width: 300 });
-                        doc.restore();
-                    }
-
-                    doc.end();
-
-                }).catch(reject);
-            });
+                doc.end();
+            } catch (e) {
+                reject(e);
+            }
         });
     }
 };

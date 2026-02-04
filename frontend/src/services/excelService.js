@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-
 /**
  * HIGH STANDARD EXCEL REPORTING SERVICE
  * Professional Excel exports with Safaricom branding logic and strict metadata.
@@ -14,7 +12,10 @@ const ExcelService = {
      * @param {string} fileName - Output filename (without extension)
      * @param {Object} metadata - Optional key-value metadata to add to header
      */
-    exportToExcel(data, columns, title, fileName, metadata = {}) {
+    async exportToExcel(data, columns, title, fileName, metadata = {}) {
+        // Dynamic Import to save bundle size and prevent ChunkLoadErrors
+        const XLSX = await import('xlsx');
+
         // 1. Prepare Workbook
         const wb = XLSX.utils.book_new();
         wb.Props = {
@@ -72,8 +73,6 @@ const ExcelService = {
 
         // 4. Styling & Merges
         // Merge Title Rows
-        // Note: 'xlsx' Community Edition (which is likely what is installed) doesn't support comprehensive styling (colors/fonts)
-        // out of the box without Pro version, but we can do Merges and Column Widths.
         const mergeRange = columns.length > 1 ? columns.length - 1 : 1;
 
         ws['!merges'] = [
@@ -82,7 +81,6 @@ const ExcelService = {
         ];
 
         // 5. Column Width Auto-Fit
-        // Simple logic to set width based on header length and some data sample
         const colWidths = columns.map(col => ({ wch: Math.max(col.header.length + 5, 15) }));
         ws['!cols'] = colWidths;
 

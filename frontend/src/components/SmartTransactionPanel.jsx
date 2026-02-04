@@ -9,6 +9,7 @@ import { toast } from 'react-toastify';
 import { api } from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
 import { useAuth } from '../context/AuthContext';
+import offlineManager from '../services/OfflineManager';
 
 const TRANSACTION_GROUPS = [
     {
@@ -291,6 +292,36 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
 
         setIsProcessing(true);
         try {
+            // Check internet connectivity
+            if (!navigator.onLine) {
+                console.log("✈️ OFFLINE DETECTED: Redirecting to Offline Storage...");
+                const offlinePayload = {
+                    type: selectedType.id === 'stl' || selectedType.id === 'ltl' ? 'loan' : 'contribution',
+                    data: {
+                        memberId: memberContext.id,
+                        sessionId: activeSession?.id || latestCashSession?.id,
+                        amount: parseFloat(amount),
+                        officerId: user?.id,
+                        description: notes,
+                        type: selectedType.id,
+                        breakdown: calculationPreview?.split,
+                        // Specific for loans/assets if needed
+                        loanType: selectedType.id.toUpperCase(),
+                        guarantors: selectedType.id === 'stl' || selectedType.id === 'ltl' ? { g1: guarantors.g1, g2: guarantors.g2 } : null,
+                        productName: assetDetails.productName,
+                        totalValue: assetDetails.value
+                    }
+                };
+
+                await offlineManager.saveOfflineTransaction(offlinePayload);
+
+                setTimeout(() => {
+                    if (onRefresh) onRefresh();
+                    onClose();
+                }, 500);
+                return;
+            }
+
             console.log("Committing transaction through MTE...", { type: selectedType?.id, amount });
 
             const commonPayload = {
@@ -659,6 +690,11 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                         <span className="flex items-center gap-1.5 text-slate-400"><FaBuildingColumns className="text-slate-400" /> STATUS: {activeSession ? `LIVE SESSION #${activeSession.id}` : 'GENERAL LEDGER'}</span>
                     </div>
                     <div className="flex items-center gap-3">
+                        {!navigator.onLine && (
+                            <span className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500 text-white rounded-full animate-pulse">
+                                <FaTriangleExclamation /> OFFLINE MODE ACTIVE
+                            </span>
+                        )}
                         <span className="flex items-center gap-1.5"><FaShieldHalved className="text-indigo-400" /> AUDIT TRACE ACTIVE</span>
                     </div>
                 </div>

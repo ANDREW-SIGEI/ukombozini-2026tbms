@@ -1,9 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { Download, FileText, TrendingUp, AlertTriangle } from 'lucide-react';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import * as XLSX from 'xlsx';
 import { toast } from 'react-toastify';
 
 const OfficerScorecard = () => {
@@ -26,65 +23,80 @@ const OfficerScorecard = () => {
         }
     };
 
-    const exportPDF = () => {
-        const doc = new jsPDF();
+    const exportPDF = async () => {
+        try {
+            const { default: jsPDF } = await import('jspdf');
+            await import('jspdf-autotable');
 
-        // Header
-        doc.setFillColor(41, 128, 185); // Professional Blue
-        doc.rect(0, 0, 210, 20, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(16);
-        doc.text("UKOMBOZI - Officer Performance Scorecard", 14, 13);
+            const doc = new jsPDF();
 
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+            // Header
+            doc.setFillColor(41, 128, 185); // Professional Blue
+            doc.rect(0, 0, 210, 20, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(16);
+            doc.text("UKOMBOZI - Officer Performance Scorecard", 14, 13);
 
-        // Table
-        const tableColumn = ["Officer Name", "Role", "Reports Filed", "Collections (in KES)", "Errors/Variance", "Efficiency Score"];
-        const tableRows = [];
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(10);
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
 
-        officers.forEach(officer => {
-            const officerData = [
-                officer.name,
-                officer.role,
-                officer.reports_filed,
-                officer.total_collected.toLocaleString(),
-                officer.variance_issues,
-                `${officer.efficiency_score}%`
-            ];
-            tableRows.push(officerData);
-        });
+            // Table
+            const tableColumn = ["Officer Name", "Role", "Reports Filed", "Collections (in KES)", "Errors/Variance", "Efficiency Score"];
+            const tableRows = [];
 
-        doc.autoTable({
-            head: [tableColumn],
-            body: tableRows,
-            startY: 40,
-            theme: 'grid',
-            headStyles: { fillColor: [52, 73, 94] },
-            alternateRowStyles: { fillColor: [240, 240, 240] }
-        });
+            officers.forEach(officer => {
+                const officerData = [
+                    officer.name,
+                    officer.role,
+                    officer.reports_filed,
+                    officer.total_collected.toLocaleString(),
+                    officer.variance_issues,
+                    `${officer.efficiency_score}%`
+                ];
+                tableRows.push(officerData);
+            });
 
-        doc.save(`Officer_Scorecard_${new Date().toISOString().split('T')[0]}.pdf`);
-        toast.success("PDF Report downloaded successfully.");
+            doc.autoTable({
+                head: [tableColumn],
+                body: tableRows,
+                startY: 40,
+                theme: 'grid',
+                headStyles: { fillColor: [52, 73, 94] },
+                alternateRowStyles: { fillColor: [240, 240, 240] }
+            });
+
+            doc.save(`Officer_Scorecard_${new Date().toISOString().split('T')[0]}.pdf`);
+            toast.success("PDF Report downloaded successfully.");
+        } catch (error) {
+            console.error("PDF Export Error:", error);
+            toast.error("Failed to load PDF generator. Please check connection.");
+        }
     };
 
-    const exportExcel = () => {
-        const worksheet = XLSX.utils.json_to_sheet(officers.map(o => ({
-            "Officer ID": o.id,
-            "Name": o.name,
-            "Role": o.role,
-            "Reports Filed": o.reports_filed,
-            "Total Collected": o.total_collected,
-            "Variance Issues": o.variance_issues,
-            "Efficiency Score": o.efficiency_score,
-            "Last Active": o.last_active
-        })));
+    const exportExcel = async () => {
+        try {
+            const XLSX = await import('xlsx');
 
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Officer Performance");
-        XLSX.writeFile(workbook, `Officer_Scorecard_${new Date().toISOString().split('T')[0]}.xlsx`);
-        toast.success("Excel Report downloaded successfully.");
+            const worksheet = XLSX.utils.json_to_sheet(officers.map(o => ({
+                "Officer ID": o.id,
+                "Name": o.name,
+                "Role": o.role,
+                "Reports Filed": o.reports_filed,
+                "Total Collected": o.total_collected,
+                "Variance Issues": o.variance_issues,
+                "Efficiency Score": o.efficiency_score,
+                "Last Active": o.last_active
+            })));
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Officer Performance");
+            XLSX.writeFile(workbook, `Officer_Scorecard_${new Date().toISOString().split('T')[0]}.xlsx`);
+            toast.success("Excel Report downloaded successfully.");
+        } catch (error) {
+            console.error("Excel Export Error:", error);
+            toast.error("Failed to load Excel generator. Please check connection.");
+        }
     };
 
     if (loading) return <div className="p-4 text-center">Loading scorecard...</div>;
@@ -155,7 +167,7 @@ const OfficerScorecard = () => {
                                             <div className="w-full bg-gray-200 rounded-full h-2.5">
                                                 <div
                                                     className={`h-2.5 rounded-full ${officer.efficiency_score >= 90 ? 'bg-green-500' :
-                                                            officer.efficiency_score >= 70 ? 'bg-yellow-400' : 'bg-red-500'
+                                                        officer.efficiency_score >= 70 ? 'bg-yellow-400' : 'bg-red-500'
                                                         }`}
                                                     style={{ width: `${officer.efficiency_score}%` }}
                                                 ></div>

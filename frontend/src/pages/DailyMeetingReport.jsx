@@ -452,14 +452,17 @@ const DailyMeetingReport = () => {
             return;
         }
 
+        const calculatedExpectedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment;
+        const calculatedVariance = closingBalance - calculatedExpectedClosing;
+
         // Validate using cash report enforcement
         const reportData = {
             openingBalance,
             cashCollected: systemTotals.total_cash_in,
             cashIssued: cashOut,
-            expectedClosing: openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment,
+            expectedClosing: calculatedExpectedClosing,
             actualClosing: closingBalance,
-            variance: 0,
+            variance: calculatedVariance,
             varianceExplanation: approvalReason,
             requireVarianceExplanation: closingBalance < 0,
         };
@@ -469,6 +472,9 @@ const DailyMeetingReport = () => {
             cashValidation.errors.forEach(error => toast.error(error));
             return;
         }
+
+        const expectedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment;
+        const currentVariance = closingBalance - expectedClosing;
 
         // Submit to Transaction Context (Simulated Backend)
         const sessionMetadata = {
@@ -481,6 +487,7 @@ const DailyMeetingReport = () => {
             totals: systemTotals,
             openingBalance,
             closingBalance,
+            variance: currentVariance,
             meetingType,
             meetingNotes, // Add notes
             ukomboziRepayment // Add Partnership Repayment

@@ -404,11 +404,11 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                     </div>
 
                                     {/* Active Loans Card - same code ... */}
-                                    <div className="bg-white p-3 rounded-xl border-l-4 border-orange-500">
+                                    <div className={`bg-white p-3 rounded-xl border-l-4 ${member.activeLoans > rawLimit * 0.7 ? 'border-red-500' : member.activeLoans > 0 ? 'border-orange-500' : 'border-gray-200'}`}>
                                         <div className="flex items-center justify-between mb-1">
                                             <div className="text-xs text-gray-500">Active Loans</div>
                                         </div>
-                                        <div className={`text-lg font-black ${member.activeLoans > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                                        <div className={`text-lg font-black ${member.activeLoans > rawLimit * 0.7 ? 'text-red-600' : member.activeLoans > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                                             KES {member.activeLoans.toLocaleString()}
                                         </div>
                                     </div>
@@ -436,17 +436,26 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         )}
                                     </div>
 
+                                    {/* Risk Awareness Warning - NEW */}
+                                    {member.activeLoans > rawLimit * 0.7 && (
+                                        <div className="col-span-2 p-3 bg-orange-50 border-2 border-orange-200 rounded-xl flex items-center gap-3">
+                                            <div className="p-2 bg-orange-100 rounded-lg">
+                                                <FaExclamationTriangle className="text-orange-600" />
+                                            </div>
+                                            <div>
+                                                <div className="text-[11px] font-black text-orange-900">High Loan Utilization</div>
+                                                <div className="text-[9px] text-orange-700">Member has used over 70% of total borrowing capacity.</div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Arrears Status */}
-                                    <div className="bg-white p-3 rounded-xl">
+                                    <div className={`bg-white p-3 rounded-xl border-l-4 ${member.arrears > 0 ? 'border-red-500' : 'border-green-500'}`}>
                                         <div className="flex items-center justify-between mb-1">
-                                            <div className="text-xs text-gray-500">Arrears</div>
-                                            <button
-                                                type="button"
-                                                className="text-gray-400 hover:text-gray-600"
-                                                title="Overdue loan payments. Members with arrears cannot access new loans until cleared."
-                                            >
-                                                <FaInfoCircle className="text-[10px]" />
-                                            </button>
+                                            <div className="text-xs text-gray-500">Arrears Status</div>
+                                            <div className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${member.arrears > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                                {member.arrears > 0 ? 'Blocked' : 'Eligible'}
+                                            </div>
                                         </div>
                                         <div className={`text-lg font-black ${member.arrears > 0 ? 'text-red-600' : 'text-green-600'}`}>
                                             {member.arrears > 0 ? `KES ${member.arrears.toLocaleString()}` : 'None'}
@@ -454,12 +463,12 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         {member.arrears === 0 ? (
                                             <div className="text-[10px] text-green-600 mt-1 flex items-center gap-1">
                                                 <FaCheckCircle className="text-[8px]" />
-                                                Good standing
+                                                Loan Access Granted
                                             </div>
                                         ) : (
                                             <div className="text-[10px] text-red-600 mt-1 flex items-center gap-1">
                                                 <FaBan className="text-[8px]" />
-                                                Must clear first
+                                                Action Required
                                             </div>
                                         )}
                                     </div>
@@ -480,6 +489,53 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                     Loan Type *
                                     <span className="ml-2 text-[10px] font-normal text-gray-400">(Rules enforced automatically)</span>
                                 </label>
+
+                                {/* 📊 Loan Type Comparison Table - NEW */}
+                                <div className="mb-4 p-4 bg-gray-50 rounded-2xl border border-gray-200">
+                                    <div className="text-[10px] font-black text-gray-700 mb-3 flex items-center gap-2 uppercase tracking-widest">
+                                        <FaInfoCircle className="text-blue-500" />
+                                        Loan Type Comparison Matrix
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr className="border-b border-gray-300">
+                                                    <th className="py-2 text-[10px] font-bold text-gray-400 uppercase">Feature</th>
+                                                    <th className="py-2 text-[10px] font-bold text-blue-600 uppercase text-center">LTL</th>
+                                                    <th className="py-2 text-[10px] font-bold text-purple-600 uppercase text-center">STL</th>
+                                                    <th className="py-2 text-[10px] font-bold text-red-600 uppercase text-center">EMG</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="text-[10px] text-gray-600 font-medium">
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="py-2">Interest Rate</td>
+                                                    <td className="text-center">2% p.m.</td>
+                                                    <td className="text-center">3% p.m.</td>
+                                                    <td className="text-center">5% p.m.</td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="py-2">Duration</td>
+                                                    <td className="text-center">6-24 Mo</td>
+                                                    <td className="text-center">1-6 Mo</td>
+                                                    <td className="text-center">1-3 Mo</td>
+                                                </tr>
+                                                <tr className="border-b border-gray-100">
+                                                    <td className="py-2">Multiplier</td>
+                                                    <td className="text-center">3× Savings</td>
+                                                    <td className="text-center">2× Savings</td>
+                                                    <td className="text-center">1× Savings</td>
+                                                </tr>
+                                                <tr>
+                                                    <td className="py-2">Guarantors</td>
+                                                    <td className="text-center text-orange-600 font-bold">2 Required</td>
+                                                    <td className="text-center text-green-600 font-bold">Auto-Sync</td>
+                                                    <td className="text-center text-green-600 font-bold">None</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
                                     {Object.entries(LOAN_TYPE_RULES).map(([typeName, rule]) => (
                                         <button
@@ -554,19 +610,32 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         onChange={(e) => setLoanAmount(e.target.value)}
                                     />
 
-                                    {/* Quick Amount Buttons */}
-                                    <div className="flex gap-1 mt-2">
+                                    {/* Smart Amount Suggestions */}
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                        {[2000, 5000, 10000, 20000, 50000].filter(amt => amt >= currentRule.minAmount && amt <= maxLoan).map((amt) => (
+                                            <button
+                                                key={amt}
+                                                type="button"
+                                                onClick={() => setLoanAmount(amt)}
+                                                className={`px-2 py-1 text-[9px] font-black rounded-lg transition-colors border ${parseFloat(loanAmount) === amt
+                                                    ? 'bg-blue-600 text-white border-blue-600'
+                                                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                                                    }`}
+                                            >
+                                                KES {amt.toLocaleString()}
+                                            </button>
+                                        ))}
                                         {[0.25, 0.5, 0.75, 1].map((pct) => (
                                             <button
                                                 key={pct}
                                                 type="button"
                                                 onClick={() => setLoanAmount(Math.floor(maxLoan * pct))}
-                                                className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-colors ${parseFloat(loanAmount) === Math.floor(maxLoan * pct)
-                                                    ? 'bg-safaricom-green text-white'
-                                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                className={`px-2 py-1 text-[9px] font-black rounded-lg transition-colors border ${parseFloat(loanAmount) === Math.floor(maxLoan * pct)
+                                                    ? 'bg-safaricom-green text-white border-safaricom-green'
+                                                    : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'
                                                     }`}
                                             >
-                                                {pct * 100}%
+                                                {pct * 100}% Max
                                             </button>
                                         ))}
                                     </div>
@@ -642,12 +711,34 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                     value={purpose}
                                     onChange={(e) => setPurpose(e.target.value)}
                                 />
-                                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ Business Stock</span>
-                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ School Fees</span>
-                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ Farm Inputs</span>
-                                    <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 whitespace-nowrap">✅ Emergency Medical</span>
-                                </div>
+
+                                {/* 📝 Detailed Purpose Examples - ENHANCED */}
+                                <details className="mt-2 group">
+                                    <summary className="text-[10px] text-blue-600 cursor-pointer hover:text-blue-800 font-bold flex items-center gap-1 select-none">
+                                        <span className="group-open:rotate-90 transition-transform">▶</span>
+                                        View professional example purposes
+                                    </summary>
+                                    <div className="mt-2 p-3 bg-blue-50/50 rounded-xl border border-blue-100 text-[10px] text-gray-700 animate-in fade-in slide-in-from-top-1">
+                                        <div className="font-black text-blue-900 mb-2 uppercase tracking-wider">Example Templates:</div>
+                                        <ul className="space-y-2">
+                                            <li className="flex gap-2">
+                                                <span className="text-green-600 font-bold">✓</span>
+                                                <span><strong>Business:</strong> "Expansion of retail inventory - purchasing 10 bags of maize plus vegetable stock for upcoming market season."</span>
+                                            </li>
+                                            <li className="flex gap-2">
+                                                <span className="text-green-600 font-bold">✓</span>
+                                                <span><strong>Education:</strong> "Form 4 School Fees for [Child Name] at [School Name] - covering second term tuition and boarding."</span>
+                                            </li>
+                                            <li className="flex gap-2">
+                                                <span className="text-green-600 font-bold">✓</span>
+                                                <span><strong>Medical:</strong> "Emergency hospital bill settlement at [Hospital] following accidental injury of family member."</span>
+                                            </li>
+                                        </ul>
+                                        <div className="mt-2 pt-2 border-t border-blue-200 text-red-600 font-bold">
+                                            ⚠️ Avoid vague entries like "Personal use" or "Emergency" as they may result in rejection.
+                                        </div>
+                                    </div>
+                                </details>
                             </div>
 
                             {/* Guarantors (conditional) */}
@@ -668,9 +759,9 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                     <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 mb-2">
                                         <p className="text-[10px] text-yellow-800 font-bold mb-1">✅ Guarantor Eligibility:</p>
                                         <ul className="text-[9px] text-yellow-800 list-disc list-inside">
-                                            <li>Savings ≥ 50% of loan amount</li>
-                                            <li>No outstanding arrears</li>
-                                            <li>Active member (not self)</li>
+                                            <li title="Members must have enough collateral (50% of the loan amount being borrowed).">Savings ≥ 50% of loan amount</li>
+                                            <li title="Members with active defaults or arrears are disqualified from guaranteeing others.">No outstanding arrears</li>
+                                            <li title="Only active members who are not the direct borrower can guarantee.">Active member (not self)</li>
                                         </ul>
                                     </div>
 
@@ -682,9 +773,14 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         onChange={(e) => setGuarantor1Id(e.target.value)}
                                     >
                                         <option value="">-- Select Guarantor 1 --</option>
-                                        {membersList.map(m => (
-                                            <option key={m.id} value={m.id}>{m.name} (Savings: KES {m.savings?.toLocaleString()})</option>
-                                        ))}
+                                        {membersList.map(m => {
+                                            const isEligible = m.savings >= (parseFloat(loanAmount) * 0.5) && (m.arrears || 0) === 0;
+                                            return (
+                                                <option key={m.id} value={m.id} disabled={!isEligible}>
+                                                    {isEligible ? '✅' : '❌'} {m.name} (Savings: KES {m.savings?.toLocaleString()})
+                                                </option>
+                                            );
+                                        })}
                                     </select>
 
                                     <select
@@ -695,9 +791,14 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                         onChange={(e) => setGuarantor2Id(e.target.value)}
                                     >
                                         <option value="">-- Select Guarantor 2 --</option>
-                                        {membersList.map(m => (
-                                            <option key={m.id} value={m.id}>{m.name} (Savings: KES {m.savings?.toLocaleString()})</option>
-                                        ))}
+                                        {membersList.map(m => {
+                                            const isEligible = m.savings >= (parseFloat(loanAmount) * 0.5) && (m.arrears || 0) === 0;
+                                            return (
+                                                <option key={m.id} value={m.id} disabled={!isEligible}>
+                                                    {isEligible ? '✅' : '❌'} {m.name} (Savings: KES {m.savings?.toLocaleString()})
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                             )}
@@ -724,29 +825,48 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                 {repaymentPreview ? (
                                     <div className="space-y-4">
                                         {/* Monthly Payment Highlight */}
-                                        <div className="bg-white p-5 rounded-xl border-2 border-safaricom-green/20">
-                                            <div className="text-xs text-gray-500 uppercase font-bold mb-2">Monthly Payment</div>
-                                            <div className="text-4xl font-black text-safaricom-dark">
+                                        {/* Monthly Payment Highlight - ENHANCED */}
+                                        <div className="bg-gradient-to-br from-safaricom-green to-green-700 p-5 rounded-2xl text-white shadow-xl transform transition-transform hover:scale-[1.02]">
+                                            <div className="text-[10px] opacity-80 uppercase font-black tracking-widest mb-2">Monthly Installment</div>
+                                            <div className="text-4xl font-black mb-1">
                                                 KES {repaymentPreview.monthlyRepayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                             </div>
-                                            {/* Affordability Warning */}
-                                            {member.savings > 0 && (
-                                                <div className="mt-2 pt-2 border-t border-gray-100">
-                                                    <div className="flex items-center justify-between text-[10px]">
-                                                        <span className="text-gray-500">Ratio to Savings:</span>
-                                                        <span className={`font-bold ${(repaymentPreview.monthlyRepayment / member.savings) > 0.3 ? 'text-orange-600' : 'text-green-600'
-                                                            }`}>
-                                                            {((repaymentPreview.monthlyRepayment / member.savings) * 100).toFixed(1)}%
-                                                        </span>
+                                            <div className="text-[10px] opacity-90 flex items-center gap-2">
+                                                <FaCalendarAlt className="text-[8px]" />
+                                                Due next meeting cycle
+                                            </div>
+                                        </div>
+
+                                        {/* Affordability Analytics - NEW */}
+                                        {member.savings > 0 && (
+                                            <div className="bg-white p-4 rounded-xl border border-gray-200">
+                                                <div className="text-[10px] font-black text-gray-700 mb-3 flex items-center justify-between">
+                                                    <span>💰 AFFORDABILITY RATIOS</span>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[9px] ${(repaymentPreview.monthlyRepayment / member.savings) > 0.3 ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'
+                                                        }`}>
+                                                        {((repaymentPreview.monthlyRepayment / member.savings) * 100).toFixed(1)}% Ratio
+                                                    </span>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-[10px]">
+                                                        <span className="text-gray-500">vs. Current Savings</span>
+                                                        <span className="font-bold text-gray-900">{((repaymentPreview.monthlyRepayment / member.savings) * 100).toFixed(1)}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                                                        <div
+                                                            className={`h-1.5 rounded-full ${(repaymentPreview.monthlyRepayment / member.savings) > 0.3 ? 'bg-orange-500' : 'bg-green-500'}`}
+                                                            style={{ width: `${Math.min(100, (repaymentPreview.monthlyRepayment / member.savings) * 100)}%` }}
+                                                        ></div>
                                                     </div>
                                                     {(repaymentPreview.monthlyRepayment / member.savings) > 0.3 && (
-                                                        <div className="text-[9px] text-orange-600 mt-1 flex items-center gap-1">
-                                                            <FaExclamationTriangle /> High ratio - Consider longer duration
+                                                        <div className="mt-2 p-2 bg-orange-50 rounded-lg text-[9px] text-orange-700 flex items-center gap-2">
+                                                            <FaExclamationTriangle />
+                                                            High payment-to-savings ratio undetected. Consider 12+ months.
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
-                                        </div>
+                                            </div>
+                                        )}
 
                                         {/* Detailed Breakdown */}
                                         <div className="bg-white p-4 rounded-xl space-y-2">
@@ -784,41 +904,44 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                             </div>
 
                             {/* System Impact Preview - ENHANCED */}
-                            <div className="bg-gradient-to-br from-purple-50 to-blue-50 p-5 rounded-2xl border-2 border-purple-200">
-                                <h4 className="text-xs font-black text-purple-900 uppercase flex items-center justify-between gap-2 mb-4">
+                            <div className="bg-gradient-to-br from-purple-50 to-blue-50 p-6 rounded-3xl border-2 border-purple-100 shadow-inner">
+                                <h4 className="text-[10px] font-black text-purple-900 uppercase flex items-center justify-between gap-2 mb-4 tracking-widest">
                                     <div className="flex items-center gap-2">
-                                        <FaShieldAlt /> System Impact Preview
+                                        <FaShieldAlt className="text-purple-600" /> System Impact Analysis
                                     </div>
                                     <button
                                         type="button"
                                         className="text-purple-400 hover:text-purple-600"
                                         title="Shows exactly how this loan will affect the member's account and group records."
                                     >
-                                        <FaInfoCircle className="text-[10px]" />
+                                        <FaInfoCircle className="text-sm" />
                                     </button>
                                 </h4>
 
-                                <div className="space-y-3">
-                                    <ImpactRow
-                                        icon="💰"
-                                        label="Member Ledger"
-                                        value={loanAmount ? `+KES ${parseFloat(loanAmount).toLocaleString()}` : 'N/A'}
-                                        sub={loanAmount ? "Loan disbursed to member account" : "Pending calculation..."}
-                                        active={!!loanAmount}
+                                <div className="space-y-4">
+                                    <ImpactCard
+                                        icon={<FaMoneyBillWave className="text-green-600" />}
+                                        title="Member Ledger"
+                                        value={loanAmount ? `+ KES ${parseFloat(loanAmount).toLocaleString()}` : 'N/A'}
+                                        subtitle="Disbursement to Account"
+                                        details={loanAmount ? `New Loan Balance: KES ${(member.activeLoans + parseFloat(loanAmount)).toLocaleString()}` : "Pending calculation"}
+                                        color="green"
                                     />
-                                    <ImpactRow
-                                        icon="📊"
-                                        label="Cash Out"
+                                    <ImpactCard
+                                        icon={<FaHandHoldingUsd className="text-orange-600" />}
+                                        title="Cash Reconciliation"
                                         value={loanAmount ? `KES ${parseFloat(loanAmount).toLocaleString()}` : 'N/A'}
-                                        sub={loanAmount ? `Meeting #${activeMeeting?.session_number || 'N/A'} cash reconciliation` : "Pending input..."}
-                                        active={!!loanAmount}
+                                        subtitle="Meeting Outflow"
+                                        details={`Source: Meeting #${activeMeeting?.session_number || 'N/A'} Cash Pool`}
+                                        color="orange"
                                     />
-                                    <ImpactRow
-                                        icon="📈"
-                                        label="Loan Tracking"
-                                        value={repaymentPreview ? `${duration} payments` : 'N/A'}
-                                        sub={repaymentPreview ? `Monthly: KES ${repaymentPreview?.monthlyRepayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "Schedule pending..."}
-                                        active={!!repaymentPreview}
+                                    <ImpactCard
+                                        icon={<FaChartLine className="text-blue-600" />}
+                                        title="Repayment Stream"
+                                        value={repaymentPreview ? `${duration} Installments` : 'N/A'}
+                                        subtitle="Monthly Collection"
+                                        details={repaymentPreview ? `End Date: ${repaymentPreview.finalPaymentDate}` : "Schedule not set"}
+                                        color="blue"
                                     />
                                 </div>
                             </div>
@@ -893,19 +1016,36 @@ const RepaymentRow = ({ label, value, bold, highlightValue }) => (
     </div>
 );
 
-const ImpactRow = ({ icon, label, value, sub, active }) => (
-    <div className={`bg-white p-4 rounded-xl border-2 ${active ? 'border-green-300' : 'border-gray-200'} transition-all`}>
-        <div className="flex items-start gap-3">
-            <div className="text-2xl">{icon}</div>
+const ImpactCard = ({ icon, title, value, subtitle, details, color }) => {
+    const colorClasses = {
+        green: 'border-green-500 bg-green-50 text-green-700',
+        orange: 'border-orange-500 bg-orange-50 text-orange-700',
+        blue: 'border-blue-500 bg-blue-50 text-blue-700'
+    };
+
+    const currentClasses = colorClasses[color] || colorClasses.blue;
+
+    return (
+        <div className={`bg-white p-4 rounded-2xl border-l-4 shadow-sm ${currentClasses.split(' ')[0]} flex items-start gap-4 transition-all hover:shadow-md`}>
+            <div className={`p-3 ${currentClasses.split(' ')[1]} rounded-xl`}>
+                {icon}
+            </div>
             <div className="flex-1">
-                <div className="flex justify-between items-center mb-1">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase">{label}</span>
-                    <span className={`text-xs font-black ${active ? 'text-green-600' : 'text-gray-500'}`}>{value}</span>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <div className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{title}</div>
+                        <div className="text-lg font-black text-gray-900">{value}</div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[9px] text-gray-500 font-bold">{subtitle}</div>
+                    </div>
                 </div>
-                <div className="text-[9px] text-gray-400 italic">{sub}</div>
+                <div className={`mt-2 py-1 px-2 ${currentClasses.split(' ')[1]} rounded text-[9px] ${currentClasses.split(' ')[2]} font-bold inline-block`}>
+                    {details}
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 export default LoanIssuanceModal;

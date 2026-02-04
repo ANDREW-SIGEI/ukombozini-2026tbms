@@ -52,14 +52,15 @@ const checkFreeze = (scope) => {
             const govQuery = `
                 SELECT 
                     is_frozen,
-                    (SELECT COUNT(*) FROM group_officials WHERE group_id = ? AND role = 'Treasurer' AND status = 'active' AND date('now') <= date(term_end)) as has_treasurer,
-                    (SELECT COUNT(*) FROM group_officials WHERE group_id = ? AND status = 'active' AND date('now') > date(term_end)) as expired_officials
+                    (SELECT COUNT(*) FROM group_officials WHERE group_id = ? AND role = 'Treasurer' AND status = 'active' AND (term_end IS NULL OR date('now') <= date(term_end))) as has_treasurer,
+                    (SELECT COUNT(*) FROM group_officials WHERE group_id = ? AND status = 'active' AND term_end IS NOT NULL AND date('now') > date(term_end)) as expired_officials
                 FROM groups WHERE id = ?
             `;
 
             db.get(govQuery, [groupId, groupId, groupId], (err, group) => {
                 // Administrative Bypass for Governance Rules during Setup
-                const isStaff = req.user && (req.user.role === 'director' || req.user.role === 'admin');
+                const role = req.user?.role?.toLowerCase();
+                const isStaff = role === 'director' || role === 'admin';
 
                 if (group) {
                     if (group.is_frozen === 1 && !isStaff) {

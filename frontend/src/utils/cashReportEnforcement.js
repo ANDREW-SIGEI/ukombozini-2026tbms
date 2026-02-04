@@ -52,7 +52,6 @@ export const validateCashReport = (reportData) => {
         cashIssued,
         expectedClosing,
         actualClosing,
-        variance,
         varianceExplanation,
         requireVarianceExplanation = true,
     } = reportData;

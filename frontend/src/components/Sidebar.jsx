@@ -6,7 +6,7 @@ import {
     FaHandHoldingDollar, FaFileInvoiceDollar, FaUserTie,
     FaScaleBalanced, FaGear, FaBell, FaCircleUser, FaCircleCheck,
     FaCommentSms, FaChartLine, FaClipboardList, FaArrowRightFromBracket,
-    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank, FaSackDollar
+    FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank, FaSackDollar, FaArrowRotateLeft
 } from 'react-icons/fa6';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
@@ -30,6 +30,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 ...(isPowerUser ? [{ path: '/groups', name: 'Groups', icon: <FaLayerGroup /> }] : []),
                 { path: '/meeting-sessions', name: 'Meeting Sessions', icon: <FaChartBar /> },
                 { path: '/daily-cash-report', name: 'Daily Cash Report', icon: <FaSackDollar /> },
+                { path: '/monthly-cash-reports', name: 'Monthly Reports', icon: <FaClipboardList /> },
                 { path: '/daily-meeting-report', name: 'Meeting Reports', icon: <FaFileLines /> },
             ]
         },
@@ -63,6 +64,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                     { path: '/officers', name: 'System Staff', icon: <FaUserTie /> },
                     { path: '/officials-directory', name: 'Officials Directory', icon: <FaClipboardList /> },
                     { path: '/governance-hub', name: 'Governance Hub', icon: <FaShieldHalved /> },
+                    { path: '/reversal-center', name: 'Reversal Center', icon: <FaArrowRotateLeft /> },
                     { path: '/auditor-mode', name: 'Auditor Mode', icon: <FaFileLines /> },
                     { path: '/admin', name: 'Admin Panel', icon: <FaGear /> },
                 ] : []),

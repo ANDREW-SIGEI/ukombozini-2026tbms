@@ -226,4 +226,52 @@ router.post('/admin/settings', authenticateToken, isAdmin, (req, res) => {
         });
 });
 
+// GET /api/governance/officials - Officials Directory List
+router.get('/officials', authenticateToken, async (req, res) => {
+    const query = `
+        SELECT 
+            'Chairman' as role,
+            m.name as member_name,
+            m.phone as member_phone,
+            g.name as group_name,
+            g.id as group_id,
+            g.created_at as term_start,
+            m.status as status,
+            m.id as member_id,
+            'CHM-' || m.id as id
+        FROM groups g
+        JOIN members m ON g.chairperson_id = m.id
+        UNION
+        SELECT 
+            'Secretary' as role,
+            m.name as member_name,
+            m.phone as member_phone,
+            g.name as group_name,
+            g.id as group_id,
+            g.created_at as term_start,
+            m.status as status,
+            m.id as member_id,
+            'SEC-' || m.id as id
+        FROM groups g
+        JOIN members m ON g.secretary_id = m.id
+        UNION
+        SELECT 
+            'Treasurer' as role,
+            m.name as member_name,
+            m.phone as member_phone,
+            g.name as group_name,
+            g.id as group_id,
+            g.created_at as term_start,
+            m.status as status,
+            m.id as member_id,
+            'TRE-' || m.id as id
+        FROM groups g
+        JOIN members m ON g.treasurer_id = m.id
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 module.exports = router;

@@ -123,10 +123,10 @@ class RiskService {
                 SELECT id FROM transactions 
                 WHERE sessionId = ? AND memberId = ? AND transaction_type = ? 
                 AND (savings_amount = ? OR loans_issued = ?)
-                AND date('now') = date(created_at)
             `;
             const val = amount;
             db.get(query, [sessionId, memberId, type, val, val], (err, row) => {
+                if (err) console.error("RiskService Duplicate Check Error:", err);
                 resolve(!!row);
             });
         });

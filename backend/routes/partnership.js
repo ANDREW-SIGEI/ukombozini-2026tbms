@@ -10,49 +10,118 @@ const RiskService = require('../services/RiskService');
  * 🏢 Company Partnership API
  */
 
-// POST /api/partnership/top-up
-router.post('/top-up', authenticateToken, isAdmin, checkFreeze('GROUP'), (req, res) => {
+const { runMTELogic } = require('../services/MTEEngine');
+
+/**
+ * 🏢 Company Partnership API (MTE v2)
+ */
+
+// POST /api/partnership/top-up - Institutional Cash Injection
+router.post('/top-up', authenticateToken, isAdmin, checkFreeze('GROUP'), async (req, res) => {
     const { groupId, amount, notes } = req.body;
     if (!groupId || !amount) return res.status(400).json({ error: "Group ID and Amount are required" });
 
-    db.run(`INSERT INTO company_investments (group_id, amount, notes, type) VALUES (?, ?, ?, 'TOPUP')`,
-        [groupId, amount, notes], function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+    let client = null;
+    try {
+        if (!db.beginTransaction) return res.status(501).json({ error: 'MTE v2 requires PostgreSQL.' });
 
-            logAudit(`Company Top-Up: ${amount}`, 'FINANCIAL', { groupId, amount, notes }, req.user.id, req.user.name, req);
-            res.json({ success: true, id: this.lastID, message: "Top-up injected successfully" });
-        }
-    );
+        // Lock group for cash movement
+        const lockKey = `mte:group:${groupId}`;
+        if (db.acquireLock) await db.acquireLock(lockKey);
+
+        client = await db.beginTransaction();
+        const txRef = `TOP-${groupId}-${Date.now()}`;
+
+        // Company Top-Up logic via MTE
+        // Note: For Top-Ups, we use a systemic member/surrogate if needed, 
+        // but here we map it as a Group Cash Debit and Partner Investment Credit.
+        await runMTELogic(client, {
+            memberId: 0, // Systemic/Company surrogate
+            sessionId: null,
+            transaction_type: 'PARTNER_TOPUP',
+            amount,
+            description: notes || 'Strategic Company Top-Up',
+            txRef
+        }, req.user.id);
+
+        await client.query(`INSERT INTO company_investments (group_id, amount, notes, type) VALUES ($1, $2, $3, 'TOPUP')`, [groupId, amount, notes]);
+
+        await db.commit(client);
+        if (db.releaseLock) await db.releaseLock(lockKey);
+
+        logAudit(`Company Top-Up: ${amount}`, 'FINANCIAL', { groupId, amount }, req.user.id, req.user.name, req);
+        res.json({ success: true, message: "✅ Top-up injected and ledger balanced." });
+
+    } catch (error) {
+        if (client) await db.rollback(client);
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// POST /api/partnership/commitment-deposit
-router.post('/commitment-deposit', authenticateToken, isAdmin, checkFreeze('GROUP'), (req, res) => {
+// POST /api/partnership/commitment-deposit - Secure Group Escrow
+router.post('/commitment-deposit', authenticateToken, isAdmin, checkFreeze('GROUP'), async (req, res) => {
     const { groupId, amount, notes } = req.body;
     if (!groupId || !amount) return res.status(400).json({ error: "Group ID and Amount are required" });
 
-    db.run(`INSERT INTO group_commitments (group_id, amount, notes) VALUES (?, ?, ?)`,
-        [groupId, amount, notes], function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+    let client = null;
+    try {
+        if (!db.beginTransaction) return res.status(501).json({ error: 'MTE v2 requires PostgreSQL.' });
 
-            logAudit(`Commitment Deposit: ${amount}`, 'FINANCIAL', { groupId, amount, notes }, req.user.id, req.user.name, req);
-            res.json({ success: true, id: this.lastID, message: "Commitment deposit recorded" });
-        }
-    );
+        client = await db.beginTransaction();
+        const txRef = `COM-${groupId}-${Date.now()}`;
+
+        await runMTELogic(client, {
+            memberId: 0,
+            sessionId: null,
+            transaction_type: 'COMMITMENT_DEPOSIT',
+            amount,
+            description: notes || 'Group Commitment Deposit',
+            txRef
+        }, req.user.id);
+
+        await client.query(`INSERT INTO group_commitments (group_id, amount, notes) VALUES ($1, $2, $3)`, [groupId, amount, notes]);
+
+        await db.commit(client);
+        res.json({ success: true, message: "✅ Commitment deposit recorded in Escrow." });
+
+    } catch (error) {
+        if (client) await db.rollback(client);
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// POST /api/partnership/issue-product
-router.post('/issue-product', authenticateToken, isAdmin, checkFreeze('GROUP'), (req, res) => {
+// POST /api/partnership/issue-product - Asset Financing
+router.post('/issue-product', authenticateToken, isAdmin, checkFreeze('GROUP'), async (req, res) => {
     const { memberId, productName, totalValue, commitmentPaid, monthlyInstallment } = req.body;
     if (!memberId || !productName || !totalValue) return res.status(400).json({ error: "Missing required fields" });
 
-    db.run(`INSERT INTO financed_products (member_id, product_name, total_value, commitment_paid, monthly_installment) VALUES (?, ?, ?, ?, ?)`,
-        [memberId, productName, totalValue, commitmentPaid, monthlyInstallment], function (err) {
-            if (err) return res.status(500).json({ error: err.message });
+    let client = null;
+    try {
+        if (!db.beginTransaction) return res.status(501).json({ error: 'MTE v2 requires PostgreSQL.' });
 
-            logAudit(`Product Issued: ${productName}`, 'FINANCIAL', { memberId, totalValue }, req.user.id, req.user.name, req);
-            res.json({ success: true, id: this.lastID, message: "Product financed successfully" });
-        }
-    );
+        client = await db.beginTransaction();
+        const txRef = `PRD-${memberId}-${Date.now()}`;
+
+        // Product issuance: Member Asset Balance Debit vs System Inventory Credit
+        await runMTELogic(client, {
+            memberId,
+            sessionId: null,
+            transaction_type: 'PRODUCTFINANCING',
+            amount: totalValue,
+            description: `Financed Product: ${productName}`,
+            txRef
+        }, req.user.id);
+
+        await client.query(`INSERT INTO financed_products (member_id, product_name, total_value, commitment_paid, monthly_installment) VALUES ($1, $2, $3, $4, $5)`,
+            [memberId, productName, totalValue, commitmentPaid, monthlyInstallment]);
+
+        await db.commit(client);
+        res.json({ success: true, message: "✅ Product financed and asset ledger updated." });
+
+    } catch (error) {
+        if (client) await db.rollback(client);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // GET /api/partnership/exposure/:groupId
@@ -109,50 +178,50 @@ router.get('/score/:groupId', authenticateToken, async (req, res) => {
     }
 });
 
-// POST /api/partnership/apply-offset
-router.post('/apply-offset', authenticateToken, isAdmin, checkFreeze('GROUP'), (req, res) => {
+// POST /api/partnership/apply-offset - Institutional Debt Clearing
+router.post('/apply-offset', authenticateToken, isAdmin, checkFreeze('GROUP'), async (req, res) => {
     const { memberId, amount, notes } = req.body;
     if (!memberId || !amount) return res.status(400).json({ error: "Member ID and Amount are required" });
 
-    db.serialize(() => {
-        db.run("BEGIN TRANSACTION");
+    let client = null;
+    try {
+        if (!db.beginTransaction) return res.status(501).json({ error: 'MTE v2 requires PostgreSQL.' });
 
-        db.get("SELECT group_id FROM members WHERE id = ?", [memberId], (err, member) => {
-            if (err || !member) {
-                db.run("ROLLBACK");
-                return res.status(404).json({ error: "Member not found" });
-            }
+        // Get member context
+        const mRes = await db.queryStandalone(`SELECT group_id, active_loan_balance FROM members WHERE id = $1`, [memberId]);
+        const member = mRes.rows[0];
+        if (!member) return res.status(404).json({ error: "Member not found" });
 
-            const groupId = member.group_id;
+        const groupId = member.group_id;
 
-            db.get("SELECT COALESCE(SUM(amount), 0) as balance FROM group_commitments WHERE group_id = ? AND status = 'LOCKED'", [groupId], (err, row) => {
-                if (row.balance < amount) {
-                    db.run("ROLLBACK");
-                    return res.status(400).json({ error: "Insufficient group commitment balance" });
-                }
+        // Verify escrow balance
+        const bRes = await db.queryStandalone(`SELECT COALESCE(SUM(amount), 0) as balance FROM group_commitments WHERE group_id = $1`, [groupId]);
+        if (bRes.rows[0].balance < amount) return res.status(400).json({ error: "Insufficient group commitment (Escrow) balance" });
 
-                db.run(`INSERT INTO group_commitments (group_id, amount, notes, status) VALUES (?, ?, ?, 'OFFSET')`,
-                    [groupId, -amount, `OFFSET: Clear debt for Member #${memberId}. ${notes || ''}`], (err) => {
-                        if (err) {
-                            db.run("ROLLBACK");
-                            return res.status(500).json({ error: err.message });
-                        }
+        client = await db.beginTransaction();
+        const txRef = `OFF-${memberId}-${Date.now()}`;
 
-                        db.run("UPDATE members SET active_loan_balance = active_loan_balance - ? WHERE id = ?", [amount, memberId], (err) => {
-                            if (err) {
-                                db.run("ROLLBACK");
-                                return res.status(500).json({ error: err.message });
-                            }
+        // Partnership Offset: Member Loan Balance Credit vs System Escrow Debit
+        await runMTELogic(client, {
+            memberId,
+            sessionId: null,
+            transaction_type: 'PARTNER_OFFSET',
+            amount,
+            description: `Escrow Offset: ${notes || 'Debt Clearance'}`,
+            txRef
+        }, req.user.id);
 
-                            db.run("COMMIT");
-                            logAudit(`Debt Offset: ${amount}`, 'FINANCIAL', { memberId, groupId, amount }, req.user.id, req.user.name, req);
-                            res.json({ success: true, message: "Debt offset successfully applied" });
-                        });
-                    }
-                );
-            });
-        });
-    });
+        await client.query(`INSERT INTO group_commitments (group_id, amount, notes, status) VALUES ($1, $2, $3, 'OFFSET')`,
+            [groupId, -amount, `OFFSET: Clear debt for Member #${memberId}. ${notes || ''}`]);
+
+        await db.commit(client);
+        logAudit(`Debt Offset: ${amount}`, 'FINANCIAL', { memberId, groupId, amount }, req.user.id, req.user.name, req);
+        res.json({ success: true, message: "✅ Debt offset successfully applied via Escrow." });
+
+    } catch (error) {
+        if (client) await db.rollback(client);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 module.exports = router;
