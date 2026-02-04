@@ -101,6 +101,28 @@ const initSchema = () => {
             FOREIGN KEY(member_id) REFERENCES members(id)
         )`);
 
+        // 6. Project Intelligence Tables
+        db.run(`CREATE TABLE IF NOT EXISTS project_registrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER,
+            group_id INTEGER,
+            project_type TEXT CHECK(project_type IN ('EDUCATION', 'AGRICULTURE')),
+            total_saved REAL DEFAULT 0,
+            projected_payout REAL GENERATED ALWAYS AS (total_saved * 1.5) VIRTUAL,
+            status TEXT DEFAULT 'ACTIVE',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(member_id) REFERENCES members(id),
+            FOREIGN KEY(group_id) REFERENCES groups(id)
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS project_savings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registration_id INTEGER,
+            amount REAL NOT NULL,
+            date DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(registration_id) REFERENCES project_registrations(id)
+        )`);
+
         // 5. Partnership Tables
         // ... (existing partnership tables)
 

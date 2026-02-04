@@ -28,6 +28,7 @@ const governanceRoutes = require('./routes/governance');
 const reversalRoutes = require('./routes/reversals');
 const smsRoutes = require('./routes/sms');
 const receiptRoutes = require('./routes/receipts');
+const projectRoutes = require('./routes/projects');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ukombozi-secret-key-2026';
 
@@ -79,6 +80,7 @@ app.use('/api/governance', governanceRoutes);
 app.use('/api/reversals', reversalRoutes);
 app.use('/api/sms', smsRoutes);
 app.use('/api/reports/receipt', receiptRoutes);
+app.use('/api/projects', projectRoutes);
 
 // Compatibility Mounts (Ensures legacy frontend paths work)
 app.use('/api/admin', governanceRoutes);

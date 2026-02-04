@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 /**
  * UKOMBOZI Receipt Service
@@ -54,7 +54,7 @@ const ReceiptService = {
             ['Officer', tx.officer || 'Authorized System Staff']
         ];
 
-        doc.autoTable({
+        autoTable(doc, {
             startY: 105,
             head: [['Field', 'Value']],
             body: tableData,
