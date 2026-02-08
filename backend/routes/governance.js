@@ -25,12 +25,11 @@ router.get('/status', authenticateToken, (req, res) => {
 
 // GET /api/governance/audit-logs
 router.get('/audit-logs', authenticateToken, isAdmin, (req, res) => {
+    const limit = parseInt(req.query.limit) || 50;
     db.all(`
-        SELECT al.*, u.name as officer_name 
-        FROM audit_logs al
-        LEFT JOIN officers u ON al.performed_by = u.id
-        ORDER BY al.timestamp DESC LIMIT 50
-    `, (err, logs) => {
+        SELECT * FROM audit_logs 
+        ORDER BY created_at DESC LIMIT ?
+    `, [limit], (err, logs) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(logs);
     });

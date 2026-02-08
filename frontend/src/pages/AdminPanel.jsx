@@ -6,8 +6,34 @@ import {
     FaLocationDot, FaEnvelope, FaPhone, FaFloppyDisk, FaClockRotateLeft, FaUserPlus,
     FaXmark, FaHandHoldingDollar
 } from 'react-icons/fa6';
+import { FaUndo } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import {
+    Chart as ChartJS,
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    BarElement,
+    Title,
+    Tooltip,
+    Legend,
+    ArcElement
+} from 'chart.js';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
+
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    BarElement,
+    Title,
+    Tooltip,
+    Legend,
+    ArcElement
+);
 
 const AdminPanel = () => {
     const [activeTab, setActiveTab] = useState('overview');
@@ -72,6 +98,22 @@ const AdminPanel = () => {
     // System Settings State
     const [settings, setSettings] = useState([]);
 
+    // Pending Requests for Approvals Tab
+    const [pendingTopups, setPendingTopups] = useState([]);
+
+    // Treasury State
+    const [treasuryData, setTreasuryData] = useState([]);
+
+    // Institutional Analytics State
+    const [institutionalStats, setInstitutionalStats] = useState({
+        totalSavings: 0,
+        activeLoans: 0,
+        totalMembers: 0,
+        totalGroups: 0,
+        complianceRate: 0,
+        historical: []
+    });
+
     useEffect(() => {
         fetchSystemData();
         fetchAdminData();
@@ -79,14 +121,20 @@ const AdminPanel = () => {
 
     const fetchAdminData = async () => {
         try {
-            const [logs, setts, products] = await Promise.all([
-                api.getAuditLogs(10),
+            const [logs, setts, products, topups, treasury, instStats] = await Promise.all([
+                api.getAuditLogs({ limit: 15 }),
                 api.getAdminSettings(),
-                api.getLoanProducts()
+                api.getLoanProducts(),
+                api.getPendingTopUpRequests(),
+                api.getTreasuryStatus(),
+                api.getInstitutionalStats()
             ]);
-            setAuditLogs(logs);
+            setAuditLogs(Array.isArray(logs) ? logs : []);
             setSettings(setts);
             setLoanProducts(products);
+            setPendingTopups(topups || []);
+            setTreasuryData(Array.isArray(treasury) ? treasury : []);
+            if (instStats) setInstitutionalStats(instStats);
         } catch (error) {
             console.error("Admin Data Fetch Error:", error);
         }
@@ -119,6 +167,53 @@ const AdminPanel = () => {
         } catch (error) {
             console.error(error);
             toast.error("Failed to load system data");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDownloadBoardReport = async () => {
+        setLoading(true);
+        try {
+            const data = await api.getBoardReport();
+            if (!data || data.length === 0) {
+                toast.error("No data available for board report");
+                return;
+            }
+
+            const { default: jsPDF } = await import('jspdf');
+            const { default: autoTable } = await import('jspdf-autotable');
+
+            const doc = new jsPDF();
+            doc.setFontSize(20);
+            doc.text('UKOMBOZI INSTITUTIONAL BOARD REPORT', 14, 22);
+            doc.setFontSize(10);
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+            doc.text(`Institutional Assets: KES ${institutionalStats.totalSavings.toLocaleString()}`, 14, 38);
+            doc.text(`Portfolio at Risk: KES ${institutionalStats.activeLoans.toLocaleString()}`, 14, 44);
+
+            const tableRows = data.map(group => [
+                group.name,
+                group.member_count,
+                `KES ${parseFloat(group.total_savings || 0).toLocaleString()}`,
+                `KES ${parseFloat(group.loan_portfolio || 0).toLocaleString()}`,
+                `KES ${parseFloat(group.last_variance || 0).toLocaleString()}`,
+                group.session_status
+            ]);
+
+            autoTable(doc, {
+                startY: 55,
+                head: [['Group Name', 'Members', 'Total Savings', 'Loan Portfolio', 'Last Variance', 'Status']],
+                body: tableRows,
+                theme: 'striped',
+                headStyles: { fillColor: [0, 128, 0] } // Safaricom Green
+            });
+
+            doc.save(`UKOMBOZI_BOARD_REPORT_${new Date().toISOString().split('T')[0]}.pdf`);
+            toast.success("Board Report generated successfully");
+        } catch (error) {
+            console.error("Report Generation Error:", error);
+            toast.error("Failed to generate board report");
         } finally {
             setLoading(false);
         }
@@ -283,10 +378,12 @@ const AdminPanel = () => {
     // ========================================
     const tabs = [
         { id: 'overview', name: 'System Overview', icon: <FaChartLine /> },
+        { id: 'approvals', name: 'Approvals Hub', icon: <FaCircleCheck /> },
         { id: 'groups', name: 'Groups', icon: <FaUsers /> },
         { id: 'officers', name: 'Officers', icon: <FaUserTie /> },
         { id: 'products', name: 'Loan Products', icon: <FaMoneyBillWave /> },
         { id: 'settings', name: 'Settings', icon: <FaGear /> },
+        { id: 'treasury', name: 'Treasury Control', icon: <FaDatabase /> },
         { id: 'audit', name: 'Audit Logs', icon: <FaClockRotateLeft /> },
         { id: 'backup', name: 'Backup & Export', icon: <FaDatabase /> }
     ];
@@ -324,41 +421,198 @@ const AdminPanel = () => {
                 </div>
 
                 <div className="p-6">
-                    {/* OVERVIEW TAB */}
+                    {/* APPROVALS HUB TAB */}
+                    {activeTab === 'approvals' && (
+                        <div className="space-y-8">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-xl font-black text-gray-800">Approvals Control Tower</h3>
+                                    <p className="text-sm text-gray-500 font-bold uppercase">Pending Institutional Authorizations</p>
+                                </div>
+                                <button
+                                    onClick={fetchAdminData}
+                                    className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition-colors"
+                                    title="Refresh Content"
+                                >
+                                    <FaClockRotateLeft className={loading ? "animate-spin" : ""} />
+                                </button>
+                            </div>
+
+                            {/* Approval Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {/* Top-up Requests */}
+                                <div className="md:col-span-2 bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                                    <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center">
+                                        <h4 className="font-black text-emerald-800 text-xs uppercase tracking-widest flex items-center gap-2">
+                                            <FaMoneyBillWave /> Pending Partnership Top-ups
+                                        </h4>
+                                        <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                                            {pendingTopups.length} PENDING
+                                        </span>
+                                    </div>
+                                    <div className="p-0">
+                                        {pendingTopups.length === 0 ? (
+                                            <div className="p-10 text-center text-gray-400 font-bold italic">
+                                                No pending top-up requests at this time.
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y">
+                                                {pendingTopups.map(req => (
+                                                    <div key={req.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                                                        <div>
+                                                            <p className="font-black text-gray-800 text-sm">{req.group_name}</p>
+                                                            <div className="flex gap-3 text-[10px] mt-1 font-bold">
+                                                                <span className="text-gray-400 uppercase">DEP: KES {parseFloat(req.commitment_amount).toLocaleString()}</span>
+                                                                <span className="text-emerald-600 uppercase">TOPUP: KES {parseFloat(req.topup_amount).toLocaleString()}</span>
+                                                            </div>
+                                                        </div>
+                                                        <a
+                                                            href="/partnership-manager?tab=approval-queue"
+                                                            className="px-4 py-2 bg-emerald-600 text-white text-xs font-black rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+                                                        >
+                                                            GO TO QUEUE
+                                                        </a>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Other Approval Shortcuts */}
+                                <div className="space-y-4">
+                                    <h4 className="font-black text-gray-800 text-xs uppercase tracking-widest mb-4">Other Workflows</h4>
+
+                                    <ApprovalShortcut
+                                        icon={<FaHandHoldingDollar />}
+                                        label="Loan Applications"
+                                        desc="Approve STL/LTL funding"
+                                        path="/loan-approvals"
+                                        color="blue"
+                                    />
+
+                                    <ApprovalShortcut
+                                        icon={<FaUndo />}
+                                        label="Reversal Center"
+                                        desc="Audit transaction corrections"
+                                        path="/reversal-center"
+                                        color="orange"
+                                    />
+
+                                    <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                                        <p className="text-[10px] font-black text-blue-800 uppercase mb-2">Governance Note</p>
+                                        <p className="text-[10px] text-blue-600 font-medium leading-relaxed">
+                                            Approvals are permanent and trigger real-time financial updates across all group ledgers and the institutional balance sheet.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {activeTab === 'overview' && (
                         <div className="space-y-6">
-                            <h3 className="text-xl font-black text-gray-800">System Statistics</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                            {/* Institutional KPIs */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <StatCard
-                                    title="Total Groups"
-                                    value={stats.totalGroups}
-                                    icon={<FaUsers />}
+                                    title="System Savings"
+                                    value={`KES ${institutionalStats.totalSavings.toLocaleString()}`}
+                                    icon={<FaMoneyBillWave />}
+                                    color="green"
+                                    trend={`+${institutionalStats.complianceRate}% Compliance`}
+                                />
+                                <StatCard
+                                    title="Loan Portfolio"
+                                    value={`KES ${institutionalStats.activeLoans.toLocaleString()}`}
+                                    icon={<FaHandHoldingDollar />}
                                     color="blue"
                                 />
                                 <StatCard
                                     title="Total Members"
-                                    value={stats.totalMembers}
+                                    value={institutionalStats.totalMembers}
                                     icon={<FaUserTie />}
-                                    color="green"
-                                />
-                                <StatCard
-                                    title="Total Savings"
-                                    value={`KES ${stats.totalSavings.toLocaleString()}`}
-                                    icon={<FaMoneyBillWave />}
-                                    color="yellow"
-                                />
-                                <StatCard
-                                    title="Active Loans"
-                                    value={`KES ${stats.totalLoans.toLocaleString()}`}
-                                    icon={<FaMoneyBillWave />}
                                     color="orange"
                                 />
                                 <StatCard
-                                    title="Active Officers"
-                                    value={stats.activeOfficers}
-                                    icon={<FaShieldHalved />}
-                                    color="red"
+                                    title="Active Groups"
+                                    value={institutionalStats.totalGroups}
+                                    icon={<FaUsers />}
+                                    color="purple"
                                 />
+                            </div>
+
+                            {/* Analytics Charts */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                    <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-4 flex justify-between items-center">
+                                        <span>Institutional Growth</span>
+                                        <span className="text-[10px] text-gray-400 font-bold">Last 6 Months</span>
+                                    </h4>
+                                    <div className="h-64">
+                                        <Line
+                                            data={{
+                                                labels: institutionalStats.historical.map(h => h.month),
+                                                datasets: [
+                                                    {
+                                                        label: 'Savings In',
+                                                        data: institutionalStats.historical.map(h => h.savings_in),
+                                                        borderColor: '#10b981',
+                                                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                                        fill: true,
+                                                        tension: 0.4
+                                                    },
+                                                    {
+                                                        label: 'Loans Issued',
+                                                        data: institutionalStats.historical.map(h => h.loans_out),
+                                                        borderColor: '#3b82f6',
+                                                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                                        fill: true,
+                                                        tension: 0.4
+                                                    }
+                                                ]
+                                            }}
+                                            options={{
+                                                responsive: true,
+                                                maintainAspectRatio: false,
+                                                plugins: { legend: { position: 'bottom', labels: { font: { weight: 'bold', size: 10 } } } },
+                                                scales: { y: { beginAtZero: true, grid: { display: false } }, x: { grid: { display: false } } }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                    <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest mb-4">Portfolio Allocation</h4>
+                                    <div className="h-64 flex items-center justify-center">
+                                        <Doughnut
+                                            data={{
+                                                labels: ['Savings', 'Active Loans'],
+                                                datasets: [{
+                                                    data: [institutionalStats.totalSavings, institutionalStats.activeLoans],
+                                                    backgroundColor: ['#10b981', '#3b82f6'],
+                                                    hoverOffset: 4
+                                                }]
+                                            }}
+                                            options={{
+                                                responsive: true,
+                                                maintainAspectRatio: false,
+                                                plugins: { legend: { position: 'bottom', labels: { font: { weight: 'bold', size: 10 } } } }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                <div>
+                                    <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest">Executive Reporting</h4>
+                                    <p className="text-[10px] text-gray-500 font-bold">Consolidated performance insights for board review</p>
+                                </div>
+                                <button
+                                    onClick={() => handleDownloadBoardReport()}
+                                    className="px-6 py-2 bg-gray-800 text-white text-xs font-black rounded-xl hover:bg-gray-900 transition-all flex items-center gap-2"
+                                >
+                                    <FaFileExport /> Download Board Report
+                                </button>
                             </div>
 
                             {/* Activity & Quick Actions Grid */}
@@ -366,68 +620,41 @@ const AdminPanel = () => {
                                 {/* Timeline Column */}
                                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                     <h4 className="text-lg font-black text-gray-800 mb-6 flex items-center gap-2">
-                                        <FaClockRotateLeft className="text-safaricom-green" /> Recent Activity Stream
+                                        <FaClockRotateLeft className="text-safaricom-green" /> Recent Institutional Activity
                                     </h4>
                                     <div className="relative pl-6 border-l-2 border-gray-100 space-y-8">
-                                        <div className="relative group">
-                                            <span className="absolute -left-[35px] bg-green-100 text-green-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
-                                                <FaUsers size={14} />
-                                            </span>
-                                            <div className="bg-gray-50 p-4 rounded-xl hover:bg-green-50/50 transition-colors border border-transparent hover:border-green-100">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h5 className="font-black text-gray-800 text-sm">New Group Registered</h5>
-                                                        <p className="text-xs text-gray-500 mt-1">"Ukombozi Warriors" has been successfully registered and assigned to Field Officer John.</p>
-                                                    </div>
-                                                    <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100">2h ago</span>
-                                                </div>
+                                        {auditLogs.length === 0 ? (
+                                            <div className="p-10 text-center text-gray-400 font-bold italic">
+                                                No recent system logs identified.
                                             </div>
-                                        </div>
-
-                                        <div className="relative group">
-                                            <span className="absolute -left-[35px] bg-blue-100 text-blue-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
-                                                <FaMoneyBillWave size={14} />
-                                            </span>
-                                            <div className="bg-gray-50 p-4 rounded-xl hover:bg-blue-50/50 transition-colors border border-transparent hover:border-blue-100">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h5 className="font-black text-gray-800 text-sm">Dividend Run Processed</h5>
-                                                        <p className="text-xs text-gray-500 mt-1">Group A dividends calculated. Pending Director Approval.</p>
+                                        ) : (
+                                            auditLogs.slice(0, 8).map(log => (
+                                                <div key={log.id} className="relative group">
+                                                    <span className={`absolute -left-[35px] w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform ${log.category === 'SECURITY' ? 'bg-red-100 text-red-600' :
+                                                        log.category === 'ADMIN' ? 'bg-blue-100 text-blue-600' :
+                                                            'bg-green-100 text-green-600'
+                                                        }`}>
+                                                        {log.category === 'SECURITY' ? <FaShieldHalved size={14} /> :
+                                                            log.category === 'ADMIN' ? <FaGear size={14} /> :
+                                                                <FaClockRotateLeft size={14} />}
+                                                    </span>
+                                                    <div className="bg-gray-50 p-4 rounded-xl hover:bg-white transition-all border border-transparent hover:border-gray-200">
+                                                        <div className="flex justify-between items-start">
+                                                            <div>
+                                                                <h5 className="font-black text-gray-800 text-sm">{log.action}</h5>
+                                                                <p className="text-xs text-gray-500 mt-1">
+                                                                    Performed by <span className="font-black text-gray-700">{log.officer_name}</span>.
+                                                                    {log.details && <span className="block italic mt-0.5 text-[10px]">{typeof log.details === 'string' && log.details.startsWith('{') ? 'System data update' : log.details}</span>}
+                                                                </p>
+                                                            </div>
+                                                            <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100 whitespace-nowrap">
+                                                                {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                    <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100">5h ago</span>
                                                 </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="relative group">
-                                            <span className="absolute -left-[35px] bg-purple-100 text-purple-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
-                                                <FaUserPlus size={14} />
-                                            </span>
-                                            <div className="bg-gray-50 p-4 rounded-xl hover:bg-purple-50/50 transition-colors border border-transparent hover:border-purple-100">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h5 className="font-black text-gray-800 text-sm">Member Intake Surge</h5>
-                                                        <p className="text-xs text-gray-500 mt-1">15 new members verified via biometric check.</p>
-                                                    </div>
-                                                    <span className="text-[10px] font-bold text-gray-400 bg-white px-2 py-1 rounded-full border border-gray-100">Today</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="relative group">
-                                            <span className="absolute -left-[35px] bg-gray-100 text-gray-600 w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm group-hover:scale-110 transition-transform">
-                                                <FaDatabase size={14} />
-                                            </span>
-                                            <div>
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h5 className="font-black text-gray-800 text-sm">System Backup Completed</h5>
-                                                        <p className="text-xs text-gray-500 mt-1">Automated daily backup successful. Size: 45MB.</p>
-                                                    </div>
-                                                    <span className="text-[10px] font-bold text-gray-400">Yesterday</span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                            ))
+                                        )}
                                     </div>
                                 </div>
 
@@ -449,6 +676,24 @@ const AdminPanel = () => {
                                             >
                                                 <FaUsers /> Register Group
                                             </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-red-50 p-6 rounded-2xl shadow-sm border border-red-100">
+                                        <h4 className="font-black text-red-800 mb-4 flex items-center gap-2 text-sm">
+                                            <FaShieldHalved className="text-red-500" /> Security Hub
+                                        </h4>
+                                        <div className="space-y-3">
+                                            {auditLogs.filter(l => l.category === 'SECURITY').length === 0 ? (
+                                                <p className="text-[10px] text-gray-400 italic">No critical security events detected.</p>
+                                            ) : (
+                                                auditLogs.filter(l => l.category === 'SECURITY').slice(0, 3).map(log => (
+                                                    <div key={log.id} className="p-3 bg-white rounded-xl border border-red-50">
+                                                        <p className="text-[10px] font-black text-red-700">{log.action}</p>
+                                                        <p className="text-[9px] text-gray-500">{new Date(log.created_at).toLocaleString()}</p>
+                                                    </div>
+                                                ))
+                                            )}
                                         </div>
                                     </div>
 
@@ -707,6 +952,79 @@ const AdminPanel = () => {
                                         )}
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TREASURY CONTROL TAB */}
+                    {activeTab === 'treasury' && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-xl font-black text-gray-800">Treasury & Cash Control</h3>
+                                    <p className="text-sm text-gray-500 font-bold uppercase">Real-time Liquidity & Variance Monitoring</p>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={fetchAdminData}
+                                        className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition-colors"
+                                    >
+                                        <FaClockRotateLeft className={loading ? "animate-spin" : ""} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-gray-50 border-b">
+                                        <tr>
+                                            <th className="px-4 py-3 font-black text-gray-600">Group Name</th>
+                                            <th className="px-4 py-3 font-black text-gray-600">Expected (Ledger)</th>
+                                            <th className="px-4 py-3 font-black text-gray-600">Physical Count</th>
+                                            <th className="px-4 py-3 font-black text-gray-600 text-right">Variance</th>
+                                            <th className="px-4 py-3 font-black text-gray-600">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y text-gray-700">
+                                        {treasuryData.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="5" className="px-4 py-10 text-center text-gray-400 font-bold italic">
+                                                    No treasury data available. Ensure groups have performed initial daily reporting.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            treasuryData.map(group => (
+                                                <tr key={group.id} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-black text-gray-800">{group.name}</div>
+                                                        <div className="text-[10px] text-gray-400 font-bold uppercase italic">Last Meeting: {group.last_meeting || 'N/A'}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono font-bold">KES {parseFloat(group.expected).toLocaleString()}</td>
+                                                    <td className="px-4 py-3 font-mono font-bold text-emerald-600">KES {parseFloat(group.physical).toLocaleString()}</td>
+                                                    <td className={`px-4 py-3 font-mono font-black text-right ${Math.abs(group.variance) > 100 ? 'text-red-500 bg-red-50' : group.variance !== 0 ? 'text-orange-500' : 'text-gray-400'}`}>
+                                                        {group.variance > 0 ? '+' : ''}{parseFloat(group.variance).toLocaleString()}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest ${group.is_frozen || group.status === 'suspended' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                            {group.is_frozen || group.status === 'suspended' ? 'SUSPENDED/FROZEN' : 'ACTIVE'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl flex gap-4 items-start">
+                                <FaShieldHalved className="text-orange-600 text-2xl mt-1" />
+                                <div>
+                                    <h4 className="font-black text-orange-800 text-xs uppercase mb-1">Institutional Liquidity Enforcement</h4>
+                                    <p className="text-[11px] text-orange-700 leading-relaxed font-bold">
+                                        The Treasury Dashboard aggregates the physical "Cash Bag" counts against digital ledger balances.
+                                        Variances exceeding KES 100 trigger an automatic risk freeze on the group to prevent unauthorized outflows.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -1033,23 +1351,55 @@ const AdminPanel = () => {
 // REUSABLE COMPONENTS
 // ========================================
 
-const StatCard = ({ title, value, icon, color }) => {
+const StatCard = ({ title, value, icon, color, trend }) => {
     const colors = {
         blue: 'bg-blue-50 text-blue-600',
         green: 'bg-green-50 text-green-600',
         yellow: 'bg-yellow-50 text-yellow-600',
         orange: 'bg-orange-50 text-orange-600',
-        red: 'bg-red-50 text-red-600'
+        red: 'bg-red-50 text-red-600',
+        purple: 'bg-purple-50 text-purple-600'
     };
 
     return (
-        <div className="bg-white p-6 rounded-xl border-2 border-gray-100">
-            <div className={`p-3 rounded-lg ${colors[color]} w-fit mb-3`}>
+        <div className="bg-white p-6 rounded-xl border-2 border-gray-100 relative overflow-hidden group">
+            <div className={`p-3 rounded-lg ${colors[color]} w-fit mb-3 group-hover:scale-110 transition-transform`}>
                 {icon}
             </div>
             <div className="text-xs font-bold text-gray-400 uppercase">{title}</div>
             <div className="text-2xl font-black text-gray-800 mt-1">{value}</div>
+            {trend && (
+                <div className="mt-2 text-[10px] font-black text-emerald-600 uppercase tracking-tight flex items-center gap-1">
+                    <FaChartLine /> {trend}
+                </div>
+            )}
         </div>
+    );
+};
+
+const ApprovalShortcut = ({ icon, label, desc, path, color }) => {
+    const colors = {
+        blue: 'text-blue-600 bg-blue-50',
+        orange: 'text-orange-600 bg-orange-50',
+        emerald: 'text-emerald-600 bg-emerald-50'
+    };
+
+    return (
+        <a
+            href={path}
+            className="group flex items-center gap-4 p-4 rounded-2xl border-2 border-transparent hover:border-gray-100 hover:bg-gray-50 transition-all"
+        >
+            <div className={`p-3 rounded-xl ${colors[color]} group-hover:scale-110 transition-transform`}>
+                {icon}
+            </div>
+            <div className="flex-1">
+                <p className="font-black text-gray-800 text-sm group-hover:text-black transition-colors">{label}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{desc}</p>
+            </div>
+            <div className="text-gray-300 group-hover:text-gray-400 transition-colors">
+                <FaGear className="animate-spin-slow opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+        </a>
     );
 };
 

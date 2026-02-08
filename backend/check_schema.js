@@ -1,18 +1,12 @@
-const db = require('./db');
-const tables = ['dividend_runs', 'dividend_allocations'];
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('./ukombozi.sqlite');
 
-async function check() {
-    for (const table of tables) {
-        console.log(`--- Schema for ${table} ---`);
-        await new Promise((resolve) => {
-            db.all(`PRAGMA table_info(${table})`, (err, rows) => {
-                if (err) console.error(err);
-                else console.log(JSON.stringify(rows, null, 2));
-                resolve();
-            });
-        });
-    }
-    process.exit(0);
-}
-
-check();
+db.serialize(() => {
+    db.all("PRAGMA table_info(loans)", (err, rows) => {
+        if (err) {
+            console.error(err);
+            return;
+        }
+        console.log("Loans Table Schema:", rows);
+    });
+});

@@ -3,13 +3,14 @@ const router = express.Router();
 const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const PDFDocument = require('pdfkit');
+const QRCode = require('qrcode');
 const { logAudit } = require('../utils/logger');
 
 /**
- * 🧾 Digital Receipting Engine
+ * 🧾 Digital Receipting Engine - Premium Refinement
  */
 
-router.get('/:transactionId', authenticateToken, (req, res) => {
+router.get('/:transactionId', authenticateToken, async (req, res) => {
     const { transactionId } = req.params;
 
     const query = `
@@ -17,72 +18,101 @@ router.get('/:transactionId', authenticateToken, (req, res) => {
         FROM transactions t
         JOIN members m ON t.memberId = m.id
         JOIN groups g ON m.groupId = g.id
-        LEFT JOIN cash_sessions s ON t.sessionId = s.id
-        LEFT JOIN officers o ON s.officer_id = o.id
+        LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+        LEFT JOIN officers o ON s.officerId = o.id
         WHERE t.id = ?
     `;
 
-    db.get(query, [transactionId], (err, trans) => {
+    db.get(query, [transactionId], async (err, trans) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!trans) return res.status(404).json({ error: "Transaction record not found." });
 
-        const doc = new PDFDocument({ margin: 50, size: 'A5' }); // Professional compact size
-        const filename = `Receipt_${transactionId}.pdf`;
+        try {
+            const doc = new PDFDocument({ margin: 40, size: 'A5' });
+            const filename = `Receipt_${transactionId}.pdf`;
 
-        res.setHeader('Content-disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-type', 'application/pdf');
+            res.setHeader('Content-disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-type', 'application/pdf');
 
-        doc.pipe(res);
+            doc.pipe(res);
 
-        // Header Branding
-        doc.rect(0, 0, doc.page.width, 80).fill('#1a5f2a');
-        doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold').text('UKOMBOZI TBMS', 50, 25);
-        doc.fontSize(10).font('Helvetica').text('Official Digital Transaction Receipt', 50, 48);
-        doc.fontSize(8).text('PROMOTING FINANCIAL INCLUSION', 50, 60);
+            // --- PREMIUM BRANDING HEADER ---
+            doc.rect(0, 0, doc.page.width, 100).fill('#76BC21'); // Safaricom Green
+            doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('UKOMBOZI TBMS', 40, 30);
+            doc.fontSize(10).font('Helvetica').text('INSTITUTIONAL FINANCIAL SERVICES', 40, 58);
+            doc.rect(40, 75, 120, 1.5).fill('#ffffff');
 
-        // Receipt Meta
-        doc.fillColor('#333333').fontSize(10).font('Helvetica-Bold').text('RECEIPT NO:', 300, 100);
-        doc.font('Helvetica').text(trans.id.toString(), 370, 100);
-        doc.font('Helvetica-Bold').text('DATE:', 300, 115);
-        doc.font('Helvetica').text(new Date(trans.created_at || Date.now()).toLocaleString(), 370, 115);
+            doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold').text('OFFICIAL DIGITAL RECEIPT', 40, 82, { align: 'left' });
 
-        // Member Details
-        doc.rect(50, 130, 395, 1).fill('#eeeeee');
-        doc.fillColor('#1a5f2a').fontSize(12).font('Helvetica-Bold').text('MEMBER DETAILS', 50, 140);
-        doc.fillColor('#333333').fontSize(10).font('Helvetica-Bold').text('Name:', 50, 160);
-        doc.font('Helvetica').text(trans.member_name, 120, 160);
-        doc.font('Helvetica-Bold').text('Group:', 50, 175);
-        doc.font('Helvetica').text(trans.group_name || 'N/A', 120, 175);
-        doc.font('Helvetica-Bold').text('ID No:', 50, 190);
-        doc.font('Helvetica').text(trans.national_id || 'N/A', 120, 190);
+            // --- RECEIPT META (Top Right) ---
+            doc.fillColor('#ffffff').fontSize(9).font('Helvetica-Bold').text('REF NO:', 280, 40);
+            doc.font('Helvetica').text(trans.txRef || trans.id.toString(), 340, 40);
+            doc.font('Helvetica-Bold').text('DATE:', 280, 55);
+            doc.font('Helvetica').text(new Date(trans.created_at || Date.now()).toLocaleDateString(), 340, 55);
+            doc.font('Helvetica-Bold').text('TIME:', 280, 70);
+            doc.font('Helvetica').text(new Date(trans.created_at || Date.now()).toLocaleTimeString(), 340, 70);
 
-        // Transaction Details
-        doc.rect(50, 210, 395, 1).fill('#eeeeee');
-        doc.fillColor('#1a5f2a').fontSize(12).font('Helvetica-Bold').text('TRANSACTION SUMMARY', 50, 220);
+            // --- MEMBER INFORMATION ---
+            doc.moveDown(5);
+            doc.fillColor('#76BC21').fontSize(11).font('Helvetica-Bold').text('MEMBER IDENTIFICATION', 40, 120);
+            doc.rect(40, 135, 340, 1).fill('#f0f0f0');
 
-        doc.rect(50, 240, 395, 100).fill('#f9f9f9');
-        doc.fillColor('#333333').fontSize(10).font('Helvetica-Bold').text('Type:', 65, 255);
-        doc.font('Helvetica').text(trans.transaction_type, 140, 255);
-        doc.font('Helvetica-Bold').text('Description:', 65, 275);
-        doc.font('Helvetica').text(trans.description || '-', 140, 275);
+            doc.fillColor('#666666').fontSize(9).font('Helvetica-Bold').text('NAME:', 40, 145);
+            doc.fillColor('#1a1a1a').font('Helvetica').text(trans.member_name.toUpperCase(), 110, 145);
 
-        // Amount calculation logic
-        const amount = trans.savings_amount || trans.loans_issued || trans.stl_repayment || trans.ltl_repayment || trans.withdrawals || 0;
+            doc.fillColor('#666666').font('Helvetica-Bold').text('GROUP:', 40, 160);
+            doc.fillColor('#1a1a1a').font('Helvetica').text(trans.group_name || 'N/A', 110, 160);
 
-        doc.fontSize(14).font('Helvetica-Bold').text('AMOUNT:', 65, 305);
-        doc.fillColor('#1a5f2a').text(`KES ${Math.abs(amount).toLocaleString()}`, 140, 305);
+            doc.fillColor('#666666').font('Helvetica-Bold').text('ID NO:', 40, 175);
+            doc.fillColor('#1a1a1a').font('Helvetica').text(trans.national_id || 'N/A', 110, 175);
 
-        // Footer
-        doc.rect(50, 360, 395, 1).fill('#eeeeee');
-        doc.fillColor('#777777').fontSize(8).font('Helvetica').text('Processed by UKOMBOZI System | Secure Digital Ledger', 50, 375, { align: 'center' });
-        doc.text('This is an electronically generated document. No physical signature is required.', 50, 388, { align: 'center' });
+            // --- TRANSACTION SUMMARY ---
+            doc.fillColor('#76BC21').fontSize(11).font('Helvetica-Bold').text('TRANSACTION SUMMARY', 40, 205);
+            doc.rect(40, 220, 340, 1).fill('#f0f0f0');
 
-        // Watermark
-        doc.opacity(0.1).fontSize(40).font('Helvetica-Bold').fillColor('#1a5f2a').text('VERIFIED', 100, 250, { rotation: 45 });
+            doc.rect(40, 230, 335, 85).fill('#f9fafb').stroke('#f3f4f6');
 
-        doc.end();
+            doc.fillColor('#4b5563').fontSize(9).font('Helvetica-Bold').text('TYPE:', 55, 245);
+            doc.fillColor('#111827').font('Helvetica-Bold').text(trans.transaction_type.replace(/_/g, ' '), 130, 245);
 
-        logAudit(`Receipt Downloaded: ${transactionId}`, 'financial', { transactionId, member: trans.member_name }, req.user.id, req.user.name, req);
+            doc.fillColor('#4b5563').font('Helvetica-Bold').text('DESCRIPTION:', 55, 265);
+            doc.fillColor('#111827').font('Helvetica').text(trans.description || 'Standard Transaction', 130, 265, { width: 230 });
+
+            // --- AMOUNT HIGHLIGHT ---
+            const finalAmount = trans.amount || trans.savings_amount || trans.loans_issued || trans.stl_repayment || trans.ltl_repayment || trans.withdrawals || 0;
+
+            doc.fillColor('#111827').fontSize(14).font('Helvetica-Bold').text('TOTAL AMOUNT:', 55, 290);
+            doc.fillColor('#76BC21').fontSize(16).text(`KSH ${Math.abs(finalAmount).toLocaleString()}.00`, 180, 290);
+
+            // --- OFFICER & VERIFICATION ---
+            doc.fillColor('#9ca3af').fontSize(8).font('Helvetica').text('SERVED BY:', 40, 335);
+            doc.fillColor('#4b5563').font('Helvetica-Bold').text(trans.officer_name || 'SYSTEM AUTOMATION', 40, 345);
+
+            // --- QR CODE VERIFICATION ---
+            const qrData = `UKOMBOZI-VERIFY|${trans.id}|${trans.txRef}|${finalAmount}`;
+            const qrCodeUrl = await QRCode.toDataURL(qrData);
+            doc.image(qrCodeUrl, 310, 330, { width: 70 });
+            doc.fillColor('#9ca3af').fontSize(6).text('SCAN TO VERIFY', 315, 405);
+
+            // --- FOOTER ---
+            doc.rect(40, 420, 340, 1).fill('#eeeeee');
+            doc.fillColor('#9ca3af').fontSize(7).font('Helvetica-Bold').text('UKOMBOZINI INVESTMENT FINANCIAL CONTROL', 0, 435, { align: 'center' });
+            doc.font('Helvetica').text('Secure Digital Transaction Record. No Signature Required.', { align: 'center' });
+            doc.text(`Timestamp: ${new Date().toISOString()}`, { align: 'center' });
+
+            // Watermark (Light Transparency)
+            doc.save();
+            doc.opacity(0.03);
+            doc.fontSize(50).font('Helvetica-Bold').fillColor('#76BC21').text('VERIFIED', 60, 250, { rotation: 45 });
+            doc.restore();
+
+            doc.end();
+            logAudit(`Premium Receipt Downloaded: ${transactionId}`, 'financial', { transactionId, member: trans.member_name }, req.user.id, req.user.name, req);
+
+        } catch (err) {
+            console.error("Receipt PDF Error:", err);
+            res.status(500).json({ error: "Failed to generate premium receipt." });
+        }
     });
 });
 

@@ -101,6 +101,23 @@ const initSchema = () => {
             FOREIGN KEY(member_id) REFERENCES members(id)
         )`);
 
+        // 5.5 TOPUP REQUESTS (Admin Gatekeeper)
+        db.run(`CREATE TABLE IF NOT EXISTS topup_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            commitment_amount REAL NOT NULL,
+            topup_amount REAL NOT NULL,
+            status TEXT CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')) DEFAULT 'PENDING',
+            requested_by INTEGER NOT NULL,
+            approved_by INTEGER,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            approved_at DATETIME,
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(requested_by) REFERENCES officers(id),
+            FOREIGN KEY(approved_by) REFERENCES officers(id)
+        )`);
+
         // 6. Project Intelligence Tables
         db.run(`CREATE TABLE IF NOT EXISTS project_registrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,6 +205,9 @@ const initSchema = () => {
         });
         db.run("ALTER TABLE daily_cash_reports ADD COLUMN submission_timestamp TEXT", (err) => {
             if (!err) console.log("Governance: 'submission_timestamp' added to reports");
+        });
+        db.run("ALTER TABLE daily_cash_reports ADD COLUMN draft_data TEXT", (err) => {
+            if (!err) console.log("Persistence: 'draft_data' added to daily_cash_reports");
         });
 
         // 7. Meeting Planning Extensions

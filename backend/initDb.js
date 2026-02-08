@@ -15,13 +15,17 @@ const get = (sql, params = []) => new Promise((resolve, reject) => {
     });
 });
 
+const isPostgres = !!process.env.DATABASE_URL;
+const PK = isPostgres ? "SERIAL PRIMARY KEY" : "INTEGER PRIMARY KEY AUTOINCREMENT";
+const DECIMAL = isPostgres ? "DECIMAL(20,2)" : "REAL";
+
 const init = async () => {
     try {
         console.log("Initializing Database...");
 
         // 1. GROUPS TABLE
         await run(`CREATE TABLE IF NOT EXISTS groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             name TEXT NOT NULL,
             location TEXT,
             meetingDay TEXT,
@@ -46,54 +50,47 @@ const init = async () => {
 
         // 2. MEMBERS TABLE
         await run(`CREATE TABLE IF NOT EXISTS members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             name TEXT NOT NULL,
             phone TEXT,
             group_id INTEGER NOT NULL,
-            status TEXT DEFAULT 'active' CHECK( status IN ('active', 'inactive', 'suspended') ),
+            status TEXT DEFAULT 'active',
             registration_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            opening_balance_savings REAL DEFAULT 0,
-            opening_balance_ltl REAL DEFAULT 0,
-            opening_balance_stl REAL DEFAULT 0,
+            opening_balance_savings ${DECIMAL} DEFAULT 0,
+            opening_balance_ltl ${DECIMAL} DEFAULT 0,
+            opening_balance_stl ${DECIMAL} DEFAULT 0,
             opening_balance_set_by INTEGER,
             opening_balance_set_at TEXT,
             opening_balance_reason TEXT,
             opening_balance_locked INTEGER DEFAULT 0,
-            current_savings REAL DEFAULT 0,
-            active_loan_balance REAL DEFAULT 0,
+            current_savings ${DECIMAL} DEFAULT 0,
+            active_loan_balance ${DECIMAL} DEFAULT 0,
             next_of_kin_name TEXT,
             next_of_kin_phone TEXT,
             next_of_kin_relationship TEXT,
-            next_of_kin_member_id INTEGER, -- Linked to existing member
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (group_id) REFERENCES groups(id),
-            FOREIGN KEY (next_of_kin_member_id) REFERENCES members(id)
+            next_of_kin_member_id INTEGER -- Linked to existing member
         )`);
 
         // 3. LOANS TABLE
         await run(`CREATE TABLE IF NOT EXISTS loans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             member_id INTEGER NOT NULL,
             group_id INTEGER NOT NULL,
-            loan_type TEXT NOT NULL CHECK (loan_type IN ('STL', 'LTL', 'EMERGENCY')),
-            principal_amount REAL NOT NULL,
-            interest_rate REAL NOT NULL,
+            loan_type TEXT NOT NULL,
+            principal_amount ${DECIMAL} NOT NULL,
+            interest_rate ${DECIMAL} NOT NULL,
             issued_date TEXT NOT NULL,
             due_date TEXT NOT NULL,
-            status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cleared', 'defaulted', 'written_off')),
+            status TEXT DEFAULT 'active',
             issued_by INTEGER,
             guarantor1_id INTEGER,
             guarantor2_id INTEGER,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (group_id) REFERENCES groups(id),
-            FOREIGN KEY (guarantor1_id) REFERENCES members(id),
-            FOREIGN KEY (guarantor2_id) REFERENCES members(id)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
         // 4. MEETING SESSIONS
         await run(`CREATE TABLE IF NOT EXISTS meeting_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             groupId INTEGER NOT NULL,
             officerId INTEGER NOT NULL,
             date TEXT NOT NULL,
@@ -109,13 +106,13 @@ const init = async () => {
 
         // 5. GROUP OFFICIALS (Governance Term Tracking)
         await run(`CREATE TABLE IF NOT EXISTS group_officials (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             group_id INTEGER NOT NULL,
             member_id INTEGER NOT NULL,
-            role TEXT NOT NULL CHECK( role IN ('Chairman', 'Secretary', 'Treasurer') ),
+            role TEXT NOT NULL,
             term_start TEXT NOT NULL,
             term_end TEXT,
-            status TEXT DEFAULT 'active' CHECK( status IN ('active', 'expired', 'removed') ),
+            status TEXT DEFAULT 'active',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (group_id) REFERENCES groups(id),
             FOREIGN KEY (member_id) REFERENCES members(id)
@@ -123,19 +120,19 @@ const init = async () => {
 
         // 5. TRANSACTIONS
         await run(`CREATE TABLE IF NOT EXISTS transactions(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 sessionId INTEGER,
                                 memberId INTEGER NOT NULL,
                                 memberName TEXT,
                                 attended INTEGER DEFAULT 1,
-                                savings_amount REAL DEFAULT 0,
-                                stl_repayment REAL DEFAULT 0,
-                                ltl_repayment REAL DEFAULT 0,
-                                loan_interest REAL DEFAULT 0,
-                                welfare REAL DEFAULT 0,
-                                fines REAL DEFAULT 0,
-                                withdrawals REAL DEFAULT 0,
-                                loans_issued REAL DEFAULT 0,
+                                savings_amount ${DECIMAL} DEFAULT 0,
+                                stl_repayment ${DECIMAL} DEFAULT 0,
+                                ltl_repayment ${DECIMAL} DEFAULT 0,
+                                loan_interest ${DECIMAL} DEFAULT 0,
+                                welfare ${DECIMAL} DEFAULT 0,
+                                fines ${DECIMAL} DEFAULT 0,
+                                withdrawals ${DECIMAL} DEFAULT 0,
+                                loans_issued ${DECIMAL} DEFAULT 0,
                                 transaction_type TEXT,
                                 description TEXT,
                                 uploaded INTEGER DEFAULT 0,
@@ -148,35 +145,35 @@ const init = async () => {
 
         // 6. DIVIDEND TABLES
         await run(`CREATE TABLE IF NOT EXISTS dividend_runs(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 financial_year INTEGER,
                                 group_id INTEGER,
                                 run_number TEXT,
-                                banking_interest REAL DEFAULT 0,
-                                stl_interest REAL DEFAULT 0,
-                                ltl_interest REAL DEFAULT 0,
-                                penalties REAL DEFAULT 0,
-                                other_income REAL DEFAULT 0,
-                                operating_expenses REAL DEFAULT 0,
-                                mandatory_reserves REAL DEFAULT 0,
-                                risk_buffer REAL DEFAULT 0,
-                                reinvested_capital REAL DEFAULT 0,
-                                profit_share_percentage REAL DEFAULT 75,
-                                dividend_rate REAL DEFAULT 0,
-                                allocable_profit REAL DEFAULT 0,
-                                total_payout REAL DEFAULT 0,
+                                banking_interest ${DECIMAL} DEFAULT 0,
+                                stl_interest ${DECIMAL} DEFAULT 0,
+                                ltl_interest ${DECIMAL} DEFAULT 0,
+                                penalties ${DECIMAL} DEFAULT 0,
+                                other_income ${DECIMAL} DEFAULT 0,
+                                operating_expenses ${DECIMAL} DEFAULT 0,
+                                mandatory_reserves ${DECIMAL} DEFAULT 0,
+                                risk_buffer ${DECIMAL} DEFAULT 0,
+                                reinvested_capital ${DECIMAL} DEFAULT 0,
+                                profit_share_percentage ${DECIMAL} DEFAULT 75,
+                                dividend_rate ${DECIMAL} DEFAULT 0,
+                                allocable_profit ${DECIMAL} DEFAULT 0,
+                                total_payout ${DECIMAL} DEFAULT 0,
                                 status TEXT DEFAULT 'DRAFT',
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
                             )`);
 
         await run(`CREATE TABLE IF NOT EXISTS dividend_allocations(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 dividend_run_id INTEGER,
                                 member_id INTEGER,
-                                average_shares REAL,
-                                gross_dividend REAL,
-                                arrears_offset REAL,
-                                net_dividend REAL,
+                                average_shares ${DECIMAL},
+                                gross_dividend ${DECIMAL},
+                                arrears_offset ${DECIMAL},
+                                net_dividend ${DECIMAL},
                                 posted_to_savings INTEGER DEFAULT 0,
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                                 FOREIGN KEY(dividend_run_id) REFERENCES dividend_runs(id),
@@ -185,7 +182,7 @@ const init = async () => {
 
         // 7. ADMIN & AUDIT
         await run(`CREATE TABLE IF NOT EXISTS audit_logs(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 action TEXT NOT NULL,
                                 category TEXT NOT NULL,
                                 details TEXT,
@@ -205,14 +202,14 @@ const init = async () => {
         // 7. LOAN PRODUCTS (Dropped and recreated for clean matrix)
         await run(`DROP TABLE IF EXISTS loan_products`);
         await run(`CREATE TABLE loan_products(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 name TEXT NOT NULL,
                                 code TEXT UNIQUE,
-                                loan_amount REAL NOT NULL,
-                                monthly_installment REAL NOT NULL,
-                                principal_portion REAL NOT NULL,
-                                interest_portion REAL NOT NULL,
-                                shares_contribution REAL NOT NULL,
+                                loan_amount ${DECIMAL} NOT NULL,
+                                monthly_installment ${DECIMAL} NOT NULL,
+                                principal_portion ${DECIMAL} NOT NULL,
+                                interest_portion ${DECIMAL} NOT NULL,
+                                shares_contribution ${DECIMAL} NOT NULL,
                                 repayment_period_months INTEGER NOT NULL,
                                 is_active INTEGER DEFAULT 1,
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -220,77 +217,68 @@ const init = async () => {
 
         // 7b. REPAYMENT SCHEDULE
         await run(`CREATE TABLE IF NOT EXISTS repayment_schedule (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             loan_id INTEGER NOT NULL,
             installment_number INTEGER NOT NULL,
             due_date TEXT NOT NULL,
-            expected_installment REAL NOT NULL,
-            expected_principal REAL NOT NULL,
-            expected_interest REAL NOT NULL,
-            expected_shares REAL NOT NULL,
-            paid_amount REAL DEFAULT 0,
-            actual_payment REAL DEFAULT 0,
+            expected_installment ${DECIMAL} NOT NULL,
+            expected_principal ${DECIMAL} NOT NULL,
+            expected_interest ${DECIMAL} NOT NULL,
+            expected_shares ${DECIMAL} NOT NULL,
+            paid_amount ${DECIMAL} DEFAULT 0,
+            actual_payment ${DECIMAL} DEFAULT 0,
             payment_date TEXT,
-            status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'partial', 'paid', 'overdue')),
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
         // 7c. LOAN PAYMENTS - Tracks individual payment transactions
         await run(`CREATE TABLE IF NOT EXISTS loan_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             loan_id INTEGER NOT NULL,
             member_id INTEGER NOT NULL,
             session_id INTEGER,
-            amount_paid REAL NOT NULL,
-            principal_paid REAL DEFAULT 0,
-            interest_paid REAL DEFAULT 0,
+            amount_paid ${DECIMAL} NOT NULL,
+            principal_paid ${DECIMAL} DEFAULT 0,
+            interest_paid ${DECIMAL} DEFAULT 0,
             payment_method TEXT DEFAULT 'cash',
             payment_ref TEXT UNIQUE,
             payment_date TEXT DEFAULT CURRENT_TIMESTAMP,
             posted_by INTEGER,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE,
-            FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (session_id) REFERENCES meeting_sessions(id),
-            FOREIGN KEY (posted_by) REFERENCES officers(id)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
         // 8. LOAN APPLICATIONS
         await run(`CREATE TABLE IF NOT EXISTS loan_applications(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 application_number TEXT UNIQUE,
                                 member_id INTEGER NOT NULL,
                                 group_id INTEGER NOT NULL,
                                 loan_type TEXT NOT NULL,
-                                amount_requested REAL NOT NULL,
+                                amount_requested ${DECIMAL} NOT NULL,
                                 duration_months INTEGER NOT NULL,
                                 purpose TEXT,
-                                status TEXT DEFAULT 'APPLIED' CHECK(status IN('APPLIED', 'PENDING', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'ADMIN_REJECTED', 'APPROVED', 'REJECTED', 'DISBURSED', 'CANCELLED', 'OFFICER_SUBMITTED', 'DIRECTOR_REVIEW')),
-                                monthly_installment REAL,
-                                interest_portion REAL,
-                                principal_portion REAL,
-                                shares_contribution REAL,
+                                status TEXT DEFAULT 'APPLIED',
+                                monthly_installment ${DECIMAL},
+                                interest_portion ${DECIMAL},
+                                principal_portion ${DECIMAL},
+                                shares_contribution ${DECIMAL},
                                 officer_id INTEGER,
                                 guarantor1_id INTEGER,
                                 guarantor2_id INTEGER,
                                 comments TEXT,
-                                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                                FOREIGN KEY(member_id) REFERENCES members(id),
-                                FOREIGN KEY(group_id) REFERENCES groups(id),
-                                FOREIGN KEY(guarantor1_id) REFERENCES members(id),
-                                FOREIGN KEY(guarantor2_id) REFERENCES members(id)
+                                created_at TEXT DEFAULT CURRENT_TIMESTAMP
                             )`);
 
         // 9. OFFICERS
         await run(`CREATE TABLE IF NOT EXISTS officers(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 name TEXT NOT NULL,
-                                role TEXT NOT NULL CHECK(role IN('Field Officer', 'Director', 'Admin', 'Auditor')),
+                                role TEXT NOT NULL,
                                 phone TEXT,
                                 email TEXT UNIQUE,
                                 password_hash TEXT,
-                                status TEXT DEFAULT 'active' CHECK(status IN('active', 'inactive')),
+                                status TEXT DEFAULT 'active',
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
                             )`);
 
@@ -308,21 +296,21 @@ const init = async () => {
 
         // 10. SMS LOGS
         await run(`CREATE TABLE IF NOT EXISTS sms_logs(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 member_id INTEGER,
                                 phone TEXT NOT NULL,
                                 message TEXT NOT NULL,
                                 type TEXT, --CONTRIBUTION, LOAN, ALERT
-            cost REAL DEFAULT 0,
+                                cost ${DECIMAL} DEFAULT 0,
                                 status TEXT DEFAULT 'SENT', --SENT, DELIVERED, FAILED
-            error_message TEXT,
+                                error_message TEXT,
                                 transaction_id INTEGER,
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
                             )`);
 
         // 10b. AUDIT READ LOGS (Auditor Mode Traceability)
         await run(`CREATE TABLE IF NOT EXISTS audit_read_logs(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 user_id INTEGER,
                                 officer_name TEXT,
                                 module TEXT,
@@ -333,30 +321,30 @@ const init = async () => {
 
         // 11. PROJECT SAVINGS MODULE
         await run(`CREATE TABLE IF NOT EXISTS project_registrations(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 member_id INTEGER NOT NULL,
-                                project_type TEXT NOT NULL CHECK(project_type IN('EDUCATION', 'AGRICULTURE')),
+                                project_type TEXT NOT NULL,
                                 registration_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                                fee_paid REAL DEFAULT 200,
+                                fee_paid ${DECIMAL} DEFAULT 200,
                                 year INTEGER NOT NULL,
                                 FOREIGN KEY(member_id) REFERENCES members(id)
                             )`);
 
         await run(`CREATE TABLE IF NOT EXISTS project_savings(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                id ${PK},
                                 registration_id INTEGER NOT NULL,
-                                amount REAL NOT NULL,
+                                amount ${DECIMAL} NOT NULL,
                                 date TEXT NOT NULL,
-                                status TEXT DEFAULT 'ACTIVE' CHECK(status IN('ACTIVE', 'LOCKED', 'PAID')),
+                                status TEXT DEFAULT 'ACTIVE',
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                                 payout_status TEXT DEFAULT 'PENDING',
                                 FOREIGN KEY(registration_id) REFERENCES project_registrations(id)
                             )`);
 
         await run(`CREATE TABLE IF NOT EXISTS company_revenue(
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        source TEXT NOT NULL, --e.g., 'PROJECT_REGISTRATION_FEE'
-                        amount REAL NOT NULL,
+                        id ${PK},
+                        source TEXT NOT NULL,
+                        amount ${DECIMAL} NOT NULL,
                         member_id INTEGER,
                         date TEXT DEFAULT CURRENT_TIMESTAMP,
                         description TEXT,
@@ -364,9 +352,9 @@ const init = async () => {
                     )`);
 
         await run(`CREATE TABLE IF NOT EXISTS company_investments(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             group_id INTEGER,
-            amount REAL NOT NULL,
+            amount ${DECIMAL} NOT NULL,
             date TEXT DEFAULT CURRENT_TIMESTAMP,
             notes TEXT,
             status TEXT DEFAULT 'ACTIVE',
@@ -375,18 +363,18 @@ const init = async () => {
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS daily_cash_reports(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             officer_id INTEGER,
             group_id INTEGER,
             session_id INTEGER,
             report_date TEXT NOT NULL,
-            morning_balance REAL DEFAULT 0,
-            total_cash_in REAL DEFAULT 0,
-            total_cash_out REAL DEFAULT 0,
-            expected_closing_balance REAL DEFAULT 0,
-            physical_cash_counted REAL DEFAULT 0,
-            variance REAL DEFAULT 0,
-            status TEXT DEFAULT 'draft', -- 'draft', 'submitted'
+            morning_balance ${DECIMAL} DEFAULT 0,
+            total_cash_in ${DECIMAL} DEFAULT 0,
+            total_cash_out ${DECIMAL} DEFAULT 0,
+            expected_closing_balance ${DECIMAL} DEFAULT 0,
+            physical_cash_counted ${DECIMAL} DEFAULT 0,
+            variance ${DECIMAL} DEFAULT 0,
+            status TEXT DEFAULT 'draft',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(officer_id) REFERENCES officers(id),
             FOREIGN KEY(group_id) REFERENCES groups(id),
@@ -394,9 +382,9 @@ const init = async () => {
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS group_commitments(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             group_id INTEGER,
-            amount REAL NOT NULL,
+            amount ${DECIMAL} NOT NULL,
             date TEXT DEFAULT CURRENT_TIMESTAMP,
             status TEXT DEFAULT 'LOCKED',
             notes TEXT,
@@ -412,10 +400,10 @@ const init = async () => {
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS freeze_logs(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scope TEXT NOT NULL, --'GROUP', 'OFFICER', 'SYSTEM'
-            target_id INTEGER, --groupId or officerId
-            action TEXT NOT NULL, --'FREEZE', 'UNFREEZE'
+            id ${PK},
+            scope TEXT NOT NULL,
+            target_id INTEGER,
+            action TEXT NOT NULL,
             reason TEXT,
             performed_by INTEGER,
             performed_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -423,37 +411,54 @@ const init = async () => {
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS risk_scores(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scope TEXT NOT NULL, --'GROUP', 'OFFICER'
+            id ${PK},
+            scope TEXT NOT NULL,
             target_id INTEGER NOT NULL,
-            score INTEGER NOT NULL, --0 to 100
-            metrics_snapshot TEXT, --JSON
+            score INTEGER NOT NULL,
+            metrics_snapshot TEXT,
             calculated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS risk_alerts(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scope TEXT NOT NULL, -- 'GROUP', 'MEMBER', 'OFFICER', 'SYSTEM'
+            id ${PK},
+            scope TEXT NOT NULL,
             target_id INTEGER NOT NULL,
-            alert_type TEXT NOT NULL, -- 'NEGATIVE_BALANCE', 'OVERDUE_LOAN', 'LIQUIDITY_BREACH', etc.
-            severity TEXT DEFAULT 'MEDIUM', -- 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
+            alert_type TEXT NOT NULL,
+            severity TEXT DEFAULT 'MEDIUM',
             message TEXT NOT NULL,
             is_resolved INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
         await run(`CREATE TABLE IF NOT EXISTS reversal_requests(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${PK},
             transaction_id INTEGER NOT NULL,
             requester_id INTEGER NOT NULL,
             approver_id INTEGER,
             reason TEXT NOT NULL,
-            status TEXT DEFAULT 'PENDING' CHECK(status IN('PENDING', 'APPROVED', 'REJECTED')),
+            status TEXT DEFAULT 'PENDING',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             reviewed_at TEXT,
             FOREIGN KEY(transaction_id) REFERENCES transactions(id),
             FOREIGN KEY(requester_id) REFERENCES officers(id),
             FOREIGN KEY(approver_id) REFERENCES officers(id)
+        )`);
+
+        // 22. TOPUP REQUESTS (Admin Gatekeeper)
+        await run(`CREATE TABLE IF NOT EXISTS topup_requests(
+            id ${PK},
+            group_id INTEGER NOT NULL,
+            commitment_amount ${DECIMAL} NOT NULL,
+            topup_amount ${DECIMAL} NOT NULL,
+            status TEXT DEFAULT 'PENDING',
+            requested_by INTEGER NOT NULL,
+            approved_by INTEGER,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            approved_at TEXT,
+            FOREIGN KEY(group_id) REFERENCES groups(id),
+            FOREIGN KEY(requested_by) REFERENCES officers(id),
+            FOREIGN KEY(approved_by) REFERENCES officers(id)
         )`);
 
         // Seed default system settings

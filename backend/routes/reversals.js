@@ -40,8 +40,6 @@ router.post('/approve', authenticateToken, isAdmin, async (req, res) => {
 
     let client = null;
     try {
-        if (!db.beginTransaction) return res.status(501).json({ error: "MTE v2 requires PostgreSQL." });
-
         // 1. Get Request & Transaction Details
         const requestQuery = `
             SELECT rr.*, t.transaction_type, t.memberId, t.sessionId, 
@@ -84,9 +82,6 @@ router.post('/approve', authenticateToken, isAdmin, async (req, res) => {
             else if (typeKey === 'WITHDRAWAL') mteType = 'WITHDRAWAL_REVERSAL';
             else if (typeKey === 'LOAN_REPAYMENT') mteType = 'LOAN_REPAYMENT_REVERSAL';
             else throw new Error(`Unsupported transaction type for MTE reversal: ${request.transaction_type}`);
-
-            // In MTE v2, we should probably look up the amount from ledger_entries if needed, 
-            // but here we assume the legacy transaction table has it.
         }
 
         const txRef = `REV-${request.transaction_id}-${Date.now()}`;

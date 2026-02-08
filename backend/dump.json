@@ -1,0 +1,167 @@
+{
+  "commitments": [
+    {
+      "id": 1,
+      "group_id": 1,
+      "amount": 85000,
+      "deposit_date": "2026-01-27 19:14:38",
+      "status": "LOCKED",
+      "notes": "Locked Security Equity - Victory Women",
+      "created_at": "2026-01-27 19:14:38"
+    },
+    {
+      "id": 2,
+      "group_id": 1,
+      "amount": 85000,
+      "deposit_date": "2026-01-27 19:26:52",
+      "status": "LOCKED",
+      "notes": "Locked Security Equity - Victory Women",
+      "created_at": "2026-01-27 19:26:52"
+    },
+    {
+      "id": 3,
+      "group_id": 1,
+      "amount": 85000,
+      "deposit_date": "2026-01-27 19:33:39",
+      "status": "LOCKED",
+      "notes": "Locked Security Equity - Victory Women",
+      "created_at": "2026-01-27 19:33:39"
+    },
+    {
+      "id": 4,
+      "group_id": 1,
+      "amount": 30000,
+      "deposit_date": "2026-01-28 11:17:35",
+      "status": "LOCKED",
+      "notes": "business monitor",
+      "created_at": "2026-01-28 11:17:35"
+    },
+    {
+      "id": 5,
+      "group_id": 8,
+      "amount": 20000,
+      "deposit_date": "2026-02-06 06:43:31",
+      "status": "LOCKED",
+      "notes": "",
+      "created_at": "2026-02-06 06:43:31"
+    },
+    {
+      "id": 6,
+      "group_id": 8,
+      "amount": 30000,
+      "deposit_date": "2026-02-06 06:56:21",
+      "status": "LOCKED",
+      "notes": "Monthly Security Batch #8-6116",
+      "created_at": "2026-02-06 06:56:21"
+    },
+    {
+      "id": 7,
+      "group_id": 8,
+      "amount": 30000,
+      "deposit_date": "2026-02-06 08:10:38",
+      "status": "LOCKED",
+      "notes": "Monthly Security Batch #8-4309",
+      "created_at": "2026-02-06 08:10:38"
+    }
+  ],
+  "transactions": [
+    {
+      "id": 27,
+      "memberId": 0,
+      "group_id": null,
+      "transaction_type": "COMMITMENT_DEPOSIT",
+      "amount": 0,
+      "description": "Security Deposit: Standard Commitment"
+    },
+    {
+      "id": 28,
+      "memberId": 0,
+      "group_id": null,
+      "transaction_type": "COMMITMENT_DEPOSIT",
+      "amount": 0,
+      "description": "Security Deposit: Monthly Security Batch #8-6116"
+    },
+    {
+      "id": 29,
+      "memberId": 0,
+      "group_id": null,
+      "transaction_type": "COMMITMENT_DEPOSIT",
+      "amount": 0,
+      "description": "Security Deposit: Monthly Security Batch #8-4309"
+    }
+  ],
+  "investments": [
+    {
+      "id": 1,
+      "group_id": 1,
+      "amount": 250000,
+      "investment_date": "2026-01-27 19:33:39",
+      "status": "ACTIVE",
+      "notes": "Initial Capital Injection for Agri-Processing Unit",
+      "created_at": "2026-01-27 19:33:39",
+      "type": "INVESTMENT"
+    },
+    {
+      "id": 2,
+      "group_id": 1,
+      "amount": -15000,
+      "investment_date": "2026-01-27 19:33:39",
+      "status": "ACTIVE",
+      "notes": "Monthly Group Repayment - December 2025 Cycle",
+      "created_at": "2026-01-27 19:33:39",
+      "type": "REPAYMENT"
+    }
+  ],
+  "groups": [
+    {
+      "id": 0,
+      "name": "SYSTEM_INTERNAL",
+      "risk_score": 0
+    },
+    {
+      "id": 1,
+      "name": "Victory Women",
+      "risk_score": 0
+    },
+    {
+      "id": 2,
+      "name": "Ukombozi A",
+      "risk_score": 0
+    },
+    {
+      "id": 3,
+      "name": "Ukombozi B",
+      "risk_score": 0
+    },
+    {
+      "id": 4,
+      "name": "STAR KOSHIN TENTWET",
+      "risk_score": 0
+    },
+    {
+      "id": 5,
+      "name": "JOYLAND ",
+      "risk_score": 0
+    },
+    {
+      "id": 6,
+      "name": "TORET MOI WOMEN GROUP",
+      "risk_score": 0
+    },
+    {
+      "id": 7,
+      "name": "TORET MOI WOMEN GROUP 2",
+      "risk_score": 0
+    },
+    {
+      "id": 8,
+      "name": "EVERGREEN ",
+      "risk_score": 0
+    },
+    {
+      "id": 9,
+      "name": "Victory Women 2",
+      "risk_score": 0
+    }
+  ]
+}

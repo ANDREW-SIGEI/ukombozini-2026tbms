@@ -1,0 +1,35 @@
+    async getReversalRequests() {
+        try {
+            const response = await axiosInstance.get('/reversals/requests');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async approveReversal(requestId) {
+        try {
+            const response = await axiosInstance.post('/reversals/approve', { request_id: requestId });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async requestReversal(transactionId, reason) {
+        try {
+            const response = await axiosInstance.post('/reversals/request', { transaction_id: transactionId, reason });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async getAuditLogs(params) {
+        try {
+            const response = await axiosInstance.get('/governance/audit-logs', { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    }
+};
+
+export default api;

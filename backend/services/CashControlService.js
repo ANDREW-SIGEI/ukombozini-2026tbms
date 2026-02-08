@@ -12,8 +12,8 @@ class CashControlService {
             const id = require('crypto').randomUUID();
             const sql = `
                 INSERT INTO cash_transactions (
-                    id, cash_session_id, source, reference_id, direction, amount, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    id, cash_session_id, source, reference_id, direction, amount, created_at, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
             `;
             db.run(sql, [id, sessionId, source, referenceId, direction, amount, createdBy], (err) => {
                 if (err) {

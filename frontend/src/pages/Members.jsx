@@ -1018,13 +1018,44 @@ const Members = () => {
                                             <h4 className="text-xs font-black uppercase tracking-wide">Next of Kin Details</h4>
                                         </div>
                                         <div className="grid grid-cols-1 gap-3">
-                                            <input
-                                                type="text"
-                                                value={editFormData.nextOfKinName}
-                                                onChange={(e) => setEditFormData({ ...editFormData, nextOfKinName: e.target.value.replace(/\b\w/g, c => c.toUpperCase()) })}
-                                                className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
-                                                placeholder="NoK Full Name"
-                                            />
+                                            <div className="flex gap-2">
+                                                <div className="flex-1">
+                                                    <input
+                                                        type="text"
+                                                        value={editFormData.nextOfKinName}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value.replace(/\b\w/g, c => c.toUpperCase());
+                                                            setEditFormData({ ...editFormData, nextOfKinName: val });
+                                                        }}
+                                                        className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
+                                                        placeholder="NoK Full Name"
+                                                        disabled={!!editFormData.nextOfKinMemberId}
+                                                    />
+                                                </div>
+                                                <select
+                                                    className="w-40 px-2 py-2 bg-white border border-blue-100 rounded-lg text-xs font-bold"
+                                                    value={editFormData.nextOfKinMemberId || ""}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val === "") {
+                                                            setEditFormData({ ...editFormData, nextOfKinMemberId: '', nextOfKinName: '', nextOfKinPhone: '' });
+                                                        } else {
+                                                            const m = members.find(mem => mem.id === parseInt(val));
+                                                            setEditFormData({
+                                                                ...editFormData,
+                                                                nextOfKinMemberId: val,
+                                                                nextOfKinName: m.name,
+                                                                nextOfKinPhone: m.phone
+                                                            });
+                                                        }
+                                                    }}
+                                                >
+                                                    <option value="">Link Member...</option>
+                                                    {members.filter(m => m.id !== editFormData.id).map(m => (
+                                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
                                             <div className="grid grid-cols-2 gap-2">
                                                 <input
                                                     type="tel"
@@ -1032,14 +1063,19 @@ const Members = () => {
                                                     onChange={(e) => setEditFormData({ ...editFormData, nextOfKinPhone: e.target.value })}
                                                     className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
                                                     placeholder="NoK Phone"
+                                                    disabled={!!editFormData.nextOfKinMemberId}
                                                 />
-                                                <input
-                                                    type="text"
+                                                <select
                                                     value={editFormData.nextOfKinRelationship}
                                                     onChange={(e) => setEditFormData({ ...editFormData, nextOfKinRelationship: e.target.value })}
                                                     className="w-full px-4 py-2 bg-white border border-blue-100 rounded-lg text-sm font-bold"
-                                                    placeholder="Relationship"
-                                                />
+                                                    required={editFormData.nextOfKinName?.length > 0}
+                                                >
+                                                    <option value="">Relationship</option>
+                                                    {RELATIONSHIP_OPTIONS.map(opt => (
+                                                        <option key={opt} value={opt}>{opt}</option>
+                                                    ))}
+                                                </select>
                                             </div>
                                         </div>
                                     </div>
@@ -1245,8 +1281,8 @@ const Members = () => {
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
-                                                            {profileData.transactions.filter(t => t.type === 'Savings' || t.type === 'Withdrawal').length > 0 ? (
-                                                                profileData.transactions.filter(t => t.type === 'Savings' || t.type === 'Withdrawal').map(t => (
+                                                            {profileData.transactions.length > 0 ? (
+                                                                profileData.transactions.map(t => (
                                                                     <tr key={t.id} className="hover:bg-gray-50/50 group">
                                                                         <td className="px-6 py-4 text-sm font-bold text-gray-500">{new Date(t.date).toLocaleDateString()}</td>
                                                                         <td className="px-6 py-4 text-sm font-bold text-gray-800">

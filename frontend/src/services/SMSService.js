@@ -11,7 +11,7 @@ class SMSService {
      */
     static async sendSMS(to, message, type = 'General', memberId = null) {
         try {
-            const response = await axiosInstance.post('/sms/reminders', {
+            const response = await axiosInstance.post('/communication/reminders', {
                 type,
                 recipients: [{ phone: to, message, memberId }]
             });
@@ -144,7 +144,7 @@ class SMSService {
      */
     static async checkBalance() {
         try {
-            const response = await axiosInstance.get('/sms/balance');
+            const response = await axiosInstance.get('/communication/balance');
             return response.data;
         } catch (error) {
             console.error('❌ Balance check error:', error.message);
@@ -157,7 +157,7 @@ class SMSService {
      */
     static async sendBulk(type, recipients) {
         try {
-            const response = await axiosInstance.post('/sms/reminders', {
+            const response = await axiosInstance.post('/communication/reminders', {
                 type,
                 recipients
             });

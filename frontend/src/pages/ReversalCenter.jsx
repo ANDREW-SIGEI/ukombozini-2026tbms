@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import { FaUndo, FaCheckCircle, FaTimesCircle, FaShieldAlt, FaHistory, FaSearch } from 'react-icons/fa';
@@ -139,7 +138,7 @@ const ReversalCenter = () => {
                                             </td>
                                             <td className="px-8 py-6">
                                                 <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${r.status === 'PENDING' ? 'bg-orange-100 text-orange-700' :
-                                                        r.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                                    r.status === 'APPROVED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                                                     }`}>
                                                     {r.status}
                                                 </span>

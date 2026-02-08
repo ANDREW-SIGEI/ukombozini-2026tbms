@@ -66,35 +66,10 @@ export const api = {
     // CORE MEMBER & GROUP API
     // ========================================
 
-    async getMember(id) {
-        try {
-            const response = await axiosInstance.get(`/members/${id}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
 
     // Basic Member/Group methods are defined in the overrides section at the end
 
-    async getLatestCashSession(groupId) {
-        try {
-            const response = await axiosInstance.get(`/sessions/latest`, { params: { groupId } });
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async getProjectMemberDayLimit(memberId) {
-        try {
-            const response = await axiosInstance.get(`/members/${memberId}/day-limit`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
     // ========================================
     // PHASE 2: AUDIT & GOVERNANCE
@@ -139,14 +114,6 @@ export const api = {
         }
     },
 
-    async postContribution(data) {
-        try {
-            const response = await axiosInstance.post('/contributions/post', data);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
     async getContributionHistory(memberId) {
         try {
@@ -170,14 +137,6 @@ export const api = {
         }
     },
 
-    async postWithdrawal(data) {
-        try {
-            const response = await axiosInstance.post('/withdrawals/post', data);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
     async getWithdrawalHistory(memberId) {
         try {
@@ -201,14 +160,6 @@ export const api = {
         }
     },
 
-    async processLoanRepayment(data) {
-        try {
-            const response = await axiosInstance.post('/loans/repay', data);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
     async getLoanArrears(loanId) {
         try {
@@ -645,15 +596,6 @@ export const api = {
         }
     },
 
-    async getSMSLogs() {
-        try {
-            const response = await axiosInstance.get('/sms/logs');
-            return response.data;
-        } catch (error) {
-            console.error('getSMSLogs error:', error);
-            return [];
-        }
-    },
 
     // ========================================
     // CASH CONTROL & RECONCILIATION (Bank-Grade)
@@ -916,84 +858,10 @@ export const api = {
     /**
      * Get all members with their financial summary (Supabase View)
      */
-    async getMembers() {
-        try {
-            const response = await axiosInstance.get('/members');
-            const data = response.data;
-
-            return data.map(member => ({
-                id: member.id,
-                name: member.name || member.full_name,
-                phone: member.phone,
-                groupId: member.group_id,
-                groupName: member.group_name || 'N/A',
-                status: member.status,
-                savings: member.current_savings || 0,
-                activeLoans: member.active_loan_balance || 0,
-                arrears: member.arrears || 0,
-                guaranteedAmount: member.total_guaranteed_amount || 0,
-                // Include original fields for backward compatibility/extra logic
-                full_name: member.name || member.full_name,
-                current_savings: member.current_savings || 0,
-                active_loan_balance: member.active_loan_balance || 0
-            }));
-        } catch (error) {
-            console.error('getMembers error:', error);
-            return [];
-        }
-    },
-
-    /**
-     * Get members by group ID
-     */
-    async getMembersByGroup(groupId) {
-        try {
-            const response = await axiosInstance.get(`/members?group_id=${groupId}`);
-            const data = response.data;
-
-            return data.map(member => ({
-                id: member.id,
-                name: member.name || member.full_name,
-                phone: member.phone,
-                groupId: member.group_id,
-                groupName: member.group_name || 'N/A',
-                status: member.status,
-                savings: member.current_savings || 0,
-                activeLoans: member.active_loan_balance || 0,
-                arrears: member.arrears || 0,
-                ltl_bf: 0,
-                stl_bf: 0,
-                savings_bf: member.current_savings || 0,
-                full_name: member.name || member.full_name,
-                current_savings: member.current_savings || 0,
-                active_loan_balance: member.active_loan_balance || 0
-            }));
-        } catch (error) {
-            console.error('getMembersByGroup error:', error);
-            return [];
-        }
-    },
 
     /**
      * Get a single member by ID
      */
-    async postTransaction(data) {
-        try {
-            const response = await axiosInstance.post('/transactions', data);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async getMember(id) {
-        try {
-            const response = await axiosInstance.get(`/members/${id}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
     /**
      * Create a new member
@@ -1035,19 +903,6 @@ export const api = {
     /**
      * Post a new contribution (institutional standard)
      */
-    async postContribution(contributionData) {
-        try {
-            const payload = {
-                ...contributionData,
-                sessionId: contributionData.meetingId // Map meetingId to sessionId requirement
-            };
-            const response = await axiosInstance.post('/contributions', payload);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
     /**
      * Post a new loan repayment (Supabase Integrated)
      */
@@ -1064,18 +919,6 @@ export const api = {
         }
     },
 
-    async postWithdrawal(withdrawalData) {
-        try {
-            const payload = {
-                ...withdrawalData,
-                sessionId: withdrawalData.meetingId || withdrawalData.sessionId
-            };
-            const response = await axiosInstance.post('/withdrawals', payload);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
 
     /**
      * Get contribution compliance data for a period (Institutional)
@@ -1128,15 +971,6 @@ export const api = {
      */
 
 
-    async getSMSLogs() {
-        try {
-            const response = await axiosInstance.get('/reports/sms-logs');
-            return response.data;
-        } catch (error) {
-            console.error('getSMSLogs error:', error);
-            return [];
-        }
-    },
 
     /**
      * Approve or reject a loan
@@ -1765,6 +1599,34 @@ export const api = {
         }
     },
 
+    async getTreasuryStatus() {
+        try {
+            const response = await axiosInstance.get('/treasury/status');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getInstitutionalStats() {
+        try {
+            const response = await axiosInstance.get('/admin/institutional-stats');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getBoardReport() {
+        try {
+            const response = await axiosInstance.get('/reports/board-report');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+
     async getDailyCashFlow(date) {
         try {
             const response = await axiosInstance.get('/reports/financial/daily-cash-flow', { params: { date } });
@@ -1855,8 +1717,8 @@ export const api = {
     async registerProject(memberId, projectType, groupId) {
         try {
             const response = await axiosInstance.post('/projects/register', {
-                member_id: memberId,
-                project_type: projectType,
+                memberId: memberId,
+                projectType: projectType,
                 groupId: groupId
             });
             return response.data;
@@ -1868,7 +1730,7 @@ export const api = {
     async postProjectSaving(registrationId, amount, date, groupId) {
         try {
             const response = await axiosInstance.post('/projects/save', {
-                registration_id: registrationId,
+                registrationId: registrationId,
                 amount,
                 date,
                 groupId: groupId
@@ -1956,7 +1818,7 @@ export const api = {
 
     async sendBulkNotification(data) {
         try {
-            const response = await axiosInstance.post('/notifications/bulk', data);
+            const response = await axiosInstance.post('/communication/bulk', data);
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -1975,7 +1837,7 @@ export const api = {
 
     async getNotificationLogs(limit = 100) {
         try {
-            const response = await axiosInstance.get('/notifications/logs', { params: { limit } });
+            const response = await axiosInstance.get('/communication/logs', { params: { limit } });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -1996,15 +1858,6 @@ export const api = {
         }
     },
 
-    async getProjectMemberDayLimit(memberId) {
-        try {
-            const response = await axiosInstance.get(`/projects/member/${memberId}/daily-limit`);
-            return response.data;
-        } catch (error) {
-            console.error('getProjectMemberDayLimit error:', error);
-            return { remaining_limit: 0, daily_savings: 0 };
-        }
-    },
 
     async postProjectSaving(registrationId, amount, date, groupId) {
         try {
@@ -2045,6 +1898,26 @@ export const api = {
         return this.getMembers(groupId);
     },
 
+    async getProjectMemberDayLimit(memberId) {
+        try {
+            const response = await axiosInstance.get(`/members/${memberId}/day-limit`);
+            return response.data;
+        } catch (error) {
+            console.error('getProjectMemberDayLimit error:', error);
+            return { remaining_limit: 0, daily_savings: 0 };
+        }
+    },
+
+    async getMemberRelationships(memberId) {
+        try {
+            const response = await axiosInstance.get(`/members/${memberId}/relationships`);
+            return response.data;
+        } catch (error) {
+            console.error('getMemberRelationships error:', error);
+            return { next_of_kin: null, guarantors: [], liability_network: [] };
+        }
+    },
+
     async getLoans(memberId = null) {
         const params = memberId ? { memberId } : {};
         const response = await axiosInstance.get('/loans', { params });
@@ -2074,12 +1947,23 @@ export const api = {
     },
 
     async postWithdrawal(data) {
-        const response = await axiosInstance.post('/withdrawals/post', data);
+        // Redirect to unified transactions hub
+        const payload = {
+            ...data,
+            transaction_type: 'WITHDRAWAL',
+            amount: data.amount
+        };
+        const response = await axiosInstance.post('/transactions', payload);
         return response.data;
     },
 
     async processLoanRepayment(data) {
-        const response = await axiosInstance.post('/loans/repay', data);
+        // Redirect to unified transactions hub
+        const payload = {
+            ...data,
+            transaction_type: 'LOAN_REPAYMENT'
+        };
+        const response = await axiosInstance.post('/transactions', payload);
         return response.data;
     },
 
@@ -2098,14 +1982,16 @@ export const api = {
             const payload = {
                 memberId: data.memberId,
                 sessionId: data.sessionId || data.meetingId,
-                transaction_type: data.type || data.finalType,
+                transaction_type: data.type || data.transaction_type || data.finalType,
                 amount: parseFloat(data.amount),
                 description: data.description || '',
                 officerId: data.officerId,
-                breakdown: data.breakdown
+                breakdown: data.breakdown,
+                loanId: data.loanId,
+                loanType: data.loanType
             };
 
-            const response = await axiosInstance.post('/transactions/post', payload);
+            const response = await axiosInstance.post('/transactions', payload);
             return response.data;
         } catch (error) {
             // Check for Network Error
@@ -2166,7 +2052,7 @@ export const api = {
     // ========================================
     async getNotificationLogs(limit = 100) {
         try {
-            const response = await axiosInstance.get('/sms/logs', { params: { limit } });
+            const response = await axiosInstance.get('/communication/logs', { params: { limit } });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -2175,7 +2061,7 @@ export const api = {
 
     async getSMSBalance() {
         try {
-            const response = await axiosInstance.get('/sms/balance');
+            const response = await axiosInstance.get('/communication/balance');
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -2185,7 +2071,7 @@ export const api = {
     async sendBulkNotification(data) {
         try {
             // data items: { target, targetIds, message, method }
-            const response = await axiosInstance.post('/sms/broadcast', data);
+            const response = await axiosInstance.post('/communication/bulk', data);
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -2204,6 +2090,176 @@ export const api = {
                 pendingRepayments: 0,
                 productFinanceVolume: 0
             };
+        }
+    },
+
+    async getMatrixStatus(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/matrix-status/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGroupExposure(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/exposure/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGroupRiskScore(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/score/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async addCompanyTopUp(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/top-up', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async addCommitmentDeposit(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/commitment-deposit', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async issueProduct(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/issue-product', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async requestTopUp(data) {
+        try {
+            const response = await axiosInstance.post('/partnership/request-topup', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async approveTopUp(requestId) {
+        try {
+            const response = await axiosInstance.post(`/partnership/approve-topup/${requestId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async rejectTopUp(requestId, reason) {
+        try {
+            const response = await axiosInstance.post(`/partnership/reject-topup/${requestId}`, { reason });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getPendingTopUpRequests() {
+        try {
+            const response = await axiosInstance.get('/partnership/pending-requests');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGroupCommitments(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/commitments/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGroupProducts(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/products/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    /**
+     * Update current officer password
+     */
+    async updateMyPassword(password) {
+        try {
+            const response = await axiosInstance.put('/me/password', { password });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    /**
+     * Withdraw from Education/Agriculture Projects
+     */
+    async withdrawProjectSavings(data) {
+        try {
+            const response = await axiosInstance.post('/projects/withdraw', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+
+
+    },
+
+    // Reversal Management
+    async getReversalRequests() {
+        try {
+            const response = await axiosInstance.get('/reversals/requests');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async approveReversal(requestId) {
+        try {
+            const response = await axiosInstance.post('/reversals/approve', { request_id: requestId });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+    async requestReversal(transactionId, reason) {
+        try {
+            const response = await axiosInstance.post('/reversals/request', { transaction_id: transactionId, reason });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // Audit Logs
+    async getAuditLogs(params) {
+        try {
+            const response = await axiosInstance.get('/governance/audit-logs', { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
         }
     }
 };

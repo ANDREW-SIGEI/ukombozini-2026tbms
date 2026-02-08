@@ -337,7 +337,9 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 officerId: user?.id,
                 description: notes,
                 type: selectedType.id,
-                breakdown: calculationPreview?.split
+                breakdown: calculationPreview?.split,
+                loanId: selectedLoan?.id,
+                loanType: selectedLoan?.loan_type
             };
 
             let result = null;

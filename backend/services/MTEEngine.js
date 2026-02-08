@@ -150,11 +150,12 @@ const TRANSACTION_MAP = {
 /**
  * Core MTE Engine Logic
  * @param {Object} client - PostgreSQL client (within transaction)
- * @param {Object} params - { memberId, sessionId, transaction_type, amount, description, txRef }
+ * @param {Object} params - { memberId, sessionId, transaction_type, amount, description, txRef, groupId }
  * @param {Number} officerId - The officer performing the action
  */
 async function runMTELogic(client, params, officerId) {
     const { memberId, sessionId, transaction_type, amount, description, txRef } = params;
+    let { groupId } = params;
     const grossVal = parseFloat(amount);
     const convertSql = (s) => { let c = 0; return s.replace(/\?/g, () => `$${++c}`); };
 
@@ -168,31 +169,37 @@ async function runMTELogic(client, params, officerId) {
     const netVal = grossVal - trfVal;
 
     // 2. Get Context
-    const memberRes = await client.query(convertSql(`SELECT group_id FROM members WHERE id = ?`), [memberId]);
-    if (memberRes.rows.length === 0) throw new Error('Member not found');
-    const groupId = memberRes.rows[0].group_id;
+    if (memberId !== 0) {
+        const memberRes = await client.query(convertSql(`SELECT group_id FROM members WHERE id = ?`), [memberId]);
+        if (memberRes.rows.length === 0) throw new Error('Member not found');
+        if (!groupId) groupId = memberRes.rows[0].group_id;
+    } else {
+        // Systemic transaction - groupId should be provided or default to 0
+        if (!groupId) groupId = 0;
+    }
 
-    // 3. Update Member Balance & Risk
-    // For TRF-enabled transactions, only the NET amount hits the member's personal balance
+    // 3. Update Member Balance & Risk (SKIP for Systemic)
     const memberAmount = txConfig.hasTRF ? netVal : grossVal;
 
-    const mUpdates = [`${txConfig.memberField} = COALESCE(${txConfig.memberField}, 0) + ?`];
-    const mParams = [memberAmount * txConfig.memberDelta];
+    if (memberId !== 0) {
+        const mUpdates = [`${txConfig.memberField} = COALESCE(${txConfig.memberField}, 0) + ?`];
+        const mParams = [memberAmount * txConfig.memberDelta];
 
-    if (txConfig.riskDelta !== 0) {
-        mUpdates.push(`
+        if (txConfig.riskDelta !== 0) {
+            mUpdates.push(`
             risk_score = CASE 
                 WHEN (COALESCE(risk_score, 50) + ?) > 100 THEN 100 
                 WHEN (COALESCE(risk_score, 50) + ?) < 0 THEN 0 
                 ELSE (COALESCE(risk_score, 50) + ?) 
             END
         `);
-        mParams.push(txConfig.riskDelta);
-        mParams.push(txConfig.riskDelta);
-        mParams.push(txConfig.riskDelta);
+            mParams.push(txConfig.riskDelta);
+            mParams.push(txConfig.riskDelta);
+            mParams.push(txConfig.riskDelta);
+        }
+        mParams.push(memberId);
+        await client.query(convertSql(`UPDATE members SET ${mUpdates.join(', ')} WHERE id = ?`), mParams);
     }
-    mParams.push(memberId);
-    await client.query(convertSql(`UPDATE members SET ${mUpdates.join(', ')} WHERE id = ?`), mParams);
 
     // 4. TRIPLE-ENTRY LEDGER POSTING
     for (const entry of txConfig.entries) {
@@ -241,13 +248,27 @@ async function runMTELogic(client, params, officerId) {
         'PENALTY': 'fines',
         'EDUCATION': 'deposits',
         'AGRICULTURE': 'deposits',
-        'DIVIDEND': 'deposits'
+        'DIVIDEND': 'deposits',
+        'LOAN_ISSUANCE': 'loans_issued'
     };
     const legacyField = legacyMap[txKey] || 'deposits';
+
+    // Set 'type' alias for reports
+    let typeAlias = txKey;
+    if (['LOAN_REPAYMENT', 'INTEREST_PAYMENT', 'PENALTY_PAYMENT'].includes(txKey)) {
+        typeAlias = 'REPAYMENT';
+    }
+
     await client.query(convertSql(`
-        INSERT INTO transactions (memberId, sessionId, transaction_type, ${legacyField}, description, status, uploaded)
-        VALUES (?, ?, ?, ?, ?, 'COMPLETED', 1)
-    `), [memberId, sessionId || null, txKey, memberAmount, description || '']);
+        INSERT INTO transactions (
+            memberId, member_id, sessionId, group_id, transaction_type, type, 
+            amount, loan_id, ${legacyField}, description, status, uploaded
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 1)
+    `), [
+        memberId, memberId, sessionId || null, groupId, txKey, typeAlias,
+        memberAmount, params.loanId || null, memberAmount, description || ''
+    ]);
 }
 
 module.exports = {

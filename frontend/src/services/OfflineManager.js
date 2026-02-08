@@ -114,6 +114,7 @@ class OfflineManager {
      * Save transaction offline
      */
     async saveOfflineTransaction(transaction) {
+        if (!this.db) throw new Error('Database not initialized');
         const tx = this.db.transaction(['pendingTransactions'], 'readwrite');
         const store = tx.objectStore('pendingTransactions');
 
@@ -140,6 +141,7 @@ class OfflineManager {
      * Get all pending transactions
      */
     async getPendingTransactions() {
+        if (!this.db) return []; // Guard: DB not initialized yet
         const tx = this.db.transaction(['pendingTransactions'], 'readonly');
         const store = tx.objectStore('pendingTransactions');
         const index = store.index('synced');

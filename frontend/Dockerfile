@@ -1,21 +1,35 @@
-# Stage 1: Build
-FROM node:20-slim AS build
+# Multi-stage build for Ukombozi Frontend
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
-RUN npm install
 
+# Install dependencies
+RUN npm ci
+
+# Copy source code
 COPY . .
+
+# Build production bundle
 RUN npm run build
 
-# Stage 2: Serve
-FROM nginx:stable-alpine
+# Production stage - Nginx
+FROM nginx:alpine
 
-# Copy build files from stage 1
-COPY --from=build /app/build /usr/share/nginx/html
+# Copy custom nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80
-EXPOSE 80
+# Copy built app from builder
+COPY --from=builder /app/build /usr/share/nginx/html
 
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
+
+# Start nginx
 CMD ["nginx", "-g", "daemon off;"]

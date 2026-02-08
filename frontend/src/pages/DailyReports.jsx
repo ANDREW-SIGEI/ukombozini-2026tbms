@@ -41,6 +41,7 @@ export default function DailyReports() {
     const [selectedGroupId, setSelectedGroupId] = useState("");
     const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
     const [varianceExplanation, setVarianceExplanation] = useState("");
+    const [institutionalDeclaration, setInstitutionalDeclaration] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
     // Opening Balance & Financial Totals from API
@@ -66,6 +67,10 @@ export default function DailyReports() {
     });
 
     const [manualPhysicalBalance, setManualPhysicalBalance] = useState(null);
+    const [trfData, setTrfData] = useState({
+        stlArrears: 0,
+        ltlCarriedForward: 0
+    });
 
     // Initial Fetch: Groups
     useEffect(() => {
@@ -90,30 +95,44 @@ export default function DailyReports() {
                 if (context) {
                     setOpeningBalance(context.opening_balance || 0);
 
-                    // Map API inflows to our structure
-                    setCashIn({
-                        banking: 0, // Not explicitly in context yet
-                        shortTermRepayment: context.inflows?.repayments || 0,
-                        longTermRepayment: 0,
-                        savings: context.inflows?.savings || 0,
-                        welfare: context.inflows?.welfare || 0,
-                        education: 0,
-                        agriculture: 0,
-                        ukombozini: context.inflows?.projects || 0,
-                        applicationFee: context.inflows?.fines || 0, // Using fines as proxy for fees if needed
-                        appreciationFee: 0
+                    // Update TRF data
+                    setTrfData({
+                        stlArrears: context.stl_arrears || 0,
+                        ltlCarriedForward: context.ltl_carried_forward || 0
                     });
 
-                    // Map API outflows
-                    setCashOut({
-                        serviceFee: 0,
-                        welfarePayout: 0,
-                        loanToUkombozini: 0,
-                        shortTermIssued: context.outflows?.disbursements || 0,
-                        longTermIssued: 0
-                    });
+                    if (context.draft_data && context.draft_data.status === 'draft') {
+                        // Restore from Saved Draft
+                        const draft = context.draft_data;
+                        setCashIn(draft.cash_in || draft.inflows || {});
+                        setCashOut(draft.cash_out || draft.outflows || {});
+                        setManualPhysicalBalance(draft.physical_cash_counted);
+                        setVarianceExplanation(draft.variance_explanation || "");
+                        setStatus("DRAFT");
+                    } else {
+                        // Map API outflows
+                        setCashIn({
+                            banking: 0,
+                            shortTermRepayment: context.inflows?.repayments || 0,
+                            longTermRepayment: 0,
+                            savings: context.inflows?.savings || 0,
+                            welfare: context.inflows?.welfare || 0,
+                            education: 0,
+                            agriculture: 0,
+                            ukombozini: context.inflows?.projects || 0,
+                            applicationFee: context.inflows?.fines || 0,
+                            appreciationFee: 0
+                        });
 
-                    setManualPhysicalBalance(null); // Reset override on context change
+                        setCashOut({
+                            serviceFee: 0,
+                            welfarePayout: 0,
+                            loanToUkombozini: 0,
+                            shortTermIssued: context.outflows?.disbursements || 0,
+                            longTermIssued: 0
+                        });
+                        setManualPhysicalBalance(null);
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch report context", err);
@@ -180,6 +199,33 @@ export default function DailyReports() {
                 console.error("Submission failed", error);
                 alert("Failed to submit report. Please try again.");
                 return;
+            } finally {
+                setIsLoading(false);
+            }
+        } else if (newStatus === "DRAFT") {
+            const reportData = {
+                group_id: selectedGroupId,
+                officer_id: user?.id || 1,
+                report_date: reportDate,
+                morning_balance: openingBalance,
+                total_cash_in: totalCashIn,
+                total_cash_out: totalCashOut,
+                expected_closing_balance: expectedClosing,
+                physical_cash_counted: physicalBalance,
+                variance: variance,
+                status: 'draft',
+                cash_in: cashIn,
+                cash_out: cashOut,
+                variance_explanation: varianceExplanation
+            };
+
+            setIsLoading(true);
+            try {
+                await api.submitDailyReport(reportData);
+                alert("Draft saved successfully.");
+            } catch (error) {
+                console.error("Draft save failed", error);
+                alert("Failed to save draft.");
             } finally {
                 setIsLoading(false);
             }
@@ -326,11 +372,11 @@ export default function DailyReports() {
                     </div>
                     <div className="flex justify-between md:flex-col items-center md:items-start border-b md:border-b-0 md:border-r pb-2 md:pb-0 px-0 md:px-4">
                         <span className="text-sm text-gray-500">STL Arrears</span>
-                        <strong className="text-lg text-red-600">KES 0</strong>
+                        <strong className="text-lg text-red-600">KES {trfData.stlArrears.toLocaleString()}</strong>
                     </div>
                     <div className="flex justify-between md:flex-col items-center md:items-start px-0 md:px-4">
                         <span className="text-sm text-gray-500">LTL C/F</span>
-                        <strong className="text-lg text-blue-600">KES 45,000</strong>
+                        <strong className="text-lg text-blue-600">KES {trfData.ltlCarriedForward.toLocaleString()}</strong>
                     </div>
                 </div>
             </section>
@@ -356,12 +402,36 @@ export default function DailyReports() {
             {/* SUPERVISOR APPROVAL PANEL */}
             <div className="no-print space-y-4">
                 {status === "DRAFT" && (
-                    <button
-                        className="w-full py-4 bg-green-600 text-white font-bold rounded-xl shadow-lg hover:bg-green-700 transition-all transform hover:scale-[1.01] active:scale-[0.99]"
-                        onClick={() => handleStatusChange("SUBMITTED")}
-                    >
-                        Submit Final Report for Approval
-                    </button>
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl no-print">
+                            <input
+                                type="checkbox"
+                                id="institutional-declaration"
+                                checked={institutionalDeclaration}
+                                onChange={(e) => setInstitutionalDeclaration(e.target.checked)}
+                                className="w-5 h-5 accent-safaricom-green cursor-pointer"
+                            />
+                            <label htmlFor="institutional-declaration" className="text-xs font-black text-blue-900 cursor-pointer uppercase tracking-tight selection:bg-none">
+                                I hereby declare that the physical cash counted (KES {physicalBalance.toLocaleString()}) matches the cash bag contents and I have verified all ledger entries.
+                            </label>
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button
+                                className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 transition-all transform hover:scale-[1.01] active:scale-[0.99]"
+                                onClick={() => handleStatusChange("DRAFT")}
+                            >
+                                Save Draft
+                            </button>
+                            <button
+                                className={`flex-1 py-4 font-bold rounded-xl shadow-lg transition-all transform hover:scale-[1.01] active:scale-[0.99] ${institutionalDeclaration ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                                onClick={() => institutionalDeclaration && handleStatusChange("SUBMITTED")}
+                                disabled={!institutionalDeclaration}
+                            >
+                                Submit Final Report
+                            </button>
+                        </div>
+                    </div>
                 )}
 
                 {status === "SUBMITTED" && (

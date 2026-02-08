@@ -174,7 +174,7 @@ const ProjectManager = () => {
             { header: 'Account Status', key: 'status' }
         ];
 
-        const groupName = groups.find(g => g.id == selectedGroup)?.group_name || 'All Groups';
+        const groupName = groups.find(g => g.id == selectedGroup)?.name || 'All Groups';
         ExcelService.exportToExcel(
             exportData,
             columns,
@@ -188,7 +188,7 @@ const ProjectManager = () => {
     // PDF EXPORT HANDLER
     const handleExportPDF = () => {
         if (!groupMatrix || groupMatrix.length === 0) return toast.info("No data to export");
-        const groupName = groups.find(g => g.id == selectedGroup)?.group_name || 'All Groups';
+        const groupName = groups.find(g => g.id == selectedGroup)?.name || 'All Groups';
         PdfService.generateProjectMatrix(groupMatrix, groupName);
         toast.success("PDF Matrix Downloaded");
     };
@@ -249,6 +249,7 @@ const ProjectManager = () => {
     return (
         <div className="min-h-screen bg-[#F8FAFC] p-4 lg:p-10 font-['Inter']">
             <div className="max-w-[1600px] mx-auto">
+
 
                 {/* EXECUTIVE HEADER STRIP */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 mb-12">
@@ -419,7 +420,7 @@ const ProjectManager = () => {
                                 >
                                     <option value="">Choose Active Group...</option>
                                     {groups.map(g => (
-                                        <option key={g.id} value={g.id}>{g.group_name}</option>
+                                        <option key={g.id} value={g.id}>{g.name}</option>
                                     ))}
                                 </select>
                             </div>

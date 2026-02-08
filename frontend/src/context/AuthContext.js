@@ -69,8 +69,8 @@ export const AuthProvider = ({ children }) => {
     };
 
     const updateUserPassword = async (newPassword) => {
-        // Not yet implemented in local api.js
-        console.warn("updateUserPassword not connected to local API");
+        const res = await api.updateMyPassword(newPassword);
+        return res;
     };
 
     return (

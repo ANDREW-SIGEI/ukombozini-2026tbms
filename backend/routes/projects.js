@@ -56,6 +56,7 @@ router.get('/group-stats/:groupId', authenticateToken, (req, res) => {
                 // Participation Rate
                 db.get(`SELECT COUNT(*) as total FROM members WHERE group_id = ?`, [groupId], (err, countRow) => {
                     const totalMembers = countRow?.total || 1;
+                    console.log(`[DEBUG] Group Stats for ID: ${groupId} | Total Members: ${countRow?.total} (Defaulted to ${totalMembers})`);
                     db.get(`SELECT COUNT(DISTINCT member_id) as active FROM project_registrations WHERE group_id = ?`, [groupId], (err, activeRow) => {
                         const activeMembers = activeRow?.active || 0;
                         const participationRate = (activeMembers / totalMembers) * 100;
@@ -136,32 +137,106 @@ router.get('/member-day-limit/:memberId/:date', authenticateToken, (req, res) =>
 // POST /api/projects/register
 router.post('/register', authenticateToken, (req, res) => {
     const { memberId, projectType, groupId } = req.body;
-    db.run(`
-        INSERT INTO project_registrations (member_id, group_id, project_type, total_saved, status)
-        VALUES (?, ?, ?, 0, 'ACTIVE')
-    `, [memberId, groupId, projectType], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, message: 'Registration Successful' });
+    const REGISTRATION_FEE = 200;
+
+    db.serialize(() => {
+        // 1. Check if Member has enough savings for the fee
+        db.get(`SELECT current_savings FROM members WHERE id = ?`, [memberId], (err, member) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (!member) return res.status(404).json({ error: 'Member not found' });
+
+            if (member.current_savings < REGISTRATION_FEE) {
+                return res.status(400).json({ error: `Insufficient savings for KES ${REGISTRATION_FEE} registration fee.` });
+            }
+
+            // 2. Deduct Fee & Register
+            db.run("BEGIN TRANSACTION");
+
+            // Deduct Fee
+            db.run(`UPDATE members SET current_savings = current_savings - ? WHERE id = ?`, [REGISTRATION_FEE, memberId]);
+
+            // Register
+            db.run(`
+                INSERT INTO project_registrations (member_id, group_id, project_type, total_saved, status)
+                VALUES (?, ?, ?, 0, 'ACTIVE')
+            `, [memberId, groupId, projectType], function (err) {
+                if (err) {
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: err.message });
+                }
+
+                // Log Transaction
+                const regId = this.lastID;
+                const txRef = `REG-${regId}-${Date.now()}`;
+
+                db.run(`
+                    INSERT INTO transactions (transaction_type, amount, member_id, description, reference)
+                    VALUES ('PROJECT_REGISTRATION_FEE', ?, ?, ?, ?)
+                `, [REGISTRATION_FEE, memberId, `Registration for ${projectType}`, txRef], (err) => {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+
+                    db.run("COMMIT");
+                    res.json({ success: true, message: `Registered successfully. KES ${REGISTRATION_FEE} fee deducted.` });
+                });
+            });
+        });
     });
 });
 
 // POST /api/projects/save
 router.post('/save', authenticateToken, (req, res) => {
     const { registrationId, amount, date, groupId } = req.body;
+    const saveAmount = parseFloat(amount);
 
-    db.run(`
-        INSERT INTO project_savings (registration_id, amount, date)
-        VALUES (?, ?, ?)
-    `, [registrationId, amount, date], function (err) {
+    if (isNaN(saveAmount) || saveAmount <= 0) {
+        return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    db.get(`
+        SELECT pr.id, pr.total_saved, m.current_savings, m.id as member_id 
+        FROM project_registrations pr
+        JOIN members m ON pr.member_id = m.id
+        WHERE pr.id = ?
+    `, [registrationId], (err, record) => {
         if (err) return res.status(500).json({ error: err.message });
+        if (!record) return res.status(404).json({ error: 'Registration record not found' });
 
-        // Update Total
-        db.run(`UPDATE project_registrations SET total_saved = total_saved + ? WHERE id = ?`, [amount, registrationId]);
+        // RULE: Project Savings cannot exceed Normal Savings
+        // We compare (Current Project Savings + New Amount) vs (Current Normal Savings)
+        // Note: Some rules strictly say "Daily Project <= Daily Savings". 
+        // Based on "matrix savings not save more than savings", we assume Cumulative Cap for safety.
+        // IF the user meant "Daily", this logic might need adjustment, but Cumulative is the standard safe banking rule.
 
-        // Update Group Cash
-        // (Assuming you have a cash_control table update logic here or similar)
+        // Let's check TOTAL project savings across ALL projects for this member first?
+        // Or just this specific project? Usually it's Total Risk Exposure.
+        // Let's do a stricter check: Sum of ALL active project savings for this member.
 
-        res.json({ success: true });
+        db.get(`SELECT SUM(total_saved) as all_projects FROM project_registrations WHERE member_id = ?`, [record.member_id], (err, row) => {
+            const currentTotalProject = row?.all_projects || 0;
+            const newTotalProject = currentTotalProject + saveAmount;
+
+            if (newTotalProject > record.current_savings) {
+                return res.status(400).json({
+                    error: `Limit Exceeded. Total project savings (KES ${newTotalProject}) cannot exceed Normal Savings (KES ${record.current_savings}).`
+                });
+            }
+
+            // Proceed to Save
+            db.run(`
+                INSERT INTO project_savings (registration_id, amount, date)
+                VALUES (?, ?, ?)
+            `, [registrationId, saveAmount, date], function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+
+                // Update Total
+                db.run(`UPDATE project_registrations SET total_saved = total_saved + ? WHERE id = ?`, [saveAmount, registrationId]);
+
+                res.json({ success: true, message: 'Savings recorded successfully' });
+            });
+        });
     });
 });
 
@@ -178,6 +253,68 @@ router.get('/group-matrix/:groupId', authenticateToken, (req, res) => {
     `, [groupId], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
+    });
+});
+
+// POST /api/projects/withdraw
+router.post('/withdraw', authenticateToken, (req, res) => {
+    const { registrationId, amount, date, reason } = req.body;
+    const withdrawAmount = parseFloat(amount);
+
+    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+        return res.status(400).json({ error: 'Invalid withdrawal amount' });
+    }
+
+    db.get(`
+        SELECT pr.id, pr.total_saved, pr.project_type, m.id as member_id, m.name as member_name
+        FROM project_registrations pr
+        JOIN members m ON pr.member_id = m.id
+        WHERE pr.id = ?
+    `, [registrationId], (err, record) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!record) return res.status(404).json({ error: 'Project registration not found' });
+
+        if (record.total_saved < withdrawAmount) {
+            return res.status(400).json({ error: `Insufficient project funds. Available: KES ${record.total_saved.toLocaleString()}` });
+        }
+
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+
+            // 1. Update Project Balance
+            db.run(`UPDATE project_registrations SET total_saved = total_saved - ? WHERE id = ?`, [withdrawAmount, registrationId], (err) => {
+                if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+
+                // 2. Log withdrawal in project_savings (as negative or specialized record)
+                // Note: project_savings table usually stores increments. We can store negative for audit.
+                db.run(`INSERT INTO project_savings (registration_id, amount, date) VALUES (?, ?, ?)`,
+                    [registrationId, -withdrawAmount, date || new Date().toISOString()]);
+
+                // 3. Log in Main Ledger (MTE Integration)
+                const txRef = `PRJ-WTH-${record.id}-${Date.now()}`;
+                db.run(`
+                    INSERT INTO transactions (
+                        transaction_type, amount, member_id, description, reference, status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, 'COMPLETED', ?)
+                `, [
+                    `PROJECT_WITHDRAWAL_${record.project_type}`,
+                    withdrawAmount,
+                    record.member_id,
+                    `Withdrawal from ${record.project_type}: ${reason || 'Personal Use'}`,
+                    txRef,
+                    date || new Date().toISOString()
+                ], (err) => {
+                    if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+
+                    db.run("COMMIT");
+                    res.json({
+                        success: true,
+                        message: `Withdrew KES ${withdrawAmount.toLocaleString()} from ${record.project_type} successfully.`,
+                        reference: txRef
+                    });
+                });
+            });
+        });
     });
 });
 
