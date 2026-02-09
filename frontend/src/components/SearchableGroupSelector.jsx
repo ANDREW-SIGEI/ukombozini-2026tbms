@@ -39,7 +39,7 @@ const SearchableGroupSelector = ({
         );
     }, [groups, searchTerm]);
 
-    const selectedGroup = (groups || []).find(g => selectedGroupId !== '' && g.id == selectedGroupId);
+    const selectedGroup = (groups || []).find(g => selectedGroupId !== '' && g.id === selectedGroupId);
 
     return (
         <div className="relative w-full" ref={dropdownRef}>
@@ -101,13 +101,13 @@ const SearchableGroupSelector = ({
                                             setShowDropdown(false);
                                             setSearchTerm('');
                                         }}
-                                        className={`w-full flex items-center justify-between p-3.5 rounded-xl transition-all duration-200 text-left group ${selectedGroupId !== '' && selectedGroupId == g.id
+                                        className={`w-full flex items-center justify-between p-3.5 rounded-xl transition-all duration-200 text-left group ${selectedGroupId !== '' && selectedGroupId === g.id
                                             ? 'bg-safaricom-green text-white shadow-lg'
                                             : 'hover:bg-green-50 text-gray-700'
                                             }`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <FaLayerGroup className={`text-lg shrink-0 ${selectedGroupId == g.id ? 'text-white' : 'text-gray-200 group-hover:text-safaricom-green'}`} />
+                                            <FaLayerGroup className={`text-lg shrink-0 ${selectedGroupId === g.id ? 'text-white' : 'text-gray-200 group-hover:text-safaricom-green'}`} />
                                             <span className="font-black text-[13px] uppercase truncate tracking-tight">
                                                 {g.group_name || g.name}
                                             </span>

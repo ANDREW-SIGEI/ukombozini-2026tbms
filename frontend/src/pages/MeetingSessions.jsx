@@ -34,6 +34,7 @@ import SmartTransactionPanel from '../components/SmartTransactionPanel';
 import NotificationService from '../services/NotificationService';
 
 import { api } from '../services/api';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 const MeetingSessions = () => {
     const [meetings, setMeetings] = useState([]);
@@ -734,47 +735,18 @@ const MeetingSessions = () => {
                                 {/* Column 1: Core Logistics */}
                                 <div className="space-y-6">
                                     <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <FaUsers className="text-safaricom-green" /> Group Selection
-                                        </h4>
-                                        <div className="relative">
-                                            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                            <input
-                                                type="text"
-                                                placeholder="Search Group..."
-                                                className="w-full pl-10 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-safaricom-green/10 focus:border-safaricom-green font-bold text-gray-700"
-                                                value={groupSearchQuery}
-                                                onChange={(e) => {
-                                                    setGroupSearchQuery(e.target.value);
-                                                    if (!isEditing) setNewMeeting(prev => ({ ...prev, group_id: '' }));
-                                                }}
-                                                disabled={isEditing}
-                                            />
-                                            {!isEditing && groupSearchQuery && !newMeeting.group_id && (
-                                                <div className="absolute z-10 w-full mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-40 overflow-y-auto">
-                                                    {matrixFilteredGroups
-                                                        .filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase()))
-                                                        .map(group => (
-                                                            <button
-                                                                key={group.id}
-                                                                onClick={() => {
-                                                                    setNewMeeting({ ...newMeeting, group_id: group.id.toString() });
-                                                                    setGroupSearchQuery(group.group_name || group.name);
-                                                                }}
-                                                                className="w-full text-left px-4 py-3 text-sm hover:bg-green-50 font-bold text-gray-700 border-b border-gray-50 last:border-0"
-                                                            >
-                                                                {group.group_name || group.name}
-                                                            </button>
-                                                        ))}
-                                                    {matrixFilteredGroups.filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase())).length === 0 && (
-                                                        <div className="px-4 py-6 text-center text-gray-400 text-sm">
-                                                            <p className="font-bold">No assigned groups found</p>
-                                                            <p className="text-xs mt-1">Contact admin to assign groups</p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
+                                        <SearchableGroupSelector
+                                            label="Group Selection"
+                                            groups={matrixFilteredGroups}
+                                            selectedGroupId={newMeeting.group_id}
+                                            onSelect={(id) => {
+                                                setNewMeeting({ ...newMeeting, group_id: id });
+                                            }}
+                                            disabled={isEditing}
+                                        />
+                                        {!isEditing && groups.length === 0 && (
+                                            <p className="text-[10px] text-red-600 font-bold mt-1 uppercase tracking-tighter">❌ No groups found or assigned</p>
+                                        )}
                                     </div>
 
                                     <div className="grid grid-cols-1 gap-6">
@@ -936,33 +908,33 @@ const MeetingSessions = () => {
             {showCockpit && cockpitSession && (
                 <div className="fixed inset-0 z-[70] bg-white flex flex-col">
                     {/* Cockpit Header */}
-                    <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white p-6 shrink-0">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-6">
+                    <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white p-4 md:p-6 shrink-0">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <div className="flex items-center gap-3 md:gap-6">
                                 <button
                                     onClick={closeCockpit}
-                                    className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
+                                    className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all shrink-0"
                                 >
-                                    <FaArrowLeft className="text-xl" />
+                                    <FaArrowLeft className="text-lg md:text-xl" />
                                 </button>
-                                <div>
-                                    <h1 className="text-3xl font-black flex items-center gap-3">
-                                        <FaUsers className="text-yellow-400" />
-                                        {cockpitSession.group_name}
+                                <div className="min-w-0">
+                                    <h1 className="text-xl md:text-3xl font-black flex items-center gap-2 md:gap-3 truncate">
+                                        <FaUsers className="text-yellow-400 shrink-0" />
+                                        <span className="truncate">{cockpitSession.group_name}</span>
                                     </h1>
-                                    <p className="text-blue-200 text-sm font-bold mt-1">
+                                    <p className="text-blue-200 text-xs md:text-sm font-bold mt-1 truncate">
                                         Session #{cockpitSession.session_number} • {new Date(cockpitSession.meeting_date).toLocaleDateString()}
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-4">
-                                <div className="bg-green-500/20 px-6 py-3 rounded-2xl border border-green-400/30">
-                                    <p className="text-[10px] font-black text-green-300 uppercase">Session Total</p>
-                                    <p className="text-2xl font-black text-green-400">KES {sessionTotals.total.toLocaleString()}</p>
+                            <div className="flex items-center gap-2 md:gap-4">
+                                <div className="bg-green-500/20 px-3 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl border border-green-400/30 flex-1 md:flex-none">
+                                    <p className="text-[8px] md:text-[10px] font-black text-green-300 uppercase">Session Total</p>
+                                    <p className="text-lg md:text-2xl font-black text-green-400">KES {sessionTotals.total.toLocaleString()}</p>
                                 </div>
-                                <div className="bg-white/10 px-6 py-3 rounded-2xl">
-                                    <p className="text-[10px] font-black text-white/60 uppercase">Members</p>
-                                    <p className="text-2xl font-black">
+                                <div className="bg-white/10 px-3 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl flex-1 md:flex-none">
+                                    <p className="text-[8px] md:text-[10px] font-black text-white/60 uppercase">Members</p>
+                                    <p className="text-lg md:text-2xl font-black">
                                         {Object.values(memberAttendance).filter(Boolean).length}/{sessionMembers.length}
                                     </p>
                                 </div>
@@ -1007,7 +979,7 @@ const MeetingSessions = () => {
                     </div>
 
                     {/* Member Checklist Table */}
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="flex-1 overflow-auto">
                         {cockpitLoading ? (
                             <div className="flex items-center justify-center h-full">
                                 <div className="text-center">
@@ -1016,116 +988,120 @@ const MeetingSessions = () => {
                                 </div>
                             </div>
                         ) : (
-                            <table className="w-full">
-                                <thead className="bg-slate-50 sticky top-0 z-10">
-                                    <tr>
-                                        <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase w-16">✓</th>
-                                        <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase">Member</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-blue-600 uppercase">Savings</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-teal-600 uppercase">Welfare</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-orange-600 uppercase">STL</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-amber-600 uppercase">LTL</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-red-600 uppercase">Penalty</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-purple-600 uppercase">Product</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-slate-500 uppercase">Status</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black text-slate-500 uppercase">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {filteredSessionMembers.map(member => {
-                                        const tx = memberTransactions[member.id] || {};
-                                        const hasAnyTx = (tx.savings || 0) + (tx.welfare || 0) + (tx.stl_repay || 0) + (tx.ltl_repay || 0) + (tx.penalty || 0) + (tx.product_repay || 0) > 0;
-                                        const isPresent = memberAttendance[member.id];
-
-                                        return (
-                                            <tr
-                                                key={member.id}
-                                                className={`hover:bg-blue-50/50 transition-colors ${!isPresent ? 'bg-red-50/30 opacity-60' : ''}`}
-                                            >
-                                                <td className="px-6 py-4">
-                                                    <button
-                                                        onClick={() => toggleAttendance(member.id)}
-                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isPresent
-                                                            ? 'bg-green-100 text-green-600 hover:bg-green-200'
-                                                            : 'bg-red-100 text-red-600 hover:bg-red-200'
-                                                            }`}
-                                                    >
-                                                        {isPresent ? <FaUserCheck /> : <FaUserTimes />}
-                                                    </button>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black">
-                                                            {member.name.charAt(0)}
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-black text-slate-900">{member.name}</p>
-                                                            <p className="text-xs text-slate-400 font-mono">{member.phone}</p>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`font-mono font-bold ${tx.savings ? 'text-blue-600' : 'text-slate-300'}`}>
-                                                        {tx.savings ? `KES ${tx.savings.toLocaleString()}` : '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`font-mono font-bold ${tx.welfare ? 'text-teal-600' : 'text-slate-300'}`}>
-                                                        {tx.welfare ? `KES ${tx.welfare.toLocaleString()}` : '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`font-mono font-bold ${tx.stl_repay ? 'text-orange-600' : 'text-slate-300'}`}>
-                                                        {tx.stl_repay ? `KES ${tx.stl_repay.toLocaleString()}` : '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`font-mono font-bold ${tx.ltl_repay ? 'text-amber-600' : 'text-slate-300'}`}>
-                                                        {tx.ltl_repay ? `KES ${tx.ltl_repay.toLocaleString()}` : '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`font-mono font-bold ${tx.penalty ? 'text-red-600' : 'text-slate-300'}`}>
-                                                        {tx.penalty ? `KES ${tx.penalty.toLocaleString()}` : '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`font-mono font-bold ${tx.product_repay ? 'text-purple-600' : 'text-slate-300'}`}>
-                                                        {tx.product_repay ? `KES ${tx.product_repay.toLocaleString()}` : '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    {!isPresent ? (
-                                                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-600 border border-red-200">
-                                                            ABSENT
-                                                        </span>
-                                                    ) : hasAnyTx ? (
-                                                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-100 text-green-600 border border-green-200">
-                                                            ✓ DONE
-                                                        </span>
-                                                    ) : (
-                                                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-600 border border-amber-200">
-                                                            PENDING
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <button
-                                                        onClick={() => handleMemberClick(member)}
-                                                        disabled={!isPresent}
-                                                        className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${isPresent
-                                                            ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl'
-                                                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                                            }`}
-                                                    >
-                                                        + ADD
-                                                    </button>
-                                                </td>
+                            <div className="min-w-full inline-block align-middle">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[900px]">
+                                        <thead className="bg-slate-50 sticky top-0 z-10">
+                                            <tr>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-left text-[10px] md:text-xs font-black text-slate-500 uppercase w-12 md:w-16">✓</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-left text-[10px] md:text-xs font-black text-slate-500 uppercase">Member</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-blue-600 uppercase">Savings</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-teal-600 uppercase">Welfare</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-orange-600 uppercase">STL</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-amber-600 uppercase">LTL</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-red-600 uppercase">Penalty</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-purple-600 uppercase">Product</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-slate-500 uppercase">Status</th>
+                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-slate-500 uppercase">Action</th>
                                             </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {filteredSessionMembers.map(member => {
+                                                const tx = memberTransactions[member.id] || {};
+                                                const hasAnyTx = (tx.savings || 0) + (tx.welfare || 0) + (tx.stl_repay || 0) + (tx.ltl_repay || 0) + (tx.penalty || 0) + (tx.product_repay || 0) > 0;
+                                                const isPresent = memberAttendance[member.id];
+
+                                                return (
+                                                    <tr
+                                                        key={member.id}
+                                                        className={`hover:bg-blue-50/50 transition-colors ${!isPresent ? 'bg-red-50/30 opacity-60' : ''}`}
+                                                     >
+                                                        <td className="px-2 md:px-6 py-3 md:py-4">
+                                                            <button
+                                                                onClick={() => toggleAttendance(member.id)}
+                                                                className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center transition-all text-sm ${isPresent
+                                                                    ? 'bg-green-100 text-green-600 hover:bg-green-200'
+                                                                    : 'bg-red-100 text-red-600 hover:bg-red-200'
+                                                                    }`}
+                                                            >
+                                                                {isPresent ? <FaUserCheck /> : <FaUserTimes />}
+                                                            </button>
+                                                        </td>
+                                                        <td className="px-2 md:px-6 py-3 md:py-4">
+                                                            <div className="flex items-center gap-2 md:gap-3">
+                                                                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-sm shrink-0">
+                                                                    {member.name.charAt(0)}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="font-black text-slate-900 text-sm md:text-base truncate">{member.name}</p>
+                                                                    <p className="text-[10px] md:text-xs text-slate-400 font-mono truncate">{member.phone}</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`font-mono font-bold ${tx.savings ? 'text-blue-600' : 'text-slate-300'}`}>
+                                                                {tx.savings ? `KES ${tx.savings.toLocaleString()}` : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`font-mono font-bold ${tx.welfare ? 'text-teal-600' : 'text-slate-300'}`}>
+                                                                {tx.welfare ? `KES ${tx.welfare.toLocaleString()}` : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`font-mono font-bold ${tx.stl_repay ? 'text-orange-600' : 'text-slate-300'}`}>
+                                                                {tx.stl_repay ? `KES ${tx.stl_repay.toLocaleString()}` : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`font-mono font-bold ${tx.ltl_repay ? 'text-amber-600' : 'text-slate-300'}`}>
+                                                                {tx.ltl_repay ? `KES ${tx.ltl_repay.toLocaleString()}` : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`font-mono font-bold ${tx.penalty ? 'text-red-600' : 'text-slate-300'}`}>
+                                                                {tx.penalty ? `KES ${tx.penalty.toLocaleString()}` : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`font-mono font-bold ${tx.product_repay ? 'text-purple-600' : 'text-slate-300'}`}>
+                                                                {tx.product_repay ? `KES ${tx.product_repay.toLocaleString()}` : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            {!isPresent ? (
+                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-600 border border-red-200">
+                                                                    ABSENT
+                                                                </span>
+                                                            ) : hasAnyTx ? (
+                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-100 text-green-600 border border-green-200">
+                                                                    ✓ DONE
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-600 border border-amber-200">
+                                                                    PENDING
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <button
+                                                                onClick={() => handleMemberClick(member)}
+                                                                disabled={!isPresent}
+                                                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${isPresent
+                                                                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl'
+                                                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                                                    }`}
+                                                            >
+                                                                + ADD
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         )}
                     </div>
 

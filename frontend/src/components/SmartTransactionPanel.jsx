@@ -513,7 +513,7 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white w-full max-w-7xl h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-50 duration-200">
+            <div className="bg-white w-full max-w-7xl h-[85vh] md:h-[90vh] max-h-[85vh] md:max-h-[90vh] rounded-xl md:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-50 duration-200">
 
                 {/* 🔹 ZONE A: FINANCIAL SNAPSHOT CARDS */}
                 <div className="bg-slate-900 grid grid-cols-2 md:grid-cols-6 gap-0.5 p-0.5 shrink-0 border-b border-slate-700">
@@ -565,9 +565,9 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                     <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400 transition-colors">✖</button>
                 </div>
 
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
                     {/* 🔹 ZONE B: OPERATION SELECTOR (SIDEBAR) */}
-                    <div className="w-64 bg-slate-50 border-r border-gray-200 overflow-y-auto shrink-0 flex flex-col">
+                    <div className="w-full lg:w-64 bg-slate-50 border-b lg:border-b-0 lg:border-r border-gray-200 overflow-y-auto shrink-0 flex flex-col max-h-32 lg:max-h-none">
                         {currentGroups.map((group, idx) => (
                             <div key={idx} className="p-2 border-b border-gray-100 last:border-0">
                                 <div className="px-3 py-1 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{group.name}</div>
@@ -596,8 +596,8 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                     </div>
 
                     {/* 🔹 ZONE C: WORKBENCH (FORM + PREVIEW) */}
-                    <form onSubmit={handlePost} className="flex-1 flex overflow-hidden">
-                        <div className="flex-1 p-10 overflow-y-auto">
+                    <form onSubmit={handlePost} className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+                        <div className="flex-1 p-4 md:p-6 lg:p-10 overflow-y-auto">
                             <div className="max-w-xl mx-auto space-y-8">
                                 <header className="flex items-center gap-4">
                                     <div className={`w - 14 h - 14 rounded - 2xl flex items - center justify - center text - 2xl shadow - inner ${selectedType.bg} ${selectedType.color} `}>
@@ -711,87 +711,92 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                         </div>
 
                         {/* 🔹 ZONE C (RIGHT): IMPACT PREVIEW */}
-                        <div className="w-96 border-l border-gray-200 bg-slate-50 p-8 flex flex-col shrink-0 overflow-y-auto">
-                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Financial Impact Preview</h4>
+                        <div className="w-full lg:w-96 border-t lg:border-t-0 lg:border-l border-gray-200 bg-slate-50 flex flex-col shrink-0 lg:overflow-hidden">
+                            <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-20 lg:pb-6">
+                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Financial Impact Preview</h4>
 
-                            {calculationPreview ? (
-                                <div className="space-y-6 flex-1">
-                                    <div className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-200 space-y-4">
-                                        {calculationPreview.metrics.map((m, i) => (
-                                            <div key={i} className="flex justify-between items-center group">
-                                                <span className={`text - xs font - bold ${m.isBold ? 'text-slate-900 text-sm' : 'text-slate-500'} `}>{m.label}</span>
-                                                <div className="text-right">
-                                                    {m.isRisk ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-[10px] text-slate-300 line-through font-bold">{m.before}%</span>
-                                                            <span className={`text - xs font - black ${m.after > m.before ? 'text-red-500' : 'text-green-500'} `}>{m.after}%</span>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <div className="text-[10px] text-slate-300 line-through font-bold">KES {Number(m.before).toLocaleString()}</div>
-                                                            <div className={`text - xs font - black ${m.after > m.before && !m.label.includes('Loan') ? 'text-green-600' : m.after < m.before && m.label.includes('Loan') ? 'text-green-600' : 'text-slate-900'} `}>{m.after < 0 ? '-' : ''}KES {Number(Math.abs(m.after)).toLocaleString()}</div>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {calculationPreview.split && (
-                                        <div className="bg-indigo-900 text-white p-5 rounded-3xl space-y-3">
-                                            <p className="text-[10px] font-black uppercase text-indigo-300 tracking-widest">Decision Matrix: Repayment Split</p>
-                                            <div className="space-y-1.5">
-                                                <div className="flex justify-between text-xs"><span>1. Penalties Cleared</span> <span className="font-black">KES {calculationPreview.split.penalty}</span></div>
-                                                <div className="flex justify-between text-xs"><span>2. Interest Serving</span> <span className="font-black">KES {calculationPreview.split.interest}</span></div>
-                                                <div className="flex justify-between text-xs border-t border-indigo-800 pt-1.5 mt-1.5"><span className="font-bold">3. Principal Reduction</span> <span className="text-safaricom-green font-black">KES {calculationPreview.split.principal}</span></div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {calculationPreview.rules && (
-                                        <div className="bg-slate-900 text-white p-5 rounded-3xl space-y-3">
-                                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Business Rule Validation</p>
-                                            {calculationPreview.rules.map((rule, i) => (
-                                                <div key={i} className="flex justify-between items-center text-xs">
-                                                    <span>{rule.label}</span>
-                                                    <span className={`font - black px - 2 py - 0.5 rounded - full ${rule.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'} `}>{rule.status}</span>
+                                {calculationPreview ? (
+                                    <div className="space-y-6 flex-1">
+                                        <div className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-200 space-y-4">
+                                            {calculationPreview.metrics.map((m, i) => (
+                                                <div key={i} className="flex justify-between items-center group">
+                                                    <span className={`text - xs font - bold ${m.isBold ? 'text-slate-900 text-sm' : 'text-slate-500'} `}>{m.label}</span>
+                                                    <div className="text-right">
+                                                        {m.isRisk ? (
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[10px] text-slate-300 line-through font-bold">{m.before}%</span>
+                                                                <span className={`text - xs font - black ${m.after > m.before ? 'text-red-500' : 'text-green-500'} `}>{m.after}%</span>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="text-[10px] text-slate-300 line-through font-bold">KES {Number(m.before).toLocaleString()}</div>
+                                                                <div className={`text - xs font - black ${m.after > m.before && !m.label.includes('Loan') ? 'text-green-600' : m.after < m.before && m.label.includes('Loan') ? 'text-green-600' : 'text-slate-900'} `}>{m.after < 0 ? '-' : ''}KES {Number(Math.abs(m.after)).toLocaleString()}</div>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
-                                    )}
 
-                                    {calculationPreview.isRestricted && (
-                                        <div className="bg-rose-100 text-rose-600 p-5 rounded-3xl border border-rose-200">
-                                            <p className="text-[10px] font-black uppercase mb-1">Entry Blocked</p>
-                                            <p className="text-xs font-bold leading-tight">Member must be REGISTERED and seasonal window (Jan-Aug) must be OPEN.</p>
-                                        </div>
-                                    )}
+                                        {calculationPreview.split && (
+                                            <div className="bg-indigo-900 text-white p-5 rounded-3xl space-y-3">
+                                                <p className="text-[10px] font-black uppercase text-indigo-300 tracking-widest">Decision Matrix: Repayment Split</p>
+                                                <div className="space-y-1.5">
+                                                    <div className="flex justify-between text-xs"><span>1. Penalties Cleared</span> <span className="font-black">KES {calculationPreview.split.penalty}</span></div>
+                                                    <div className="flex justify-between text-xs"><span>2. Interest Serving</span> <span className="font-black">KES {calculationPreview.split.interest}</span></div>
+                                                    <div className="flex justify-between text-xs border-t border-indigo-800 pt-1.5 mt-1.5"><span className="font-bold">3. Principal Reduction</span> <span className="text-safaricom-green font-black">KES {calculationPreview.split.principal}</span></div>
+                                                </div>
+                                            </div>
+                                        )}
 
-                                    <div className="bg-slate-900 text-white p-6 rounded-3xl space-y-1">
-                                        <p className="text-[10px] font-black uppercase text-slate-500">Stability Verdict</p>
-                                        <div className="text-sm font-bold flex items-center gap-2">
-                                            <span className={`w - 2 h - 2 rounded - full animate - pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-green-500' : 'bg-red-500'} `}></span>
-                                            {calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}
+                                        {calculationPreview.rules && (
+                                            <div className="bg-slate-900 text-white p-5 rounded-3xl space-y-3">
+                                                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Business Rule Validation</p>
+                                                {calculationPreview.rules.map((rule, i) => (
+                                                    <div key={i} className="flex justify-between items-center text-xs">
+                                                        <span>{rule.label}</span>
+                                                        <span className={`font - black px - 2 py - 0.5 rounded - full ${rule.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'} `}>{rule.status}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {calculationPreview.isRestricted && (
+                                            <div className="bg-rose-100 text-rose-600 p-5 rounded-3xl border border-rose-200">
+                                                <p className="text-[10px] font-black uppercase mb-1">Entry Blocked</p>
+                                                <p className="text-xs font-bold leading-tight">Member must be REGISTERED and seasonal window (Jan-Aug) must be OPEN.</p>
+                                            </div>
+                                        )}
+
+                                        <div className="bg-slate-900 text-white p-6 rounded-3xl space-y-1">
+                                            <p className="text-[10px] font-black uppercase text-slate-500">Stability Verdict</p>
+                                            <div className="text-sm font-bold flex items-center gap-2">
+                                                <span className={`w - 2 h - 2 rounded - full animate - pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-green-500' : 'bg-red-500'} `}></span>
+                                                {calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center opacity-20 grayscale">
-                                    <FaChartLine className="text-6xl mb-4" />
-                                    <p className="text-xs font-black uppercase tracking-widest">Awaiting Decision Inputs</p>
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="flex-1 flex flex-col items-center justify-center opacity-20 grayscale">
+                                        <FaChartLine className="text-6xl mb-4" />
+                                        <p className="text-xs font-black uppercase tracking-widest">Awaiting Decision Inputs</p>
+                                    </div>
+                                )}
+                            </div>
 
-                            <button
-                                type="submit"
-                                disabled={isProcessing || !amount || !calculationPreview || calculationPreview.isRestricted}
-                                className={`w - full py - 5 rounded - 3xl font - black text - white shadow - 2xl transition - all flex items - center justify - center gap - 3 active: scale - 95
-                                    ${isProcessing || !calculationPreview || calculationPreview.isRestricted ? 'bg-slate-400' : 'bg-slate-900 hover:bg-black uppercase tracking-widest text-sm'}
+                            {/* Sticky Button Footer */}
+                            <div className="fixed lg:relative bottom-0 left-0 right-0 lg:static p-3 md:p-4 lg:p-6 border-t border-slate-200 bg-white shrink-0 z-10">
+                                <button
+                                    type="submit"
+                                    disabled={isProcessing || !amount || !calculationPreview || calculationPreview.isRestricted}
+                                    className={`w-full py-3 md:py-4 lg:py-5 rounded-2xl md:rounded-3xl font-black text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95 text-sm md:text-base
+                                        ${isProcessing || !calculationPreview || calculationPreview.isRestricted ? 'bg-slate-400' : 'bg-slate-900 hover:bg-black uppercase tracking-widest'}
 `}
-                            >
-                                {isProcessing ? <FaSpinner className="animate-spin" /> : <FaCircleCheck className="text-lg" />}
-                                {isProcessing ? "Processing Vault..." : "APPROVE & POST"}
-                            </button>
+                                >
+                                    {isProcessing ? <FaSpinner className="animate-spin" /> : <FaCircleCheck className="text-lg" />}
+                                    {isProcessing ? "Processing..." : "APPROVE & POST"}
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </div>
