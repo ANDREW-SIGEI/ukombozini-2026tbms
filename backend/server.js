@@ -2122,10 +2122,8 @@ app.get('/api/daily-reports/context/:groupId/:date', authenticateToken, async (r
         }
 
         // VALIDATION: Future date check
-        const requestedDate = new Date(date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (requestedDate > today) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (date > todayStr) {
             return res.status(400).json({ error: "Cannot generate report for future dates" });
         }
 

@@ -39,6 +39,7 @@ const MeetingSessions = () => {
     const [meetings, setMeetings] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('ALL');
+    const [searchTerm, setSearchTerm] = useState('');
     const [showOpenModal, setShowOpenModal] = useState(false);
     const [showCloseModal, setShowCloseModal] = useState(false);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
@@ -277,8 +278,17 @@ const MeetingSessions = () => {
             filtered = filtered.filter(m => m.status === filterStatus);
         }
 
+        // Search filtering
+        if (searchTerm.trim()) {
+            const query = searchTerm.toLowerCase();
+            filtered = filtered.filter(m =>
+                (m.session_number || '').toLowerCase().includes(query) ||
+                (m.group_name || '').toLowerCase().includes(query)
+            );
+        }
+
         return filtered;
-    }, [meetings, filterStatus, isElevatedRole, assignedGroupIds]);
+    }, [meetings, filterStatus, isElevatedRole, assignedGroupIds, searchTerm]);
 
     // Get active meeting for a group
     const getActiveMeeting = (groupId) => {
@@ -490,21 +500,35 @@ const MeetingSessions = () => {
                 </div>
             </div>
 
-            {/* Filters */}
+            {/* Filters & Search */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <div className="flex flex-wrap gap-2">
-                    {['ALL', 'ACTIVE', 'SCHEDULED', 'LOCKED', 'CANCELLED'].map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${filterStatus === status
-                                ? 'bg-safaricom-green text-white'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                }`}
-                        >
-                            {status}
-                        </button>
-                    ))}
+                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div className="flex flex-wrap gap-2">
+                        {['ALL', 'ACTIVE', 'SCHEDULED', 'LOCKED', 'CANCELLED'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${filterStatus === status
+                                    ? 'bg-safaricom-green text-white'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* NEW SEARCH BAR PILL */}
+                    <div className="relative w-full md:w-64">
+                        <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Search session or group..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-full focus:ring-4 focus:ring-safaricom-green/10 focus:border-safaricom-green font-bold text-sm transition-all"
+                        />
+                    </div>
                 </div>
             </div>
 
