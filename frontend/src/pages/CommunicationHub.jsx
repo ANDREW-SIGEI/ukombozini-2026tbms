@@ -15,10 +15,13 @@ const CommunicationHub = () => {
 
     // Composer State
     const [targetType, setTargetType] = useState('ROLES'); // ROLES, GROUPS
+    const [members, setMembers] = useState([]);
     const [selectedRoles, setSelectedRoles] = useState([]);
     const [selectedGroups, setSelectedGroups] = useState([]);
+    const [selectedMembers, setSelectedMembers] = useState([]);
     const [message, setMessage] = useState('');
     const [method, setMethod] = useState('SMS');
+    const [memberSearch, setMemberSearch] = useState('');
 
     const TEMPLATES = [
         { name: 'Meeting Reminder', text: 'Jambo! This is a reminder for our upcoming meeting on [DATE] at [TIME]. Please attend. - UKOMBOZI' },
@@ -33,13 +36,15 @@ const CommunicationHub = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [logData, groupData, balanceData] = await Promise.all([
+            const [logData, groupData, memberData, balanceData] = await Promise.all([
                 NotificationService.getLogs(100),
                 api.getGroups(),
+                api.getMembers(),
                 api.getSMSBalance().catch(() => ({ balance: 'Error' }))
             ]);
             setLogs(logData || []);
             setGroups(groupData || []);
+            setMembers(memberData || []);
             setBalance(balanceData?.balance);
         } catch (err) {
             console.error("fetchData error:", err);
@@ -58,12 +63,20 @@ const CommunicationHub = () => {
         if (targetType === 'GROUPS' && selectedGroups.length === 0) {
             return toast.error("Please select at least one group.");
         }
+        if (targetType === 'MEMBERS' && selectedMembers.length === 0) {
+            return toast.error("Please select at least one member.");
+        }
 
         setSending(true);
         try {
+            let targetIds = [];
+            if (targetType === 'GROUPS') targetIds = selectedGroups;
+            else if (targetType === 'MEMBERS') targetIds = selectedMembers;
+            else targetIds = selectedRoles;
+
             const res = await NotificationService.sendBulk({
                 target: targetType,
-                targetIds: targetType === 'GROUPS' ? selectedGroups : selectedRoles,
+                targetIds: targetIds,
                 message,
                 method
             });
@@ -72,6 +85,7 @@ const CommunicationHub = () => {
                 setMessage('');
                 setSelectedRoles([]);
                 setSelectedGroups([]);
+                setSelectedMembers([]);
                 setActiveTab('LOGS');
                 fetchData();
             }
@@ -92,6 +106,28 @@ const CommunicationHub = () => {
         setSelectedGroups(prev =>
             prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
         );
+    };
+
+    const toggleMember = (memberId) => {
+        setSelectedMembers(prev =>
+            prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId]
+        );
+    };
+
+    const filteredMembers = members.filter(m =>
+        m.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
+        m.phone?.toLowerCase().includes(memberSearch.toLowerCase())
+    );
+
+    const handleSelectAllFiltered = () => {
+        const filteredIds = filteredMembers.map(m => m.id);
+        const allSelected = filteredIds.every(id => selectedMembers.includes(id));
+
+        if (allSelected) {
+            setSelectedMembers(prev => prev.filter(id => !filteredIds.includes(id)));
+        } else {
+            setSelectedMembers(prev => Array.from(new Set([...prev, ...filteredIds])));
+        }
     };
 
     const filteredLogs = logs.filter(log => filter === 'ALL' || log.type === filter);
@@ -168,6 +204,12 @@ const CommunicationHub = () => {
                                 >
                                     BY GROUP
                                 </button>
+                                <button
+                                    onClick={() => setTargetType('MEMBERS')}
+                                    className={`flex-1 py-3 rounded-2xl text-[10px] font-black transition-all border ${targetType === 'MEMBERS' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-100 text-gray-500'}`}
+                                >
+                                    MEMBERS
+                                </button>
                             </div>
 
                             {targetType === 'ROLES' ? (
@@ -204,7 +246,7 @@ const CommunicationHub = () => {
                                         </label>
                                     ))}
                                 </div>
-                            ) : (
+                            ) : targetType === 'GROUPS' ? (
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                                     {groups.map(g => (
                                         <label key={g.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
@@ -221,7 +263,50 @@ const CommunicationHub = () => {
                                         </label>
                                     ))}
                                 </div>
-                            )}
+                            ) : targetType === 'MEMBERS' ? (
+                                <div className="space-y-4">
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            value={memberSearch}
+                                            onChange={(e) => setMemberSearch(e.target.value)}
+                                            placeholder="Search members..."
+                                            className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-safaricom-green/20"
+                                        />
+                                        <FaUsers className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+                                    </div>
+
+                                    <button
+                                        onClick={handleSelectAllFiltered}
+                                        className="w-full py-2 bg-gray-50 text-[10px] font-black text-gray-500 rounded-xl border border-gray-100 hover:bg-gray-100 transition-all uppercase"
+                                    >
+                                        {filteredMembers.every(m => selectedMembers.includes(m.id)) ? 'Deselect All Visible' : 'Select All Visible'}
+                                    </button>
+
+                                    <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {filteredMembers.length > 0 ? (
+                                            filteredMembers.map(m => (
+                                                <label key={m.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedMembers.includes(m.id)}
+                                                        onChange={() => toggleMember(m.id)}
+                                                        className="w-4 h-4 rounded border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
+                                                    />
+                                                    <div className="truncate">
+                                                        <div className="text-xs font-black text-gray-900 truncate">{m.name}</div>
+                                                        <div className="text-[9px] text-gray-400 font-bold">{m.phone}</div>
+                                                    </div>
+                                                </label>
+                                            ))
+                                        ) : (
+                                            <div className="py-10 text-center text-gray-400 text-[10px] font-bold uppercase tracking-widest">
+                                                No matches identified
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-[2.5rem] shadow-xl text-white">
@@ -229,7 +314,7 @@ const CommunicationHub = () => {
                             <div className="flex justify-around text-center">
                                 <div>
                                     <div className="text-2xl font-black text-safaricom-green">
-                                        {targetType === 'GROUPS' ? selectedGroups.length : selectedRoles.length}
+                                        {targetType === 'GROUPS' ? selectedGroups.length : (targetType === 'MEMBERS' ? selectedMembers.length : selectedRoles.length)}
                                     </div>
                                     <div className="text-[8px] font-bold text-gray-500 uppercase">Selected</div>
                                 </div>

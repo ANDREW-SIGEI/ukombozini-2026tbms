@@ -7,8 +7,10 @@ import { validateTransaction, requiresSupervisorApproval, getBalanceAlert, valid
 import { toast } from 'react-toastify';
 import {
     FaSave, FaPaperPlane, FaLock, FaCheckCircle, FaTimesCircle,
-    FaExclamationTriangle, FaCalculator, FaUsers, FaCalendarAlt, FaBan, FaUserShield
+    FaExclamationTriangle, FaCalculator, FaUsers, FaCalendarAlt, FaBan, FaUserShield, FaSearch,
+    FaFileInvoice
 } from 'react-icons/fa';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 /**
  * Daily Meeting Report Component
@@ -62,6 +64,7 @@ const TransactionInput = ({ value, onChange, disabled, memberId, field, rowIndex
 const DailyMeetingReport = () => {
     const { user } = useAuth();
     const [selectedGroup, setSelectedGroup] = useState(null);
+    const [memberSearchTerm, setMemberSearchTerm] = useState('');
     const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
     const [sessionStatus, setSessionStatus] = useState('draft'); // draft, POSTED, approved, rejected, locked
     const [openingBalance, setOpeningBalance] = useState(0);
@@ -78,6 +81,9 @@ const DailyMeetingReport = () => {
     // Cash Verification State
     const [actualCashStart, setActualCashStart] = useState('');
     const [actualCashEnd, setActualCashEnd] = useState('');
+
+    // Receipting State
+    const [sessionTransactions, setSessionTransactions] = useState([]);
 
     // Partnership State
     const [partnershipExposure, setPartnershipExposure] = useState(null);
@@ -188,7 +194,14 @@ const DailyMeetingReport = () => {
         };
 
         fetchMembers();
-    }, [selectedGroup]);
+
+        // If session is already posted, fetch its transactions for receipting
+        if (sessionId && sessionStatus === 'POSTED') {
+            api.getSessionTransactions(sessionId).then(data => {
+                setSessionTransactions(data || []);
+            });
+        }
+    }, [selectedGroup, sessionId, sessionStatus]);
 
     // Calculate totals in real-time (SYSTEM-ONLY, prevents tampering)
     const systemTotals = useMemo(() => {
@@ -303,6 +316,17 @@ const DailyMeetingReport = () => {
             parseFloat(transaction.project || 0) +
             parseFloat(transaction.fines || 0)
         );
+    };
+
+    // Print Receipt logic
+    const handlePrintReceipt = (memberId) => {
+        // Find transaction for this member in the session
+        const memberTx = sessionTransactions.find(t => t.memberId === memberId);
+        if (memberTx) {
+            api.downloadReceiptPDF(memberTx.id);
+        } else {
+            toast.warn("No transaction record found for receipt.");
+        }
     };
 
     // Validate before submission
@@ -497,6 +521,10 @@ const DailyMeetingReport = () => {
 
         if (success) {
             setSessionStatus('POSTED');
+            // Fetch the newly created transactions for receipting
+            api.getSessionTransactions(sessionId).then(data => {
+                setSessionTransactions(data || []);
+            });
             // toast handled in postSession
         }
     };
@@ -552,24 +580,16 @@ const DailyMeetingReport = () => {
 
                 {/* Group & Date Selection */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="md:col-span-1">
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                            <FaUsers className="inline mr-1" /> Select Group
-                        </label>
-                        <select
-                            value={selectedGroup?.id || ''}
-                            onChange={(e) => {
-                                const group = groups.find(g => g.id === parseInt(e.target.value));
+                    <div className="md:col-span-1 relative z-20">
+                        <SearchableGroupSelector
+                            label="Select Group"
+                            groups={groups}
+                            selectedGroupId={selectedGroup?.id}
+                            onSelect={(id) => {
+                                const group = groups.find(g => g.id === id);
                                 setSelectedGroup(group);
                             }}
-                            disabled={sessionStatus !== 'draft' && sessionId !== null}
-                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none disabled:bg-gray-100"
-                        >
-                            <option value="">-- Select Group --</option>
-                            {groups.map(group => (
-                                <option key={group.id} value={group.id}>{group.name}</option>
-                            ))}
-                        </select>
+                        />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
@@ -593,8 +613,7 @@ const DailyMeetingReport = () => {
                             type="date"
                             value={meetingDate}
                             onChange={(e) => setMeetingDate(e.target.value)}
-                            disabled={sessionStatus !== 'draft' && sessionId !== null}
-                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none disabled:bg-gray-100"
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none bg-white"
                         />
                     </div>
                     <div>
@@ -738,9 +757,38 @@ const DailyMeetingReport = () => {
             {sessionId && memberTransactions.length > 0 && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                     {/* Sticky Header */}
-                    <div className="bg-safaricom-green text-white p-4 sticky top-0 z-10">
-                        <h3 className="font-bold text-lg">Member Transactions</h3>
-                        <p className="text-xs opacity-90">Enter amounts for each member - totals update automatically</p>
+                    <div className="bg-safaricom-green/95 text-white p-5 sticky top-0 z-10 flex flex-col md:flex-row justify-between items-center gap-6 shadow-lg backdrop-blur-sm">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-white/20 p-3 rounded-2xl">
+                                <FaUsers className="text-2xl" />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-xl tracking-tight">Member Transactions</h3>
+                                <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">
+                                    {memberSearchTerm ? `Filtering: "${memberSearchTerm}"` : "Real-time automated ledger updates"}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="relative w-full md:w-80 group">
+                            <div className="absolute left-4 top-1/2 transform -translate-y-1/2 transition-transform group-focus-within:scale-110">
+                                <FaSearch className="text-white/70 text-sm" />
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="Search by member name or phone..."
+                                value={memberSearchTerm}
+                                onChange={(e) => setMemberSearchTerm(e.target.value)}
+                                className="w-full pl-11 pr-4 py-3 bg-white/10 border-2 border-white/20 rounded-2xl text-sm font-bold text-white placeholder-white/50 focus:bg-white/20 focus:border-white/40 focus:outline-none transition-all shadow-inner"
+                            />
+                            {memberSearchTerm && (
+                                <button
+                                    onClick={() => setMemberSearchTerm('')}
+                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                                >
+                                    <FaTimesCircle />
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* Scrollable Table */}
@@ -767,67 +815,83 @@ const DailyMeetingReport = () => {
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Project</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Fines</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase bg-green-50">Total Paid</th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {memberTransactions.map((transaction, index) => {
-                                    const memberTotal = calculateMemberTotal(transaction);
-                                    // Define validation cols
-                                    const cols = ['savings_amount', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'welfare', 'project', 'fines'];
-                                    const isPresent = transaction.attended;
+                                {(() => {
+                                    const filtered = memberTransactions.filter(t => t.memberName.toLowerCase().includes(memberSearchTerm.toLowerCase()));
+                                    return filtered.map((transaction, index) => {
+                                        const memberTotal = calculateMemberTotal(transaction);
+                                        const cols = ['savings_amount', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'welfare', 'project', 'fines'];
+                                        const isPresent = transaction.attended;
 
-                                    return (
-                                        <tr
-                                            key={transaction.id}
-                                            className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${!isPresent ? 'bg-gray-100 opacity-60' : memberTotal > 0 ? 'bg-green-50/30' : ''
-                                                }`}
-                                        >
-                                            <td className="px-4 py-3 sticky left-0 bg-white z-10 border-r border-gray-100 text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isPresent}
-                                                    onChange={(e) => updateMemberTransaction(transaction.memberId, 'attended', e.target.checked)}
-                                                    disabled={sessionStatus !== 'draft'}
-                                                    className="w-4 h-4 text-safaricom-green rounded border-gray-300 focus:ring-safaricom-green cursor-pointer"
-                                                />
-                                            </td>
-                                            <td className="px-4 py-3 font-bold text-gray-800 sticky left-12 bg-white z-10 border-r border-gray-100">
-                                                {transaction.memberName}
-                                                {!isPresent && <span className="ml-2 text-xs text-red-500 font-normal uppercase">(Absent)</span>}
-                                            </td>
-                                            {/* READ-ONLY BF VALUES */}
-                                            <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
-                                                {transaction.ltl_bf.toLocaleString()}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
-                                                {transaction.stl_bf.toLocaleString()}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
-                                                {transaction.savings_bf.toLocaleString()}
-                                            </td>
-
-                                            {cols.map((col, colIndex) => (
-                                                <td key={col} className="px-2 py-2">
-                                                    <TransactionInput
-                                                        value={transaction[col]}
-                                                        onChange={(v) => updateMemberTransaction(transaction.memberId, col, v)}
-                                                        disabled={sessionStatus !== 'draft'} // Even absent members can be fined/pay, so don't disable based on attendance
-                                                        memberId={transaction.memberId}
-                                                        field={col}
-                                                        rowIndex={index}
-                                                        colIndex={colIndex}
-                                                        totalRows={memberTransactions.length}
-                                                        totalCols={cols.length}
+                                        return (
+                                            <tr
+                                                key={transaction.id}
+                                                className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${!isPresent ? 'bg-gray-100 opacity-60' : memberTotal > 0 ? 'bg-green-50/30' : ''
+                                                    }`}
+                                            >
+                                                <td className="px-4 py-3 sticky left-0 bg-white z-10 border-r border-gray-100 text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isPresent}
+                                                        onChange={(e) => updateMemberTransaction(transaction.memberId, 'attended', e.target.checked)}
+                                                        disabled={sessionStatus !== 'draft'}
+                                                        className="w-4 h-4 text-safaricom-green rounded border-gray-300 focus:ring-safaricom-green cursor-pointer"
                                                     />
                                                 </td>
-                                            ))}
+                                                <td className="px-4 py-3 font-bold text-gray-800 sticky left-12 bg-white z-10 border-r border-gray-100">
+                                                    {transaction.memberName}
+                                                    {!isPresent && <span className="ml-2 text-xs text-red-500 font-normal uppercase">(Absent)</span>}
+                                                </td>
+                                                {/* READ-ONLY BF VALUES */}
+                                                <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
+                                                    {transaction.ltl_bf.toLocaleString()}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
+                                                    {transaction.stl_bf.toLocaleString()}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-gray-500 bg-gray-50 text-xs border-r border-gray-100">
+                                                    {transaction.savings_bf.toLocaleString()}
+                                                </td>
 
-                                            <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50">
-                                                KES {memberTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
+                                                {cols.map((col, colIndex) => (
+                                                    <td key={col} className="px-2 py-2">
+                                                        <TransactionInput
+                                                            value={transaction[col]}
+                                                            onChange={(v) => updateMemberTransaction(transaction.memberId, col, v)}
+                                                            disabled={sessionStatus !== 'draft'}
+                                                            memberId={transaction.memberId}
+                                                            field={col}
+                                                            rowIndex={index}
+                                                            colIndex={colIndex}
+                                                            totalRows={filtered.length}
+                                                            totalCols={cols.length}
+                                                        />
+                                                    </td>
+                                                ))}
+
+                                                <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50">
+                                                    KES {memberTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    {sessionStatus === 'POSTED' && memberTotal > 0 ? (
+                                                        <button
+                                                            onClick={() => handlePrintReceipt(transaction.memberId)}
+                                                            className="flex items-center gap-1 mx-auto px-2 py-1 bg-safaricom-green/10 text-safaricom-green rounded text-xs hover:bg-safaricom-green hover:text-white transition-all font-bold"
+                                                            title="Print Digital Receipt"
+                                                        >
+                                                            <FaFileInvoice /> Receipt
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-xs">N/A</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    });
+                                })()}
                             </tbody>
                         </table>
                     </div>
