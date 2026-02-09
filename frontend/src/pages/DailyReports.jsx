@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { api } from "../services/api";
 import { validateCashReport, checkSystemAccessBlock } from '../utils/cashReportEnforcement';
 import { useAuth } from '../context/AuthContext';
+import SearchableGroupSelector from "../components/SearchableGroupSelector";
 
 const Widget = ({ title, value, green, red }) => (
     <div className="p-4 bg-white shadow rounded">
@@ -272,19 +273,15 @@ export default function DailyReports() {
             </div>
 
             {/* Officer, Group & Date Info */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
-                <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Select Group</label>
-                    <select
-                        className="border p-2 rounded w-full bg-gray-50"
-                        value={selectedGroupId}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4 relative z-50">
+                <div className="relative">
+                    <SearchableGroupSelector
+                        groups={groups}
+                        selectedGroupId={selectedGroupId}
                         disabled={status === "APPROVED"}
-                        onChange={(e) => setSelectedGroupId(e.target.value)}
-                    >
-                        {groups.map((g) => (
-                            <option key={g.id} value={g.id}>{g.name || g.group_name}</option>
-                        ))}
-                    </select>
+                        onSelect={(id) => setSelectedGroupId(id)}
+                        label="Select Group"
+                    />
                 </div>
                 <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Report Date</label>

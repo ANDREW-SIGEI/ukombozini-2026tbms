@@ -25,6 +25,7 @@ import {
     FaFilePdf,
     FaCheckCircle
 } from 'react-icons/fa';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 import ExcelService from '../services/excelService';
 import PdfService from '../services/pdfService';
 import { Doughnut, Line } from 'react-chartjs-2';
@@ -60,25 +61,6 @@ const ProjectManager = () => {
     const [matrixSearch, setMatrixSearch] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
     const [simAmount, setSimAmount] = useState(0);
-    const [groupSearch, setGroupSearch] = useState('');
-    const [showGroupDropdown, setShowGroupDropdown] = useState(false);
-    const groupDropdownRef = useRef(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (groupDropdownRef.current && !groupDropdownRef.current.contains(event.target)) {
-                setShowGroupDropdown(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const filteredGroupsList = useMemo(() => {
-        return groups.filter(g =>
-            (g.group_name || g.name)?.toLowerCase().includes(groupSearch.toLowerCase())
-        );
-    }, [groups, groupSearch]);
 
     const calculateHealthScore = (member) => {
         if (!member) return 0;
@@ -425,63 +407,16 @@ const ProjectManager = () => {
                 <div className="bg-white/90 backdrop-blur-xl p-3 rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-white mb-10 relative z-40">
                     <div className="flex flex-col lg:flex-row items-center">
                         <div className="w-full lg:w-1/3 p-4 lg:border-r border-gray-100 relative z-30">
-                            <div className="flex items-center gap-4 bg-gray-50 rounded-[2rem] px-6 py-3 border border-gray-100 focus-within:ring-4 focus-within:ring-safaricom-green/10 transition-all" ref={groupDropdownRef}>
-                                <FaLayerGroup className="text-safaricom-green text-xl shrink-0" />
-                                <div className="relative w-full">
-                                    <div
-                                        onClick={() => setShowGroupDropdown(!showGroupDropdown)}
-                                        className="w-full bg-transparent border-0 focus:ring-0 font-black text-lg text-gray-800 cursor-pointer flex justify-between items-center"
-                                    >
-                                        <span>{groups.find(g => (selectedGroup !== '' && g.id == selectedGroup))?.group_name || 'Choose Active Group...'}</span>
-                                        <FaSearch className="text-gray-300 text-xs" />
-                                    </div>
-
-                                    {showGroupDropdown && (
-                                        <div className="absolute top-full left-0 w-full mt-4 bg-white border border-gray-100 rounded-[2rem] shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-                                            <div className="p-4 border-b border-gray-50 bg-gray-50/30">
-                                                <div className="relative">
-                                                    <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs" />
-                                                    <input
-                                                        type="text"
-                                                        autoFocus
-                                                        placeholder="Search for a group..."
-                                                        className="w-full bg-white border border-gray-100 rounded-xl pl-10 pr-4 py-3 text-xs font-bold text-gray-800 focus:ring-4 focus:ring-safaricom-green/5 focus:border-safaricom-green transition-all shadow-sm"
-                                                        value={groupSearch}
-                                                        onChange={(e) => setGroupSearch(e.target.value)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="max-h-64 overflow-y-auto p-2 custom-scrollbar">
-                                                {filteredGroupsList.length > 0 ? (
-                                                    filteredGroupsList.map(g => (
-                                                        <button
-                                                            key={g.id}
-                                                            onClick={() => {
-                                                                setSelectedGroup(g.id);
-                                                                setSelectedMember(null);
-                                                                setShowGroupDropdown(false);
-                                                                setGroupSearch('');
-                                                            }}
-                                                            className={`w-full flex items-center justify-between p-4 rounded-xl transition-all duration-200 ${selectedGroup !== '' && selectedGroup == g.id ? 'bg-safaricom-green text-white shadow-lg' : 'hover:bg-gray-50 text-gray-700'}`}
-                                                        >
-                                                            <span className="font-black text-sm uppercase tracking-tight">{g.group_name}</span>
-                                                            {selectedGroup !== '' && selectedGroup == g.id && <FaCheckCircle className="text-white" />}
-                                                        </button>
-                                                    ))
-                                                ) : (
-                                                    <div className="p-10 text-center space-y-3">
-                                                        <div className="text-gray-200 text-4xl font-black">{groupSearch}</div>
-                                                        <p className="text-gray-400 font-black uppercase text-[10px] tracking-widest leading-loose">
-                                                            No Matches Identified
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                            <SearchableGroupSelector
+                                groups={groups}
+                                selectedGroupId={selectedGroup}
+                                onSelect={(id) => {
+                                    setSelectedGroup(id);
+                                    setSelectedMember(null);
+                                }}
+                                label={null}
+                                placeholder="Choose Active Group..."
+                            />
                         </div>
 
                         <div className="hidden lg:flex flex-1 p-4 px-6 items-center justify-between relative z-10 gap-4 overflow-x-auto">
