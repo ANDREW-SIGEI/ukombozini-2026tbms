@@ -25,6 +25,7 @@ const GroupsManagement = () => {
     const [isUpdating, setIsUpdating] = useState(false);
     const [showTransactionPanel, setShowTransactionPanel] = useState(false);
     const [transactionMember, setTransactionMember] = useState(null);
+    const [transactionGroup, setTransactionGroup] = useState(null);
 
     const [newGroup, setNewGroup] = useState({
         group_name: '',
@@ -376,15 +377,8 @@ const GroupsManagement = () => {
                                                 toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
                                                 return;
                                             }
-                                            // For "Group Level", we might need a dummy member or just use the group ID.
-                                            // The system objective is for Group-Level loans.
-                                            // Let's use a "Group Anchor" member or just pass the group name as member context.
-                                            setTransactionMember({
-                                                id: `group-${group.id}`, // Anchor prefix
-                                                name: `${group.group_name} (Group Level)`,
-                                                group_id: group.id,
-                                                groupName: group.group_name
-                                            });
+                                            setTransactionMember(null);
+                                            setTransactionGroup(group);
                                             setShowTransactionPanel(true);
                                         }}
                                         className="flex-1 flex items-center justify-center gap-2 bg-safaricom-green text-white py-2 rounded-xl text-sm font-bold hover:bg-green-700 transition-colors"
@@ -665,6 +659,7 @@ const GroupsManagement = () => {
                 isOpen={showTransactionPanel}
                 onClose={() => setShowTransactionPanel(false)}
                 member={transactionMember}
+                group={transactionGroup}
                 onRefresh={fetchGroups}
             />
         </div>

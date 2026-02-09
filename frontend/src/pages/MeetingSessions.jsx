@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     FaCalendarAlt,
     FaLock,
@@ -15,11 +15,22 @@ import {
     FaMapMarkerAlt,
     FaListUl,
     FaClipboardList,
-    FaEdit
+    FaEdit,
+    FaUserCheck,
+    FaUserTimes,
+    FaArrowLeft,
+    FaCoins,
+    FaShieldAlt,
+    FaExclamationTriangle,
+    FaBox,
+    FaPlay
 } from 'react-icons/fa';
+import { FaHandHoldingDollar } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { useTransactions } from '../context/TransactionContext';
+import { useAuth } from '../context/AuthContext';
 import MeetingLedger from '../components/MeetingLedger';
+import SmartTransactionPanel from '../components/SmartTransactionPanel';
 import NotificationService from '../services/NotificationService';
 
 import { api } from '../services/api';
@@ -33,6 +44,24 @@ const MeetingSessions = () => {
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [closingNotes, setClosingNotes] = useState('');
     const [showLedger, setShowLedger] = useState(false);
+
+    // Meeting Cockpit State
+    const [showCockpit, setShowCockpit] = useState(false);
+    const [cockpitSession, setCockpitSession] = useState(null);
+    const [sessionMembers, setSessionMembers] = useState([]);
+    const [memberTransactions, setMemberTransactions] = useState({});
+    const [memberAttendance, setMemberAttendance] = useState({});
+    const [selectedMember, setSelectedMember] = useState(null);
+    const [showTransactionPanel, setShowTransactionPanel] = useState(false);
+    const [cockpitLoading, setCockpitLoading] = useState(false);
+    const [memberSearchTerm, setMemberSearchTerm] = useState('');
+
+    // Group Actions State
+    const [showGroupLoanModal, setShowGroupLoanModal] = useState(false);
+    const [groupLoanType, setGroupLoanType] = useState(null); // 'STL' or 'LTL'
+    const [groupLoanAmount, setGroupLoanAmount] = useState('');
+    const [groupLoanNotes, setGroupLoanNotes] = useState('');
+    const [processingGroupLoan, setProcessingGroupLoan] = useState(false);
 
     // New meeting form
     const [newMeeting, setNewMeeting] = useState({
@@ -51,13 +80,171 @@ const MeetingSessions = () => {
     const [groupSearchQuery, setGroupSearchQuery] = useState('');
 
     const { groups } = useTransactions();
+    const { user } = useAuth();
 
-    // Mock current user (Replace with Auth context in future)
+    // Current user from auth context
     const currentUser = {
-        id: 1,
-        name: 'John Kamau',
-        role: 'Officer'
+        id: user?.id || 1,
+        name: user?.name || 'System',
+        role: user?.role || 'Officer'
     };
+
+    // Matrix Security: Check if user has elevated privileges
+    const isElevatedRole = useMemo(() => {
+        const role = (user?.role || '').toLowerCase();
+        return role.includes('admin') || role.includes('director') || role.includes('auditor') || role === 'super_user';
+    }, [user?.role]);
+
+    // Matrix Security: Get officer's assigned group IDs
+    const assignedGroupIds = useMemo(() => {
+        if (isElevatedRole) return null; // null means all access
+        return user?.assigned_group_ids || user?.groupIds || [];
+    }, [user, isElevatedRole]);
+
+    // Matrix-filtered groups for new meeting modal
+    const matrixFilteredGroups = useMemo(() => {
+        if (isElevatedRole || !assignedGroupIds) return groups;
+        return groups.filter(g => assignedGroupIds.includes(g.id));
+    }, [groups, assignedGroupIds, isElevatedRole]);
+
+    // Open Meeting Cockpit for an active session
+    const openCockpit = async (meeting) => {
+        setCockpitLoading(true);
+        setShowCockpit(true);
+        setCockpitSession(meeting);
+
+        try {
+            // Fetch group members
+            const members = await api.getMembersByGroup(meeting.group_id);
+            setSessionMembers(members || []);
+
+            // Initialize attendance (all present by default)
+            const initialAttendance = {};
+            (members || []).forEach(m => {
+                initialAttendance[m.id] = true; // Present by default
+            });
+            setMemberAttendance(initialAttendance);
+
+            // Fetch session transactions to show member statuses
+            try {
+                const txData = await api.getSessionTransactions(meeting.id);
+                // Group transactions by member
+                const txByMember = {};
+                (txData || []).forEach(tx => {
+                    if (!txByMember[tx.member_id]) {
+                        txByMember[tx.member_id] = { savings: 0, welfare: 0, stl_repay: 0, ltl_repay: 0, penalty: 0, product_repay: 0 };
+                    }
+                    // Categorize by type
+                    const type = tx.type?.toLowerCase() || '';
+                    if (type === 'savings' || type === 'contribution') txByMember[tx.member_id].savings += tx.amount;
+                    else if (type === 'welfare') txByMember[tx.member_id].welfare += tx.amount;
+                    else if (type === 'loanrepayment' && tx.loan_type === 'STL') txByMember[tx.member_id].stl_repay += tx.amount;
+                    else if (type === 'loanrepayment' && tx.loan_type === 'LTL') txByMember[tx.member_id].ltl_repay += tx.amount;
+                    else if (type === 'penalty') txByMember[tx.member_id].penalty += tx.amount;
+                    else if (type === 'productfinancing' || type === 'product_repay') txByMember[tx.member_id].product_repay += tx.amount;
+                });
+                setMemberTransactions(txByMember);
+            } catch (err) {
+                console.log('No session transactions yet');
+                setMemberTransactions({});
+            }
+        } catch (error) {
+            console.error('Failed to load cockpit data:', error);
+            toast.error('Failed to load session members');
+        } finally {
+            setCockpitLoading(false);
+        }
+    };
+
+    // Close cockpit and go back to list
+    const closeCockpit = () => {
+        setShowCockpit(false);
+        setCockpitSession(null);
+        setSessionMembers([]);
+        setMemberTransactions({});
+        setSelectedMember(null);
+        setMemberSearchTerm('');
+    };
+
+    // Handle group loan repayment to Ukombozini
+    const handleGroupLoanRepayment = async () => {
+        if (!groupLoanAmount || parseFloat(groupLoanAmount) <= 0) {
+            toast.error('Please enter a valid repayment amount');
+            return;
+        }
+
+        setProcessingGroupLoan(true);
+        try {
+            const payload = {
+                groupId: cockpitSession.group_id,
+                sessionId: cockpitSession.id,
+                transaction_type: 'GROUP_LOAN_REPAYMENT',
+                amount: parseFloat(groupLoanAmount),
+                loanType: groupLoanType, // 'STL' or 'LTL'
+                description: groupLoanNotes || `Group ${groupLoanType} Repayment to Ukombozini`,
+                memberId: 0 // Using 0 for group-level actions
+            };
+
+            const res = await api.postTransaction(payload);
+
+            if (res?.success) {
+                toast.success(`${groupLoanType} Repayment of KES ${parseFloat(groupLoanAmount).toLocaleString()} recorded!`);
+
+                // Reset and close
+                setShowGroupLoanModal(false);
+                setGroupLoanAmount('');
+                setGroupLoanNotes('');
+                setGroupLoanType(null);
+
+                // Refresh cockpit data
+                openCockpit(cockpitSession);
+            }
+        } catch (error) {
+            console.error('Group loan repayment error:', error);
+            const msg = error.response?.data?.error || 'Failed to record group repayment';
+            toast.error(msg);
+        } finally {
+            setProcessingGroupLoan(false);
+        }
+    };
+
+    // Handle member click - open transaction panel
+    const handleMemberClick = (member) => {
+        setSelectedMember(member);
+        setShowTransactionPanel(true);
+    };
+
+    // Toggle attendance
+    const toggleAttendance = (memberId) => {
+        setMemberAttendance(prev => ({
+            ...prev,
+            [memberId]: !prev[memberId]
+        }));
+    };
+
+
+    // Filtered members for cockpit search
+    const filteredSessionMembers = useMemo(() => {
+        if (!memberSearchTerm.trim()) return sessionMembers;
+        return sessionMembers.filter(m =>
+            m.name.toLowerCase().includes(memberSearchTerm.toLowerCase()) ||
+            m.phone?.includes(memberSearchTerm)
+        );
+    }, [sessionMembers, memberSearchTerm]);
+
+    // Calculate session totals
+    const sessionTotals = useMemo(() => {
+        let savings = 0, welfare = 0, stl = 0, ltl = 0, penalty = 0, product = 0;
+        Object.values(memberTransactions).forEach(tx => {
+            savings += tx.savings || 0;
+            welfare += tx.welfare || 0;
+            stl += tx.stl_repay || 0;
+            ltl += tx.ltl_repay || 0;
+            penalty += tx.penalty || 0;
+            product += tx.product_repay || 0;
+        });
+        return { savings, welfare, stl, ltl, penalty, product, total: savings + welfare + stl + ltl + penalty + product };
+    }, [memberTransactions]);
 
     // Fetch meetings on mount
     useEffect(() => {
@@ -76,11 +263,22 @@ const MeetingSessions = () => {
         }
     };
 
-    // Filter meetings
-    const filteredMeetings = meetings.filter(meeting => {
-        if (filterStatus === 'ALL') return true;
-        return meeting.status === filterStatus;
-    });
+    // Filter meetings by status AND matrix (officer-group assignment)
+    const filteredMeetings = useMemo(() => {
+        let filtered = meetings;
+
+        // Matrix filtering: Field Officers only see their assigned groups
+        if (!isElevatedRole && assignedGroupIds && assignedGroupIds.length > 0) {
+            filtered = filtered.filter(m => assignedGroupIds.includes(m.group_id));
+        }
+
+        // Status filtering
+        if (filterStatus !== 'ALL') {
+            filtered = filtered.filter(m => m.status === filterStatus);
+        }
+
+        return filtered;
+    }, [meetings, filterStatus, isElevatedRole, assignedGroupIds]);
 
     // Get active meeting for a group
     const getActiveMeeting = (groupId) => {
@@ -411,6 +609,13 @@ const MeetingSessions = () => {
                                                 {meeting.status === 'ACTIVE' && (
                                                     <>
                                                         <button
+                                                            onClick={() => openCockpit(meeting)}
+                                                            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-lg text-xs font-black shadow-lg hover:from-blue-700 hover:to-indigo-800 transition-all flex items-center gap-2"
+                                                            title="Enter Meeting Cockpit"
+                                                        >
+                                                            <FaPlay /> ENTER COCKPIT
+                                                        </button>
+                                                        <button
                                                             onClick={() => {
                                                                 setSelectedMeeting(meeting);
                                                                 setShowLedger(true);
@@ -418,7 +623,7 @@ const MeetingSessions = () => {
                                                             className="px-3 py-1 bg-green-50 text-safaricom-green rounded-lg text-xs font-black border border-green-100 hover:bg-green-100 transition-all flex items-center gap-1"
                                                             title="Analyze Session Cash"
                                                         >
-                                                            <FaMoneyBillWave /> Manage Cash
+                                                            <FaMoneyBillWave /> Ledger
                                                         </button>
                                                         <button
                                                             onClick={() => {
@@ -523,7 +728,7 @@ const MeetingSessions = () => {
                                             />
                                             {!isEditing && groupSearchQuery && !newMeeting.group_id && (
                                                 <div className="absolute z-10 w-full mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-40 overflow-y-auto">
-                                                    {groups
+                                                    {matrixFilteredGroups
                                                         .filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase()))
                                                         .map(group => (
                                                             <button
@@ -537,6 +742,12 @@ const MeetingSessions = () => {
                                                                 {group.group_name || group.name}
                                                             </button>
                                                         ))}
+                                                    {matrixFilteredGroups.filter(g => (g.group_name || g.name || '').toLowerCase().includes(groupSearchQuery.toLowerCase())).length === 0 && (
+                                                        <div className="px-4 py-6 text-center text-gray-400 text-sm">
+                                                            <p className="font-bold">No assigned groups found</p>
+                                                            <p className="text-xs mt-1">Contact admin to assign groups</p>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -692,6 +903,357 @@ const MeetingSessions = () => {
                                     Close & Lock
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MEETING COCKPIT - Full Screen Member Checklist */}
+            {showCockpit && cockpitSession && (
+                <div className="fixed inset-0 z-[70] bg-white flex flex-col">
+                    {/* Cockpit Header */}
+                    <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white p-6 shrink-0">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-6">
+                                <button
+                                    onClick={closeCockpit}
+                                    className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
+                                >
+                                    <FaArrowLeft className="text-xl" />
+                                </button>
+                                <div>
+                                    <h1 className="text-3xl font-black flex items-center gap-3">
+                                        <FaUsers className="text-yellow-400" />
+                                        {cockpitSession.group_name}
+                                    </h1>
+                                    <p className="text-blue-200 text-sm font-bold mt-1">
+                                        Session #{cockpitSession.session_number} • {new Date(cockpitSession.meeting_date).toLocaleDateString()}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="bg-green-500/20 px-6 py-3 rounded-2xl border border-green-400/30">
+                                    <p className="text-[10px] font-black text-green-300 uppercase">Session Total</p>
+                                    <p className="text-2xl font-black text-green-400">KES {sessionTotals.total.toLocaleString()}</p>
+                                </div>
+                                <div className="bg-white/10 px-6 py-3 rounded-2xl">
+                                    <p className="text-[10px] font-black text-white/60 uppercase">Members</p>
+                                    <p className="text-2xl font-black">
+                                        {Object.values(memberAttendance).filter(Boolean).length}/{sessionMembers.length}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Category Totals Bar */}
+                    <div className="bg-slate-800 px-6 py-3 flex items-center gap-6 shrink-0 overflow-x-auto">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                            <FaCoins className="text-blue-400" /> Savings: <span className="text-blue-400">KES {sessionTotals.savings.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                            <FaShieldAlt className="text-teal-400" /> Welfare: <span className="text-teal-400">KES {sessionTotals.welfare.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                            <FaHandHoldingDollar className="text-orange-400" /> STL Repay: <span className="text-orange-400">KES {sessionTotals.stl.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                            <FaHandHoldingDollar className="text-amber-400" /> LTL Repay: <span className="text-amber-400">KES {sessionTotals.ltl.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                            <FaExclamationTriangle className="text-red-400" /> Penalties: <span className="text-red-400">KES {sessionTotals.penalty.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                            <FaBox className="text-purple-400" /> Product: <span className="text-purple-400">KES {sessionTotals.product.toLocaleString()}</span>
+                        </div>
+                    </div>
+
+                    {/* Member Search */}
+                    <div className="bg-slate-100 px-6 py-4 shrink-0 border-b border-slate-200">
+                        <div className="relative max-w-md">
+                            <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="text"
+                                value={memberSearchTerm}
+                                onChange={(e) => setMemberSearchTerm(e.target.value)}
+                                placeholder="Search member by name or phone..."
+                                className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-slate-200 bg-white font-bold text-slate-700 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Member Checklist Table */}
+                    <div className="flex-1 overflow-y-auto">
+                        {cockpitLoading ? (
+                            <div className="flex items-center justify-center h-full">
+                                <div className="text-center">
+                                    <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                                    <p className="font-bold text-slate-500">Loading members...</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <table className="w-full">
+                                <thead className="bg-slate-50 sticky top-0 z-10">
+                                    <tr>
+                                        <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase w-16">✓</th>
+                                        <th className="px-6 py-4 text-left text-xs font-black text-slate-500 uppercase">Member</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-blue-600 uppercase">Savings</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-teal-600 uppercase">Welfare</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-orange-600 uppercase">STL</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-amber-600 uppercase">LTL</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-red-600 uppercase">Penalty</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-purple-600 uppercase">Product</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-slate-500 uppercase">Status</th>
+                                        <th className="px-6 py-4 text-center text-xs font-black text-slate-500 uppercase">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {filteredSessionMembers.map(member => {
+                                        const tx = memberTransactions[member.id] || {};
+                                        const hasAnyTx = (tx.savings || 0) + (tx.welfare || 0) + (tx.stl_repay || 0) + (tx.ltl_repay || 0) + (tx.penalty || 0) + (tx.product_repay || 0) > 0;
+                                        const isPresent = memberAttendance[member.id];
+
+                                        return (
+                                            <tr
+                                                key={member.id}
+                                                className={`hover:bg-blue-50/50 transition-colors ${!isPresent ? 'bg-red-50/30 opacity-60' : ''}`}
+                                            >
+                                                <td className="px-6 py-4">
+                                                    <button
+                                                        onClick={() => toggleAttendance(member.id)}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isPresent
+                                                            ? 'bg-green-100 text-green-600 hover:bg-green-200'
+                                                            : 'bg-red-100 text-red-600 hover:bg-red-200'
+                                                            }`}
+                                                    >
+                                                        {isPresent ? <FaUserCheck /> : <FaUserTimes />}
+                                                    </button>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black">
+                                                            {member.name.charAt(0)}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-black text-slate-900">{member.name}</p>
+                                                            <p className="text-xs text-slate-400 font-mono">{member.phone}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`font-mono font-bold ${tx.savings ? 'text-blue-600' : 'text-slate-300'}`}>
+                                                        {tx.savings ? `KES ${tx.savings.toLocaleString()}` : '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`font-mono font-bold ${tx.welfare ? 'text-teal-600' : 'text-slate-300'}`}>
+                                                        {tx.welfare ? `KES ${tx.welfare.toLocaleString()}` : '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`font-mono font-bold ${tx.stl_repay ? 'text-orange-600' : 'text-slate-300'}`}>
+                                                        {tx.stl_repay ? `KES ${tx.stl_repay.toLocaleString()}` : '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`font-mono font-bold ${tx.ltl_repay ? 'text-amber-600' : 'text-slate-300'}`}>
+                                                        {tx.ltl_repay ? `KES ${tx.ltl_repay.toLocaleString()}` : '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`font-mono font-bold ${tx.penalty ? 'text-red-600' : 'text-slate-300'}`}>
+                                                        {tx.penalty ? `KES ${tx.penalty.toLocaleString()}` : '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className={`font-mono font-bold ${tx.product_repay ? 'text-purple-600' : 'text-slate-300'}`}>
+                                                        {tx.product_repay ? `KES ${tx.product_repay.toLocaleString()}` : '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {!isPresent ? (
+                                                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-600 border border-red-200">
+                                                            ABSENT
+                                                        </span>
+                                                    ) : hasAnyTx ? (
+                                                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-100 text-green-600 border border-green-200">
+                                                            ✓ DONE
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-600 border border-amber-200">
+                                                            PENDING
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button
+                                                        onClick={() => handleMemberClick(member)}
+                                                        disabled={!isPresent}
+                                                        className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${isPresent
+                                                            ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl'
+                                                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                                            }`}
+                                                    >
+                                                        + ADD
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+
+                    {/* GROUP ACTIONS PANEL */}
+                    <div className="bg-gradient-to-r from-indigo-900 to-purple-900 px-6 py-4 shrink-0">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-white font-black text-sm flex items-center gap-2">
+                                    <FaUsers className="text-yellow-400" /> GROUP ACTIONS
+                                </h3>
+                                <p className="text-indigo-300 text-xs font-bold">Group-level loan repayments to Ukombozini</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        setGroupLoanType('STL');
+                                        setShowGroupLoanModal(true);
+                                    }}
+                                    className="px-6 py-3 bg-orange-500 text-white rounded-xl font-black text-sm hover:bg-orange-600 transition-all flex items-center gap-2 shadow-lg"
+                                >
+                                    <FaHandHoldingDollar /> Repay Ukombozini STL
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setGroupLoanType('LTL');
+                                        setShowGroupLoanModal(true);
+                                    }}
+                                    className="px-6 py-3 bg-amber-500 text-white rounded-xl font-black text-sm hover:bg-amber-600 transition-all flex items-center gap-2 shadow-lg"
+                                >
+                                    <FaHandHoldingDollar /> Repay Ukombozini LTL
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Cockpit Footer Actions */}
+                    <div className="bg-slate-800 p-4 flex items-center justify-between shrink-0">
+                        <div className="text-slate-400 text-sm font-bold">
+                            <span className="text-green-400">{Object.values(memberAttendance).filter(Boolean).length}</span> Present •
+                            <span className="text-red-400 ml-1">{Object.values(memberAttendance).filter(v => !v).length}</span> Absent •
+                            <span className="text-blue-400 ml-1">{Object.keys(memberTransactions).length}</span> Contributed
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => {
+                                    setSelectedMeeting(cockpitSession);
+                                    setShowLedger(true);
+                                }}
+                                className="px-6 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-all flex items-center gap-2"
+                            >
+                                <FaMoneyBillWave /> View Ledger
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setSelectedMeeting(cockpitSession);
+                                    setShowCloseModal(true);
+                                }}
+                                className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all flex items-center gap-2"
+                            >
+                                <FaLock /> Close Session
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Smart Transaction Panel for Cockpit */}
+            {showTransactionPanel && selectedMember && (
+                <SmartTransactionPanel
+                    member={selectedMember}
+                    isOpen={showTransactionPanel}
+                    onClose={() => {
+                        setShowTransactionPanel(false);
+                        setSelectedMember(null);
+                    }}
+                    onRefresh={() => {
+                        // Reload cockpit data after transaction
+                        if (cockpitSession) {
+                            openCockpit(cockpitSession);
+                        }
+                    }}
+                />
+            )}
+
+            {/* Group Loan Repayment Modal */}
+            {showGroupLoanModal && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-6">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div className={`p-6 ${groupLoanType === 'STL' ? 'bg-gradient-to-r from-orange-500 to-orange-600' : 'bg-gradient-to-r from-amber-500 to-amber-600'}`}>
+                            <h3 className="text-xl font-black text-white flex items-center gap-2">
+                                <FaHandHoldingDollar /> Repay Ukombozini {groupLoanType}
+                            </h3>
+                            <p className="text-white/80 text-sm font-bold mt-1">
+                                Group: {cockpitSession?.group_name} • Session #{cockpitSession?.session_number}
+                            </p>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                    Repayment Amount (KES)
+                                </label>
+                                <input
+                                    type="number"
+                                    value={groupLoanAmount}
+                                    onChange={(e) => setGroupLoanAmount(e.target.value)}
+                                    placeholder="Enter amount"
+                                    className="w-full mt-2 p-4 text-xl font-black text-center border-2 border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                    Notes (Optional)
+                                </label>
+                                <textarea
+                                    value={groupLoanNotes}
+                                    onChange={(e) => setGroupLoanNotes(e.target.value)}
+                                    placeholder="e.g., Monthly installment #3"
+                                    rows={2}
+                                    className="w-full mt-2 p-3 border-2 border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-600"
+                                />
+                            </div>
+
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <p className="text-xs text-slate-500 font-bold">
+                                    This will record a {groupLoanType === 'STL' ? 'Short-Term' : 'Long-Term'} loan repayment
+                                    from the group's collected cash to Ukombozini central.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 p-6 bg-slate-50 border-t border-slate-200">
+                            <button
+                                onClick={() => {
+                                    setShowGroupLoanModal(false);
+                                    setGroupLoanAmount('');
+                                    setGroupLoanNotes('');
+                                    setGroupLoanType(null);
+                                }}
+                                disabled={processingGroupLoan}
+                                className="flex-1 py-3 px-6 bg-slate-200 text-slate-700 rounded-xl font-black hover:bg-slate-300 transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleGroupLoanRepayment}
+                                disabled={processingGroupLoan || !groupLoanAmount}
+                                className={`flex-1 py-3 px-6 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2 ${groupLoanType === 'STL' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-amber-500 hover:bg-amber-600'} disabled:opacity-50`}
+                            >
+                                {processingGroupLoan ? 'Processing...' : `Confirm ${groupLoanType} Repayment`}
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -450,4 +450,24 @@ router.get('/products/:groupId', authenticateToken, async (req, res) => {
     }
 });
 
+// GET /api/partnership/institutional-logs - View recent institutional movements
+router.get('/institutional-logs', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        db.all(`
+            SELECT t.*, g.name as group_name, o.name as officer_name
+            FROM legacy_transactions_v2 t
+            JOIN groups g ON t.group_id = g.id
+            LEFT JOIN officers o ON t.officer_id = o.id
+            WHERE t.transaction_type IN ('GROUP_LOAN', 'GROUP_CAPITAL', 'GROUP_PRODUCT_ALLOCATION', 'PARTNER_TOPUP', 'COMMITMENT_DEPOSIT')
+            ORDER BY t.created_at DESC
+            LIMIT 50
+        `, [], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

@@ -404,7 +404,16 @@ app.get('/api/auth/me', (req, res) => {
 
 // GET /api/groups - Get all groups
 app.get('/api/groups', authenticateToken, (req, res) => {
-    db.all(`SELECT * FROM groups WHERE LOWER(status) = 'active' ORDER BY name ASC`, [], (err, groups) => {
+    db.all(`
+        SELECT *, 
+               name as group_name,
+               meetingDay as meeting_day,
+               meetingFrequency as meeting_frequency,
+               registrationDate as registration_date
+        FROM groups 
+        WHERE LOWER(status) = 'active' 
+        ORDER BY name ASC
+    `, [], (err, groups) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(groups || []);
     });
@@ -413,7 +422,15 @@ app.get('/api/groups', authenticateToken, (req, res) => {
 // GET /api/groups/:id - Get single group by ID
 app.get('/api/groups/:id', authenticateToken, (req, res) => {
     const { id } = req.params;
-    db.get(`SELECT * FROM groups WHERE id = ?`, [id], (err, group) => {
+    db.get(`
+        SELECT *, 
+               name as group_name,
+               meetingDay as meeting_day,
+               meetingFrequency as meeting_frequency,
+               registrationDate as registration_date
+        FROM groups 
+        WHERE id = ?
+    `, [id], (err, group) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!group) return res.status(404).json({ error: 'Group not found' });
         res.json(group);
@@ -587,6 +604,33 @@ app.post('/api/transactions/preview', authenticateToken, (req, res) => {
 // 🧠 INSTITUTIONAL TRANSACTION MAP
 // ==========================================
 // MTE Engine logic moved to services/MTEEngine.js
+
+// GET /api/transactions - Get transactions (with optional filters)
+app.get('/api/transactions', authenticateToken, (req, res) => {
+    const { sessionId, memberId, type } = req.query;
+    let query = `SELECT * FROM transactions WHERE 1=1`;
+    let params = [];
+
+    if (sessionId) {
+        query += ` AND sessionId = ?`;
+        params.push(sessionId);
+    }
+    if (memberId) {
+        query += ` AND memberId = ?`;
+        params.push(memberId);
+    }
+    if (type) {
+        query += ` AND UPPER(transaction_type) = ?`;
+        params.push(type.toUpperCase());
+    }
+
+    query += ` ORDER BY created_at DESC`;
+
+    db.all(query, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
 
 // POST /api/transactions/post - Unified Entry Point
 // POST /api/transactions - Unified MTE v2 Entry Point
@@ -2531,19 +2575,34 @@ const autoLogToCashControl = async (groupId, source, amount, direction, referenc
 
 // [Final Purge - Consolidated into /api/transactions at line 424]
 
+// GET /api/sessions - List all meeting sessions
+app.get('/api/sessions', authenticateToken, (req, res) => {
+    const query = `
+        SELECT ms.*, g.name as group_name, o.name as officer_name
+        FROM meeting_sessions ms
+        LEFT JOIN groups g ON ms.groupId = g.id
+        LEFT JOIN officers o ON ms.officerId = o.id
+        ORDER BY ms.date DESC, ms.startTime DESC
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
+
 // Start Session (Create)
 app.post('/api/sessions', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { groupId, officerId, date, startTime, endTime, venue, agenda, meeting_type, expected_attendance } = req.body;
 
     const stmt = db.prepare(`
         INSERT INTO meeting_sessions (
-            groupId, officerId, date, startTime, endTime, status,
+            groupId, group_id, officerId, date, startTime, endTime, status,
             venue, agenda, meeting_type, expected_attendance
-        ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
     `);
 
     stmt.run(
-        groupId, officerId, date, startTime, endTime,
+        groupId, groupId, officerId, date, startTime, endTime,
         venue || 'Usual Venue',
         agenda || '',
         meeting_type || 'Routine',
@@ -2643,13 +2702,14 @@ app.post('/api/sessions/:id/post', authenticateToken, checkFreeze('GROUP'), (req
                     t.withdrawals || 0,
                     t.loans_issued || 0,
                     t.transaction_type || 'Meeting',
-                    1 // attended default
+                    1, // attended default
+                    metadata.groupId
                 );
             });
 
             const query = `INSERT INTO transactions (
                 sessionId, memberId, memberName, 
-                savings_amount, stl_repayment, ltl_repayment, loan_interest, welfare, fines, withdrawals, loans_issued, transaction_type, attended
+                savings_amount, stl_repayment, ltl_repayment, loan_interest, welfare, fines, withdrawals, loans_issued, transaction_type, attended, group_id
             ) VALUES ${placeholders}`;
 
             db.run(query, values, (err) => {

@@ -9,6 +9,7 @@ import { FaHistory } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import SmartTransactionPanel from '../components/SmartTransactionPanel';
 
 const CapitalManager = () => {
     const { user } = useAuth();
@@ -22,6 +23,8 @@ const CapitalManager = () => {
         productFinanceVolume: 0
     });
     const [allocationHistory, setAllocationHistory] = useState([]);
+    const [selectedGroup, setSelectedGroup] = useState(null);
+    const [showTransactionPanel, setShowTransactionPanel] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -76,11 +79,17 @@ const CapitalManager = () => {
                     <p className="text-slate-500 text-sm mt-1 font-medium">Control capital injections, commitment buffers, and institutional risk.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+                    <button
+                        onClick={() => setActiveTab('audit')}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+                    >
                         <FaHistory /> Audit Logs
                     </button>
-                    <button className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-xl">
-                        <FaPlus /> New Capital Injection
+                    <button
+                        onClick={() => setActiveTab('summary')}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-xl"
+                    >
+                        <FaPlus /> Group Operations
                     </button>
                 </div>
             </header>
@@ -174,9 +183,26 @@ const CapitalManager = () => {
                                         </div>
                                     </div>
 
-                                    <button className="p-3 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-slate-900 hover:border-slate-900 transition-all opacity-0 group-hover:opacity-100">
-                                        <FaArrowUpRightFromSquare />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setSelectedGroup(group);
+                                                setShowTransactionPanel(true);
+                                            }}
+                                            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                                        >
+                                            Capital / Product Action
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                // Preview group health or detail
+                                                setActiveTab('audit');
+                                            }}
+                                            className="p-3 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-slate-900 hover:border-slate-900 transition-all"
+                                        >
+                                            <FaArrowUpRightFromSquare />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -243,7 +269,7 @@ const CapitalManager = () => {
                     <div className="p-8 space-y-6">
                         <header className="flex items-center justify-between border-b border-slate-100 pb-6">
                             <h3 className="text-lg font-black text-slate-800 flex items-center gap-3">
-                                <FaHistory className="text-slate-400" /> Share Allocation Audit Trail
+                                <FaHistory className="text-slate-400" /> Institutional Audit Trail
                             </h3>
                             <button
                                 onClick={async () => {
@@ -264,33 +290,39 @@ const CapitalManager = () => {
                             <table className="w-full text-left text-sm">
                                 <thead className="bg-slate-50 border-y border-slate-100">
                                     <tr>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Session #</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">TX ID</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Group</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Net Surplus</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Impact Value</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Officer</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Signed At</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {allocationHistory.length === 0 ? (
                                         <tr>
-                                            <td colSpan="5" className="px-6 py-20 text-center text-slate-400 font-bold italic">
-                                                No allocation snapshots committed yet.
+                                            <td colSpan="6" className="px-6 py-20 text-center text-slate-400 font-bold italic">
+                                                No institutional movements recorded yet.
                                             </td>
                                         </tr>
                                     ) : (
                                         allocationHistory.map(row => (
                                             <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 font-mono font-bold text-slate-900">{row.session_number}</td>
-                                                <td className="px-6 py-4 font-bold text-slate-700">{row.group_name}</td>
-                                                <td className="px-6 py-4 text-right font-black text-safaricom-green">KES {row.net_surplus.toLocaleString()}</td>
+                                                <td className="px-6 py-4 font-mono text-[10px] text-slate-500 uppercase">#{row.id}</td>
+                                                <td className="px-6 py-4 font-bold text-slate-700">{row.group_name || `Group ${row.group_id}`}</td>
                                                 <td className="px-6 py-4">
-                                                    <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-[9px] font-black rounded-full border border-emerald-200">
-                                                        {row.status}
+                                                    <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-wider
+                                                        ${row.transaction_type?.includes('CAPITAL') ? 'bg-indigo-100 text-indigo-700' :
+                                                            row.transaction_type?.includes('LOAN') ? 'bg-amber-100 text-amber-700' :
+                                                                'bg-slate-100 text-slate-700'}
+                                                    `}>
+                                                        {row.transaction_type?.replace(/_/g, ' ')}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-4 text-xs text-slate-500 font-medium">
-                                                    {new Date(row.created_at || row.timestamp).toLocaleString()}
+                                                <td className="px-6 py-4 text-right font-black text-slate-900">KES {(row.amount || 0).toLocaleString()}</td>
+                                                <td className="px-6 py-4 text-xs font-bold text-slate-600">{row.officer_name || 'System'}</td>
+                                                <td className="px-6 py-4 text-[10px] text-slate-500 font-medium">
+                                                    {new Date(row.created_at).toLocaleString()}
                                                 </td>
                                             </tr>
                                         ))
@@ -318,6 +350,17 @@ const CapitalManager = () => {
                     <p className="text-white font-black text-sm">{user?.name || 'System Administrator'}</p>
                 </div>
             </footer>
+
+            {/* Institutional Transaction Engine */}
+            <SmartTransactionPanel
+                isOpen={showTransactionPanel}
+                onClose={() => {
+                    setShowTransactionPanel(false);
+                    fetchData(); // Refresh metrics after action
+                }}
+                group={selectedGroup}
+                onRefresh={fetchData}
+            />
         </div>
     );
 };

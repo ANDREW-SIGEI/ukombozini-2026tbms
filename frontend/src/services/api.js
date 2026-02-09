@@ -17,6 +17,34 @@ export const axiosInstance = axios.create({
     }
 });
 
+// Helper to normalize group data
+const normalizeGroup = (group) => {
+    if (!group) return null;
+    return {
+        ...group,
+        group_name: group.group_name || group.name,
+        meeting_day: group.meeting_day || group.meetingDay,
+        meeting_frequency: group.meeting_frequency || group.meetingFrequency,
+        registration_date: group.registration_date || group.registrationDate
+    };
+};
+
+// Helper to normalize member data
+const normalizeMember = (member) => {
+    if (!member) return null;
+    return {
+        ...member,
+        name: member.name || member.full_name,
+        phone: member.phone || member.phone_number
+    };
+};
+
+const CACHE_KEYS = {
+    MEMBERS: 'ukombozi_members_cache',
+    GROUPS: 'ukombozi_groups_cache',
+    LOAN_PRODUCTS: 'ukombozi_loan_products_cache'
+};
+
 // Add Token Interceptor
 axiosInstance.interceptors.request.use((config) => {
     const token = localStorage.getItem('ukombozi_token');
@@ -497,7 +525,11 @@ export const api = {
     async getRiskOverview() {
         try {
             const response = await axiosInstance.get('/risk/overview');
-            return response.data;
+            const data = response.data || { groups: [], stats: {} };
+            if (data.groups) {
+                data.groups = data.groups.map(normalizeGroup);
+            }
+            return data;
         } catch (error) {
             console.error('getRiskOverview error:', error);
             return { groups: [], stats: {} };
@@ -507,7 +539,11 @@ export const api = {
     async getRiskDashboard() {
         try {
             const response = await axiosInstance.get('/risk/dashboard');
-            return response.data;
+            const data = response.data || { scores: [], alerts: [], heatmap: [] };
+            if (data.heatmap) {
+                data.heatmap = data.heatmap.map(normalizeGroup);
+            }
+            return data;
         } catch (error) {
             console.error('getRiskDashboard error:', error);
             return { scores: [], alerts: [], heatmap: [] };
@@ -1094,7 +1130,9 @@ export const api = {
     async createGroup(groupData) {
         try {
             const response = await axiosInstance.post('/groups', groupData);
-            return response.data;
+            // Invalidate cache
+            localStorage.removeItem(CACHE_KEYS.GROUPS);
+            return normalizeGroup(response.data);
         } catch (error) {
             handleApiError(error);
         }
@@ -1301,6 +1339,15 @@ export const api = {
     async resetOfficerPassword(email) {
         try {
             const response = await axiosInstance.post(`/officers/reset-password`, { email });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async allocateGroupsToOfficer(officerId, groupIds) {
+        try {
+            const response = await axiosInstance.post(`/officers/${officerId}/groups`, { groupIds });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -1620,7 +1667,8 @@ export const api = {
     async getBoardReport() {
         try {
             const response = await axiosInstance.get('/reports/board-report');
-            return response.data;
+            const data = Array.isArray(response.data) ? response.data : [];
+            return data.map(normalizeGroup);
         } catch (error) {
             handleApiError(error);
         }
@@ -1744,7 +1792,17 @@ export const api = {
     async getProjectGroupStats(groupId) {
         try {
             const response = await axiosInstance.get(`/projects/group-stats/${groupId}`);
-            return response.data;
+            const data = response.data;
+
+            // Normalize pools for frontend consumption
+            const eduPool = data.pools?.find(p => p.project_type === 'EDUCATION')?.pool_total || 0;
+            const agriPool = data.pools?.find(p => p.project_type === 'AGRICULTURE')?.pool_total || 0;
+
+            return {
+                ...data,
+                education_pool: eduPool,
+                agriculture_pool: agriPool
+            };
         } catch (error) {
             console.error('getProjectGroupStats error:', error);
             return {
@@ -1875,23 +1933,25 @@ export const api = {
 
     async getMember(id) {
         const response = await axiosInstance.get(`/members/${id}`);
-        return response.data;
+        return normalizeMember(response.data);
     },
 
     async getGroup(id) {
         const response = await axiosInstance.get(`/groups/${id}`);
-        return response.data;
+        return normalizeGroup(response.data);
     },
 
     async getGroups() {
         const response = await axiosInstance.get('/groups');
-        return response.data;
+        const groups = Array.isArray(response.data) ? response.data : [];
+        return groups.map(normalizeGroup);
     },
 
     async getMembers(groupId = null) {
         const params = groupId ? { groupId } : {};
         const response = await axiosInstance.get('/members', { params });
-        return response.data;
+        const members = Array.isArray(response.data) ? response.data : [];
+        return members.map(normalizeMember);
     },
 
     async getMembersByGroup(groupId) {
@@ -1915,6 +1975,17 @@ export const api = {
         } catch (error) {
             console.error('getMemberRelationships error:', error);
             return { next_of_kin: null, guarantors: [], liability_network: [] };
+        }
+    },
+
+    // Get all transactions for a specific session (for Meeting Cockpit)
+    async getSessionTransactions(sessionId) {
+        try {
+            const response = await axiosInstance.get(`/transactions?sessionId=${sessionId}`);
+            return response.data || [];
+        } catch (error) {
+            console.error('getSessionTransactions error:', error);
+            return [];
         }
     },
 
@@ -2075,6 +2146,20 @@ export const api = {
             return response.data;
         } catch (error) {
             handleApiError(error);
+        }
+    },
+
+    async getAllocationHistory() {
+        try {
+            const response = await axiosInstance.get('/partnership/institutional-logs');
+            const data = Array.isArray(response.data) ? response.data : [];
+            return data.map(group => ({
+                ...group,
+                group_name: group.group_name || group.name // Minimal normalization for log rows
+            }));
+        } catch (error) {
+            handleApiError(error);
+            return [];
         }
     },
 

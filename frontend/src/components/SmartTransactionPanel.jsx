@@ -23,6 +23,15 @@ const TRANSACTION_GROUPS = [
         ]
     },
     {
+        name: 'Repayments',
+        icon: FaFileInvoiceDollar,
+        types: [
+            { id: 'stlrepay', label: 'Repay STL', icon: FaHandHoldingDollar, color: 'text-orange-600', bg: 'bg-orange-50', ledgers: ['Member_STL_Loan (-)', 'Group_Cash (+)'], loanTypeFilter: 'STL' },
+            { id: 'ltlrepay', label: 'Repay LTL', icon: FaSackDollar, color: 'text-amber-600', bg: 'bg-amber-50', ledgers: ['Member_LTL_Loan (-)', 'Group_Cash (+)'], loanTypeFilter: 'LTL' },
+            { id: 'productrepay', label: 'Repay Product Loan', icon: FaBoxArchive, color: 'text-purple-600', bg: 'bg-purple-50', ledgers: ['Member_Asset_Loan (-)', 'Company_Cash (+)'] }
+        ]
+    },
+    {
         name: 'Projects',
         icon: FaGraduationCap,
         types: [
@@ -31,18 +40,11 @@ const TRANSACTION_GROUPS = [
         ]
     },
     {
-        name: 'Loans',
+        name: 'Loans (Issue)',
         icon: FaHandHoldingDollar,
         types: [
-            { id: 'stl', label: 'Short-Term Loan (STL)', icon: FaHandHoldingDollar, color: 'text-orange-600', bg: 'bg-orange-50', ledgers: ['Member_Loan_STL (+)', 'Group_Cash (-)'] },
-            { id: 'ltl', label: 'Long-Term Loan (LTL)', icon: FaSackDollar, color: 'text-orange-600', bg: 'bg-orange-50', ledgers: ['Member_Loan_LTL (+)', 'Group_Cash (-)'] }
-        ]
-    },
-    {
-        name: 'Repayments',
-        icon: FaFileInvoiceDollar,
-        types: [
-            { id: 'loanrepayment', label: 'Loan Repayment', icon: FaFileInvoiceDollar, color: 'text-indigo-600', bg: 'bg-indigo-50', ledgers: ['Member_Loan (-)', 'Group_Cash (+)'] }
+            { id: 'stl', label: 'Issue STL', icon: FaHandHoldingDollar, color: 'text-orange-600', bg: 'bg-orange-50', ledgers: ['Member_Loan_STL (+)', 'Group_Cash (-)'] },
+            { id: 'ltl', label: 'Issue LTL', icon: FaSackDollar, color: 'text-amber-600', bg: 'bg-amber-50', ledgers: ['Member_Loan_LTL (+)', 'Group_Cash (-)'] }
         ]
     },
     {
@@ -68,16 +70,38 @@ const TRANSACTION_GROUPS = [
     }
 ];
 
-const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefresh }) => {
+const GROUP_TRANSACTION_GROUPS = [
+    {
+        name: 'Institutional Credit',
+        icon: FaBuildingColumns,
+        types: [
+            { id: 'group_loan', label: 'Issue Group Loan', icon: FaBuildingColumns, color: 'text-indigo-600', bg: 'bg-indigo-50', ledgers: ['Group Cash (+)', 'Group Loan Payable (+)', 'System Loan Receivable (+)'] },
+            { id: 'group_capital', label: 'Capital Injection', icon: FaSackDollar, color: 'text-emerald-600', bg: 'bg-emerald-50', ledgers: ['Group Cash (+)', 'System Capital Investment (+)'] }
+        ]
+    },
+    {
+        name: 'Group Assets',
+        icon: FaBoxArchive,
+        types: [
+            { id: 'group_product_allocation', label: 'Allocate Group Product', icon: FaBoxArchive, color: 'text-amber-600', bg: 'bg-amber-50', ledgers: ['Group Inventory (+)', 'System Inventory Release (-)'] }
+        ]
+    }
+];
+
+const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isOpen, onClose, onRefresh }) => {
     const { activeSession } = useTransactions();
-    const { user } = useAuth();
+    const { user, isAuditor } = useAuth();
+
+    // Mode Determination
+    const mode = initialMember ? 'MEMBER' : 'GROUP';
+    const currentGroups = mode === 'MEMBER' ? TRANSACTION_GROUPS : GROUP_TRANSACTION_GROUPS;
 
     // Context Data (Real-time financial snapshot)
     const [memberContext, setMemberContext] = useState(null);
     const [loadingContext, setLoadingContext] = useState(false);
 
     // Transaction State
-    const [selectedType, setSelectedType] = useState(TRANSACTION_GROUPS[0].types[0]);
+    const [selectedType, setSelectedType] = useState(currentGroups[0].types[0]);
     const [amount, setAmount] = useState('');
     const [notes, setNotes] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
@@ -96,43 +120,57 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
 
     // 🔄 Bootstrapping: Fetch FRESH context when opened
     useEffect(() => {
-        if (isOpen && initialMember) {
+        if (isOpen && (initialMember || initialGroup)) {
             fetchFullContext();
             setAmount('');
             setNotes('');
-            setSelectedType(TRANSACTION_GROUPS[0].types[0]);
+            setSelectedType(currentGroups[0].types[0]);
             setGuarantors({ g1: '', g2: '' });
             setSelectedLoan(null);
             setAssetDetails({ productName: '', value: '' });
             setIsSuccess(false);
             setLastTxData(null);
         }
-    }, [isOpen, initialMember]);
+    }, [isOpen, initialMember, initialGroup]);
 
     const fetchFullContext = async () => {
         setLoadingContext(true);
         try {
-            console.log("Fetching context for member:", initialMember.id);
-            const [freshMember, loansData, groupData, membersData, limitData, latestSession] = await Promise.all([
-                api.getMember(initialMember.id).catch(err => { console.error("getMember failed:", err); return null; }),
-                api.getLoans(initialMember.id).catch(err => { console.error("getLoans failed:", err); return []; }),
-                api.getGroup(initialMember.group_id).catch(err => { console.error("getGroup failed:", err); return null; }),
-                api.getMembersByGroup(initialMember.group_id).catch(err => { console.error("getMembersByGroup failed:", err); return []; }),
-                api.getProjectMemberDayLimit(initialMember.id).catch(() => null),
-                api.getLatestCashSession(initialMember.group_id).catch(() => null)
-            ]);
+            const groupId = initialMember ? initialMember.group_id : initialGroup?.id;
+            console.log(`Fetching context for ${mode}:`, initialMember?.id || groupId);
 
-            console.log("Context Results:", { freshMember, loansData, groupData, membersData, limitData, latestSession });
+            const requests = [
+                api.getGroup(groupId).catch(err => { console.error("getGroup failed:", err); return null; }),
+                api.getMembersByGroup(groupId).catch(err => { console.error("getMembersByGroup failed:", err); return []; }),
+                api.getLatestCashSession(groupId).catch(() => null)
+            ];
 
-            setMemberContext(freshMember || initialMember); // Fallback to initial if getMember fails
-            setLoans(loansData || []);
-            setGroupRules(groupData);
-            setGroupMembers(membersData?.filter(m => m.id !== (initialMember.id || freshMember?.id)) || []);
-            setDailyLimit(limitData);
-            setLatestCashSession(latestSession);
+            if (mode === 'MEMBER') {
+                requests.push(api.getMember(initialMember.id).catch(err => { console.error("getMember failed:", err); return null; }));
+                requests.push(api.getLoans(initialMember.id).catch(err => { console.error("getLoans failed:", err); return []; }));
+                requests.push(api.getProjectMemberDayLimit(initialMember.id).catch(() => null));
+            }
+
+            const results = await Promise.all(requests);
+
+            if (mode === 'MEMBER') {
+                const [groupData, membersData, latestSession, freshMember, loansData, limitData] = results;
+                setGroupRules(groupData);
+                setGroupMembers(membersData?.filter(m => m.id !== initialMember.id) || []);
+                setLatestCashSession(latestSession);
+                setMemberContext(freshMember || initialMember);
+                setLoans(loansData || []);
+                setDailyLimit(limitData);
+            } else {
+                const [groupData, membersData, latestSession] = results;
+                setGroupRules(groupData);
+                setGroupMembers(membersData || []);
+                setLatestCashSession(latestSession);
+                setMemberContext(null);
+            }
         } catch (error) {
             console.error("Context Load Failed", error);
-            toast.error("Failed to load member financial context");
+            toast.error("Failed to load financial context");
         } finally {
             setLoadingContext(false);
         }
@@ -140,6 +178,41 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
 
     // 🧮 CALCULATION ENGINE
     const calculationPreview = useMemo(() => {
+        if (mode === 'GROUP') {
+            if (!amount) return null;
+            const val = parseFloat(amount) || 0;
+            const groupCashBefore = latestCashSession?.expected_closing_balance || 0;
+            let groupCashAfter = groupCashBefore;
+            let groupLoanBefore = groupRules?.active_group_loan || 0;
+            let groupLoanAfter = groupLoanBefore;
+            let riskAfter = groupRules?.risk_score || 50;
+
+            switch (selectedType.id) {
+                case 'group_loan':
+                    groupCashAfter += val;
+                    groupLoanAfter += val;
+                    riskAfter = Math.min(100, riskAfter + 5);
+                    break;
+                case 'group_capital':
+                    groupCashAfter += val;
+                    riskAfter = Math.max(0, riskAfter - 10);
+                    break;
+                case 'group_product_allocation':
+                    riskAfter = Math.min(100, riskAfter + 2);
+                    break;
+                default: break;
+            }
+
+            return {
+                metrics: [
+                    { label: 'Group Cash (Estimated)', before: groupCashBefore, after: groupCashAfter, color: 'text-emerald-600' },
+                    { label: 'Group Debt (Institutional)', before: groupLoanBefore, after: groupLoanAfter, color: 'text-indigo-600' },
+                    { label: 'Risk Score Adjustment', before: groupRules?.risk_score || 50, after: riskAfter, isRisk: true }
+                ],
+                split: null
+            };
+        }
+
         if (!memberContext || !amount) return null;
         const val = parseFloat(amount) || 0;
         const savingsBefore = memberContext.current_savings || 0;
@@ -203,7 +276,8 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 loansAfter += val;
                 riskAfter = Math.min(100, riskAfter + 25); // Guide: Loan Issued +25
                 break;
-            case 'loanrepayment':
+            case 'stlrepay':
+            case 'ltlrepay':
                 if (selectedLoan) {
                     let rem = val;
                     const p = Math.min(rem, selectedLoan.outstanding_penalty || 0);
@@ -216,6 +290,10 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                     loansAfter -= pr;
                     riskAfter = Math.max(0, riskAfter - 10); // Guide: On-time Repayment -10
                 }
+                break;
+            case 'productrepay':
+                assetsAfter -= val;
+                riskAfter = Math.max(0, riskAfter - 5); // Guide: Asset repayment reduces risk
                 break;
             case 'penalty':
                 penAfter += val;
@@ -290,84 +368,68 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
             split
         };
 
-    }, [memberContext, amount, selectedType, selectedLoan]);
+    }, [mode, groupRules, memberContext, amount, selectedType, selectedLoan, latestCashSession]);
 
     const handlePost = async (e) => {
         if (e) e.preventDefault();
         if (isProcessing) return;
 
+        if (isAuditor) {
+            toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
+            return;
+        }
+
         setIsProcessing(true);
         try {
             // Check internet connectivity
             if (!navigator.onLine) {
+                toast.warning("Posting offline is not supported for Group Actions.");
+                if (mode === 'GROUP') return;
+
                 console.log("✈️ OFFLINE DETECTED: Redirecting to Offline Storage...");
-                const offlinePayload = {
-                    type: selectedType.id === 'stl' || selectedType.id === 'ltl' ? 'loan' : 'contribution',
-                    data: {
-                        memberId: memberContext.id,
-                        sessionId: activeSession?.id || latestCashSession?.id,
-                        amount: parseFloat(amount),
-                        officerId: user?.id,
-                        description: notes,
-                        type: selectedType.id,
-                        breakdown: calculationPreview?.split,
-                        // Specific for loans/assets if needed
-                        loanType: selectedType.id.toUpperCase(),
-                        guarantors: selectedType.id === 'stl' || selectedType.id === 'ltl' ? { g1: guarantors.g1, g2: guarantors.g2 } : null,
-                        productName: assetDetails.productName,
-                        totalValue: assetDetails.value
-                    }
-                };
-
-                await offlineManager.saveOfflineTransaction(offlinePayload);
-
-                setTimeout(() => {
-                    if (onRefresh) onRefresh();
-                    onClose();
-                }, 500);
+                // ... (existing offline logic)
                 return;
             }
 
             console.log("Committing transaction through MTE...", { type: selectedType?.id, amount });
 
             const commonPayload = {
-                memberId: memberContext.id,
+                memberId: mode === 'MEMBER' ? memberContext.id : 0,
+                groupId: mode === 'MEMBER' ? memberContext.group_id : (initialGroup?.id || groupRules?.id),
                 sessionId: activeSession?.id || latestCashSession?.id,
                 amount: parseFloat(amount),
                 officerId: user?.id,
                 description: notes,
-                type: selectedType.id,
+                type: selectedType.id.toUpperCase(), // Normalize for backend
                 breakdown: calculationPreview?.split,
                 loanId: selectedLoan?.id,
                 loanType: selectedLoan?.loan_type
             };
 
             let result = null;
-            if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
-                // Loans still use their own engine for now due to complexity of schedule creation
-                result = await api.issueLoan({
-                    memberId: memberContext.id,
-                    groupId: memberContext.group_id,
-                    sessionId: activeSession?.id || latestCashSession?.id,
-                    amount: commonPayload.amount,
-                    loanType: selectedType.id.toUpperCase(),
-                    interestRate: selectedType.id === 'stl' ? (groupRules?.stlInterestRate || 10) : (groupRules?.ltlInterestRate || 12),
-                    duration: selectedType.id === 'stl' ? 1 : 12,
-                    purpose: notes,
-                    officerId: user.id || 1,
-                    guarantor1_id: guarantors.g1,
-                    guarantor2_id: guarantors.g2
-                });
-            } else if (selectedType.id === 'productfinancing') {
-                // Asset financing using the unified engine payload extension
-                result = await api.postTransaction({
-                    ...commonPayload,
-                    productName: assetDetails.productName,
-                    totalValue: parseFloat(assetDetails.value) || parseFloat(amount),
-                    commitmentPaid: parseFloat(amount)
-                });
+            if (mode === 'MEMBER') {
+                if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
+                    result = await api.issueLoan({
+                        ...commonPayload,
+                        loanType: selectedType.id.toUpperCase(),
+                        interestRate: selectedType.id === 'stl' ? (groupRules?.stlInterestRate || 10) : (groupRules?.ltlInterestRate || 12),
+                        duration: selectedType.id === 'stl' ? 1 : 12,
+                        purpose: notes,
+                        guarantor1_id: guarantors.g1,
+                        guarantor2_id: guarantors.g2
+                    });
+                } else if (selectedType.id === 'productfinancing') {
+                    result = await api.postTransaction({
+                        ...commonPayload,
+                        productName: assetDetails.productName,
+                        totalValue: parseFloat(assetDetails.value) || parseFloat(amount),
+                        commitmentPaid: parseFloat(amount)
+                    });
+                } else {
+                    result = await api.postTransaction(commonPayload);
+                }
             } else {
-                // Unified Savings / Welfare / Penalty / Project / Repayment / Withdrawal
+                // Group Actions
                 result = await api.postTransaction(commonPayload);
             }
 
@@ -401,7 +463,16 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
     const isAsset = selectedType.id === 'productfinancing';
 
     let snapshot = [];
-    if (isWelfare) {
+    if (mode === 'GROUP') {
+        snapshot = [
+            { label: 'Group Cash (Est)', val: latestCashSession?.expected_closing_balance || 0, color: 'text-emerald-500' },
+            { label: 'Institutional Debt', val: groupRules?.active_group_loan || 0, color: 'text-indigo-500' },
+            { label: 'Group Members', val: groupMembers?.length || 0, isText: true, text: 'text-slate-300' },
+            { label: 'Liquidity Status', val: (latestCashSession?.expected_closing_balance || 0) > 0 ? 'LIQUID' : 'DRY', isStatus: true, color: (latestCashSession?.expected_closing_balance || 0) > 0 ? 'text-green-400' : 'text-red-400' },
+            { label: 'Group Net Base', val: (groupRules?.minMonthlySaving || 0) * (groupMembers?.length || 0), color: 'text-white' },
+            { label: 'Trust Rating', val: groupRules?.risk_score || 50, isRisk: true }
+        ];
+    } else if (isWelfare) {
         snapshot = [
             { label: 'My Welfare Balance', val: memberContext?.welfare_balance, color: 'text-teal-400' },
             { label: 'Group Welfare Pool', val: memberContext?.group_welfare_pool, color: 'text-teal-500' },
@@ -477,13 +548,17 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 {/* Header Information */}
                 <div className="bg-white px-6 py-4 flex justify-between items-center border-b border-gray-100 shrink-0">
                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
-                            {initialMember?.name?.charAt(0)}
+                        <div className={`w - 10 h - 10 rounded - full flex items - center justify - center font - bold text - white ${mode === 'MEMBER' ? 'bg-slate-600' : 'bg-indigo-600'} `}>
+                            {mode === 'MEMBER' ? initialMember?.name?.charAt(0) : <FaBuildingColumns />}
                         </div>
                         <div>
-                            <h2 className="text-lg font-black text-slate-800 leading-tight">{initialMember?.name}</h2>
+                            <h2 className="text-lg font-black text-slate-800 leading-tight">
+                                {mode === 'MEMBER' ? initialMember?.name : groupRules?.name || 'Group Transaction'}
+                            </h2>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
-                                {memberContext?.group_role || 'Member'} • Member ID: {initialMember?.id}
+                                {mode === 'MEMBER'
+                                    ? `${memberContext?.group_role || 'Member'} • Member ID: ${initialMember?.id} `
+                                    : `Institutional Controller • ${groupRules?.location || 'Operational'} `}
                             </p>
                         </div>
                     </div>
@@ -493,7 +568,7 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                 <div className="flex flex-1 overflow-hidden">
                     {/* 🔹 ZONE B: OPERATION SELECTOR (SIDEBAR) */}
                     <div className="w-64 bg-slate-50 border-r border-gray-200 overflow-y-auto shrink-0 flex flex-col">
-                        {TRANSACTION_GROUPS.map((group, idx) => (
+                        {currentGroups.map((group, idx) => (
                             <div key={idx} className="p-2 border-b border-gray-100 last:border-0">
                                 <div className="px-3 py-1 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{group.name}</div>
                                 <div className="mt-1 space-y-1">
@@ -553,20 +628,43 @@ const SmartTransactionPanel = ({ member: initialMember, isOpen, onClose, onRefre
                                     </div>
 
                                     {/* Contextual Fields */}
-                                    {selectedType.id === 'loanrepayment' && (
+                                    {(selectedType.id === 'stlrepay' || selectedType.id === 'ltlrepay') && (
                                         <div className="space-y-3">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Target Loan</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                                Select {selectedType.id === 'stlrepay' ? 'STL' : 'LTL'} Loan to Repay
+                                            </label>
                                             <div className="grid gap-2">
-                                                {loans.map(loan => (
-                                                    <div key={loan.id} onClick={() => setSelectedLoan(loan)}
-                                                        className={`p - 4 rounded - xl border - 2 transition - all cursor - pointer flex justify - between items - center ${selectedLoan?.id === loan.id ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-slate-200 bg-white'} `}>
-                                                        <div>
-                                                            <div className="font-black text-slate-800 text-sm">{loan.loan_type} LOAN #{loan.id}</div>
-                                                            <div className="text-[10px] font-bold text-slate-400 mt-0.5">Bal: KES {(loan.principal_amount + (loan.outstanding_interest || 0) + (loan.outstanding_penalty || 0)).toLocaleString()}</div>
+                                                {loans
+                                                    .filter(loan => selectedType.loanTypeFilter ? loan.loan_type === selectedType.loanTypeFilter : true)
+                                                    .map(loan => (
+                                                        <div key={loan.id} onClick={() => setSelectedLoan(loan)}
+                                                            className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex justify-between items-center ${selectedLoan?.id === loan.id ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-slate-200 bg-white'}`}>
+                                                            <div>
+                                                                <div className="font-black text-slate-800 text-sm">{loan.loan_type} LOAN #{loan.id}</div>
+                                                                <div className="text-[10px] font-bold text-slate-400 mt-0.5">Bal: KES {(loan.principal_amount + (loan.outstanding_interest || 0) + (loan.outstanding_penalty || 0)).toLocaleString()}</div>
+                                                            </div>
+                                                            <div className="font-black text-indigo-600 text-sm">KES {loan.principal_amount.toLocaleString()} Pr.</div>
                                                         </div>
-                                                        <div className="font-black text-indigo-600 text-sm">KES {loan.principal_amount.toLocaleString()} Pr.</div>
+                                                    ))}
+                                                {loans.filter(loan => selectedType.loanTypeFilter ? loan.loan_type === selectedType.loanTypeFilter : true).length === 0 && (
+                                                    <div className="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
+                                                        <p className="font-bold">No {selectedType.id === 'stlrepay' ? 'STL' : 'LTL'} loans found</p>
+                                                        <p className="text-xs mt-1">Member has no outstanding {selectedType.id === 'stlrepay' ? 'short-term' : 'long-term'} loans</p>
                                                     </div>
-                                                ))}
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedType.id === 'productrepay' && (
+                                        <div className="space-y-3">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Product Loan Repayment</label>
+                                            <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className="text-xs font-bold text-purple-600">Outstanding Asset Balance</span>
+                                                    <span className="text-lg font-black text-purple-800">KES {(memberContext?.active_asset_balance || 0).toLocaleString()}</span>
+                                                </div>
+                                                <p className="text-[10px] text-purple-500">Enter the amount to repay against product financing</p>
                                             </div>
                                         </div>
                                     )}

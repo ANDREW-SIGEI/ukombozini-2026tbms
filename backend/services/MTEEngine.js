@@ -144,6 +144,28 @@ const TRANSACTION_MAP = {
             { type: 'MEMBER', account: 'LOAN_PRINCIPAL', direction: 'DEBIT' },
             { type: 'GROUP', account: 'CASH', direction: 'CREDIT' }
         ]
+    },
+    'GROUP_LOAN': {
+        memberField: 'risk_score', memberDelta: 0, riskDelta: 5,
+        entries: [
+            { type: 'GROUP', account: 'CASH', direction: 'DEBIT' },
+            { type: 'GROUP', account: 'LOAN_PAYABLE', direction: 'CREDIT' },
+            { type: 'SYSTEM', account: 'LOAN_RECEIVABLE', direction: 'DEBIT' }
+        ]
+    },
+    'GROUP_CAPITAL': {
+        memberField: 'risk_score', memberDelta: 0, riskDelta: -5,
+        entries: [
+            { type: 'GROUP', account: 'CASH', direction: 'DEBIT' },
+            { type: 'SYSTEM', account: 'CAPITAL_INVESTMENT', direction: 'CREDIT' }
+        ]
+    },
+    'GROUP_PRODUCT_ALLOCATION': {
+        memberField: 'risk_score', memberDelta: 0, riskDelta: 2,
+        entries: [
+            { type: 'GROUP', account: 'INVENTORY', direction: 'DEBIT' },
+            { type: 'SYSTEM', account: 'INVENTORY_RELEASE', direction: 'CREDIT' }
+        ]
     }
 };
 
@@ -249,7 +271,10 @@ async function runMTELogic(client, params, officerId) {
         'EDUCATION': 'deposits',
         'AGRICULTURE': 'deposits',
         'DIVIDEND': 'deposits',
-        'LOAN_ISSUANCE': 'loans_issued'
+        'LOAN_ISSUANCE': 'loans_issued',
+        'GROUP_LOAN': 'loans_issued',
+        'GROUP_CAPITAL': 'deposits',
+        'GROUP_PRODUCT_ALLOCATION': 'loans_issued'
     };
     const legacyField = legacyMap[txKey] || 'deposits';
 

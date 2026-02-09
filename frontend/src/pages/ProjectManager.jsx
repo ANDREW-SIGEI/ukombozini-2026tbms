@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { toast } from 'react-toastify';
 import {
@@ -22,7 +22,8 @@ import {
     FaPrint,
     FaFileExport,
     FaFileExcel,
-    FaFilePdf
+    FaFilePdf,
+    FaCheckCircle
 } from 'react-icons/fa';
 import ExcelService from '../services/excelService';
 import PdfService from '../services/pdfService';
@@ -41,16 +42,13 @@ const ProjectManager = () => {
     const [selectedGroup, setSelectedGroup] = useState('');
     const [groupMatrix, setGroupMatrix] = useState([]);
     const [groupStats, setGroupStats] = useState({
-        pools: [],
         total_project_pool: 0,
         total_table_savings: 0,
         total_active_loans: 0,
-        payout_obligation: 0,
-        available_cash: 0,
+        education_pool: 0,
+        agriculture_pool: 0,
         liquidity_alert: 'SAFE',
-        participation_rate: 0,
-        loan_utilization: 0,
-        agriculture_pool: 0
+        participation_rate: 0
     });
 
     const formatKES = (val) => (val || 0).toLocaleString();
@@ -62,6 +60,25 @@ const ProjectManager = () => {
     const [matrixSearch, setMatrixSearch] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
     const [simAmount, setSimAmount] = useState(0);
+    const [groupSearch, setGroupSearch] = useState('');
+    const [showGroupDropdown, setShowGroupDropdown] = useState(false);
+    const groupDropdownRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (groupDropdownRef.current && !groupDropdownRef.current.contains(event.target)) {
+                setShowGroupDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const filteredGroupsList = useMemo(() => {
+        return groups.filter(g =>
+            (g.group_name || g.name)?.toLowerCase().includes(groupSearch.toLowerCase())
+        );
+    }, [groups, groupSearch]);
 
     const calculateHealthScore = (member) => {
         if (!member) return 0;
@@ -124,7 +141,7 @@ const ProjectManager = () => {
 
     useEffect(() => { fetchGroups(); }, []);
     useEffect(() => {
-        if (selectedGroup) {
+        if (selectedGroup !== '') {
             fetchMembers(selectedGroup);
             fetchGroupStats(selectedGroup);
             fetchGroupMatrix(selectedGroup);
@@ -174,7 +191,7 @@ const ProjectManager = () => {
             { header: 'Account Status', key: 'status' }
         ];
 
-        const groupName = groups.find(g => g.id == selectedGroup)?.name || 'All Groups';
+        const groupName = groups.find(g => g.id == selectedGroup)?.group_name || 'All Groups';
         ExcelService.exportToExcel(
             exportData,
             columns,
@@ -188,7 +205,7 @@ const ProjectManager = () => {
     // PDF EXPORT HANDLER
     const handleExportPDF = () => {
         if (!groupMatrix || groupMatrix.length === 0) return toast.info("No data to export");
-        const groupName = groups.find(g => g.id == selectedGroup)?.name || 'All Groups';
+        const groupName = groups.find(g => g.id == selectedGroup)?.group_name || 'All Groups';
         PdfService.generateProjectMatrix(groupMatrix, groupName);
         toast.success("PDF Matrix Downloaded");
     };
@@ -405,28 +422,69 @@ const ProjectManager = () => {
                 </div>
 
                 {/* SMART ANALYTICS SELECTOR */}
-                <div className="bg-white/90 backdrop-blur-xl p-3 rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-white mb-10">
+                <div className="bg-white/90 backdrop-blur-xl p-3 rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-white mb-10 relative z-40">
                     <div className="flex flex-col lg:flex-row items-center">
-                        <div className="w-full lg:w-1/3 p-4 lg:border-r border-gray-100">
-                            <div className="flex items-center gap-4 bg-gray-50 rounded-[2rem] px-6 py-3 border border-gray-100 focus-within:ring-4 focus-within:ring-safaricom-green/10 transition-all">
-                                <FaLayerGroup className="text-safaricom-green text-xl" />
-                                <select
-                                    value={selectedGroup}
-                                    onChange={(e) => {
-                                        setSelectedGroup(e.target.value);
-                                        setSelectedMember(null);
-                                    }}
-                                    className="w-full bg-transparent border-0 focus:ring-0 font-black text-lg text-gray-800 cursor-pointer"
-                                >
-                                    <option value="">Choose Active Group...</option>
-                                    {groups.map(g => (
-                                        <option key={g.id} value={g.id}>{g.name}</option>
-                                    ))}
-                                </select>
+                        <div className="w-full lg:w-1/3 p-4 lg:border-r border-gray-100 relative z-30">
+                            <div className="flex items-center gap-4 bg-gray-50 rounded-[2rem] px-6 py-3 border border-gray-100 focus-within:ring-4 focus-within:ring-safaricom-green/10 transition-all" ref={groupDropdownRef}>
+                                <FaLayerGroup className="text-safaricom-green text-xl shrink-0" />
+                                <div className="relative w-full">
+                                    <div
+                                        onClick={() => setShowGroupDropdown(!showGroupDropdown)}
+                                        className="w-full bg-transparent border-0 focus:ring-0 font-black text-lg text-gray-800 cursor-pointer flex justify-between items-center"
+                                    >
+                                        <span>{groups.find(g => (selectedGroup !== '' && g.id == selectedGroup))?.group_name || 'Choose Active Group...'}</span>
+                                        <FaSearch className="text-gray-300 text-xs" />
+                                    </div>
+
+                                    {showGroupDropdown && (
+                                        <div className="absolute top-full left-0 w-full mt-4 bg-white border border-gray-100 rounded-[2rem] shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                                            <div className="p-4 border-b border-gray-50 bg-gray-50/30">
+                                                <div className="relative">
+                                                    <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs" />
+                                                    <input
+                                                        type="text"
+                                                        autoFocus
+                                                        placeholder="Search for a group..."
+                                                        className="w-full bg-white border border-gray-100 rounded-xl pl-10 pr-4 py-3 text-xs font-bold text-gray-800 focus:ring-4 focus:ring-safaricom-green/5 focus:border-safaricom-green transition-all shadow-sm"
+                                                        value={groupSearch}
+                                                        onChange={(e) => setGroupSearch(e.target.value)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="max-h-64 overflow-y-auto p-2 custom-scrollbar">
+                                                {filteredGroupsList.length > 0 ? (
+                                                    filteredGroupsList.map(g => (
+                                                        <button
+                                                            key={g.id}
+                                                            onClick={() => {
+                                                                setSelectedGroup(g.id);
+                                                                setSelectedMember(null);
+                                                                setShowGroupDropdown(false);
+                                                                setGroupSearch('');
+                                                            }}
+                                                            className={`w-full flex items-center justify-between p-4 rounded-xl transition-all duration-200 ${selectedGroup !== '' && selectedGroup == g.id ? 'bg-safaricom-green text-white shadow-lg' : 'hover:bg-gray-50 text-gray-700'}`}
+                                                        >
+                                                            <span className="font-black text-sm uppercase tracking-tight">{g.group_name}</span>
+                                                            {selectedGroup !== '' && selectedGroup == g.id && <FaCheckCircle className="text-white" />}
+                                                        </button>
+                                                    ))
+                                                ) : (
+                                                    <div className="p-10 text-center space-y-3">
+                                                        <div className="text-gray-200 text-4xl font-black">{groupSearch}</div>
+                                                        <p className="text-gray-400 font-black uppercase text-[10px] tracking-widest leading-loose">
+                                                            No Matches Identified
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="hidden lg:flex flex-1 p-4 px-10 items-center justify-between">
+                        <div className="hidden lg:flex flex-1 p-4 px-6 items-center justify-between relative z-10 gap-4 overflow-x-auto">
                             <div className="text-center">
                                 <div className="text-[10px] font-black uppercase text-gray-400 mb-1">Participation</div>
                                 <div className="text-gray-900 font-bold">{Math.round(groupStats?.participation_rate || 0)}% Members</div>
@@ -452,7 +510,7 @@ const ProjectManager = () => {
 
                             <button
                                 onClick={handleExportExcel}
-                                disabled={!selectedGroup}
+                                disabled={selectedGroup === ''}
                                 className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold hover:bg-emerald-100 hover:scale-105 active:scale-95 transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <FaFileExcel className="text-lg" />
@@ -466,6 +524,20 @@ const ProjectManager = () => {
                                 <FaFilePdf className="text-lg" />
                                 <span>Export PDF</span>
                             </button>
+
+                            <div className="h-10 w-px bg-gray-100 mx-4"></div>
+
+                            <div className="relative group">
+                                <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-safaricom-green transition-colors text-xs" />
+                                <input
+                                    type="text"
+                                    placeholder="Search..."
+                                    className="bg-gray-50 border border-gray-100 rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-gray-800 placeholder:text-gray-300 focus:ring-2 focus:ring-safaricom-green/10 focus:border-safaricom-green transition-all shadow-sm w-32 xl:w-48"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    disabled={selectedGroup === ''}
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -474,16 +546,10 @@ const ProjectManager = () => {
 
                     {/* MEMBER DISCOVERY SIDEBAR */}
                     <div className="lg:col-span-3 lg:sticky lg:top-10 bg-white rounded-[3rem] shadow-2xl shadow-gray-200/50 border border-white overflow-hidden">
-                        <div className="p-8 border-b border-gray-50 bg-gray-50/30">
-                            <div className="relative group">
-                                <FaSearch className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-safaricom-green transition-colors" />
-                                <input
-                                    type="text"
-                                    placeholder="Search member..."
-                                    className="w-full bg-white border border-gray-100 rounded-2xl pl-12 pr-4 py-4 font-bold text-sm text-gray-800 placeholder:text-gray-300 focus:ring-4 focus:ring-safaricom-green/5 focus:border-safaricom-green transition-all shadow-sm"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
+                        <div className="p-6 border-b border-gray-50 bg-gray-50/30 flex justify-between items-center">
+                            <div className="font-black text-gray-400 uppercase tracking-widest text-[10px]">Membership List</div>
+                            <div className="bg-safaricom-green/10 text-safaricom-green px-2 py-1 rounded-lg text-[10px] font-bold">
+                                {filteredMembers.length}
                             </div>
                         </div>
 
@@ -509,7 +575,9 @@ const ProjectManager = () => {
                                     <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6">
                                         <FaSearch className="text-gray-200 text-3xl" />
                                     </div>
-                                    <p className="text-xs font-black text-gray-300 uppercase tracking-[0.2em]">No Matches Identified</p>
+                                    <p className="text-xs font-black text-gray-300 uppercase tracking-[0.2em]">
+                                        {selectedGroup === '' ? "Select a Group to Begin" : "No Matches Identified"}
+                                    </p>
                                 </div>
                             )}
                         </div>
@@ -906,7 +974,7 @@ const ProjectManager = () => {
                                     )}
                                 </div>
                             </div>
-                        ) : selectedGroup ? (
+                        ) : selectedGroup !== '' ? (
                             <div className="space-y-10 animate-in fade-in slide-in-from-bottom-5 duration-700">
                                 {/* ADMINISTRATIVE CONTROL CENTER & MEMBER PROJECT MATRIX */}
                                 <div className="bg-white rounded-[3rem] p-10 shadow-2xl shadow-gray-200/50 border border-white">
