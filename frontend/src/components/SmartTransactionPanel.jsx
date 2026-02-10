@@ -789,6 +789,7 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                 <button
                                     type="submit"
                                     disabled={isProcessing || !amount || !calculationPreview || calculationPreview.isRestricted}
+                                    style={{ color: 'white' }}
                                     className={`w-full py-4 md:py-5 lg:py-6 rounded-xl md:rounded-2xl font-black !text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base md:text-lg uppercase tracking-widest
                                         ${isProcessing || !calculationPreview || calculationPreview.isRestricted
                                             ? 'bg-slate-400 cursor-not-allowed'
@@ -796,9 +797,9 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                         }
 `}
                                 >
-                                    <span className="!text-white flex items-center gap-3">
-                                        {isProcessing ? <FaSpinner className="animate-spin text-xl !text-white" /> : <FaCircleCheck className="text-2xl !text-white" />}
-                                        <span className="!text-white font-black">{isProcessing ? "PROCESSING..." : "✓ APPROVE & POST"}</span>
+                                    <span style={{ color: 'white' }} className="!text-white flex items-center gap-3">
+                                        {isProcessing ? <FaSpinner style={{ color: 'white' }} className="animate-spin text-xl !text-white" /> : <FaCircleCheck style={{ color: 'white' }} className="text-2xl !text-white" />}
+                                        <span style={{ color: 'white' }} className="!text-white font-black">{isProcessing ? "PROCESSING..." : "✓ APPROVE & POST"}</span>
                                     </span>
                                 </button>
                             </div>
