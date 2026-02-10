@@ -602,13 +602,7 @@ const MeetingSessions = () => {
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center gap-2">
-                                                <button
-                                                    onClick={() => api.downloadMeetingMinutes(meeting.id)}
-                                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="Download Minutes (PDF)"
-                                                >
-                                                    <FaFilePdf size={18} />
-                                                </button>
+                                                {/* PDF Download removed - backend service not implemented */}
                                                 <button
                                                     onClick={() => handleScheduleNext(meeting)}
                                                     className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -1015,7 +1009,7 @@ const MeetingSessions = () => {
                                                     <tr
                                                         key={member.id}
                                                         className={`hover:bg-blue-50/50 transition-colors ${!isPresent ? 'bg-red-50/30 opacity-60' : ''}`}
-                                                     >
+                                                    >
                                                         <td className="px-2 md:px-6 py-3 md:py-4">
                                                             <button
                                                                 onClick={() => toggleAttendance(member.id)}

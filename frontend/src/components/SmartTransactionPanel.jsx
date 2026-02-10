@@ -769,8 +769,8 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                         )}
 
                                         <div className="bg-slate-900 text-white p-6 rounded-3xl space-y-1">
-                                            <p className="text-[10px] font-black uppercase text-slate-500">Stability Verdict</p>
-                                            <div className="text-sm font-bold flex items-center gap-2">
+                                            <p className="text-[10px] font-black uppercase text-slate-400">Stability Verdict</p>
+                                            <div className="text-sm font-bold flex items-center gap-2 text-white">
                                                 <span className={`w - 2 h - 2 rounded - full animate - pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-green-500' : 'bg-red-500'} `}></span>
                                                 {calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}
                                             </div>
@@ -785,16 +785,21 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                             </div>
 
                             {/* Sticky Button Footer */}
-                            <div className="fixed lg:relative bottom-0 left-0 right-0 lg:static p-3 md:p-4 lg:p-6 border-t border-slate-200 bg-white shrink-0 z-10">
+                            <div className="fixed lg:relative bottom-0 left-0 right-0 lg:static p-3 md:p-4 lg:p-6 border-t-2 border-safaricom-green bg-white shrink-0 z-10 shadow-2xl">
                                 <button
                                     type="submit"
                                     disabled={isProcessing || !amount || !calculationPreview || calculationPreview.isRestricted}
-                                    className={`w-full py-3 md:py-4 lg:py-5 rounded-2xl md:rounded-3xl font-black text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95 text-sm md:text-base
-                                        ${isProcessing || !calculationPreview || calculationPreview.isRestricted ? 'bg-slate-400' : 'bg-slate-900 hover:bg-black uppercase tracking-widest'}
+                                    className={`w-full py-4 md:py-5 lg:py-6 rounded-xl md:rounded-2xl font-black text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base md:text-lg uppercase tracking-widest
+                                        ${isProcessing || !calculationPreview || calculationPreview.isRestricted
+                                            ? 'bg-slate-400 cursor-not-allowed'
+                                            : 'bg-safaricom-green hover:bg-green-600 animate-pulse hover:animate-none cursor-pointer shadow-[0_0_30px_rgba(0,209,178,0.5)]'
+                                        }
 `}
                                 >
-                                    {isProcessing ? <FaSpinner className="animate-spin" /> : <FaCircleCheck className="text-lg" />}
-                                    {isProcessing ? "Processing..." : "APPROVE & POST"}
+                                    <span className="text-white flex items-center gap-3">
+                                        {isProcessing ? <FaSpinner className="animate-spin text-xl text-white" /> : <FaCircleCheck className="text-2xl text-white" />}
+                                        <span className="text-white">{isProcessing ? "PROCESSING..." : "✓ APPROVE & POST"}</span>
+                                    </span>
                                 </button>
                             </div>
                         </div>
