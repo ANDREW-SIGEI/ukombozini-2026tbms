@@ -768,11 +768,11 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                             </div>
                                         )}
 
-                                        <div className="bg-slate-900 text-white p-6 rounded-3xl space-y-1">
-                                            <p className="text-[10px] font-black uppercase text-slate-400">Stability Verdict</p>
+                                        <div className="bg-gradient-to-r from-green-500 to-blue-500 text-white p-6 rounded-3xl space-y-1 shadow-lg">
+                                            <p className="text-[10px] font-black uppercase text-white">Stability Verdict</p>
                                             <div className="text-sm font-bold flex items-center gap-2 text-white">
-                                                <span className={`w - 2 h - 2 rounded - full animate - pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-green-500' : 'bg-red-500'} `}></span>
-                                                {calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}
+                                                <span className={`w-2 h-2 rounded-full animate-pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-white' : 'bg-yellow-300'}`}></span>
+                                                <span style={{ color: 'white' }} className="text-white font-black">{calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}</span>
                                             </div>
                                         </div>
                                     </div>
