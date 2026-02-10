@@ -98,12 +98,14 @@ const Contributions = () => {
     };
 
 
-    const filteredGroups = useMemo(() => {
-        return groups.filter(g =>
-            (g.group_name || g.name || '').toLowerCase().includes(groupSearchTerm.toLowerCase()) ||
-            (g.location && g.location.toLowerCase().includes(groupSearchTerm.toLowerCase()))
-        );
-    }, [groups, groupSearchTerm]);
+    const filteredMeetings = useMemo(() => {
+        return activeMeetings.filter(meeting => {
+            const group = groups.find(g => g.id === meeting.groupId);
+            const groupName = group?.name || group?.group_name || 'Unknown Group';
+            return groupName.toLowerCase().includes(groupSearchTerm.toLowerCase()) ||
+                meeting.session_number.toLowerCase().includes(groupSearchTerm.toLowerCase());
+        });
+    }, [activeMeetings, groups, groupSearchTerm]);
 
     const displayedMembers = useMemo(() => {
         if (!selectedGroupId) return [];
@@ -170,9 +172,21 @@ const Contributions = () => {
             {/* 2. Active Meeting Selection (REPLACES Group Selection) */}
             {!selectedMeetingId ? (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-                    {activeMeetings.length > 0 ? (
+                    {/* Session Search Bar */}
+                    <div className="max-w-md mx-auto w-full relative group">
+                        <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-safaricom-green transition-colors" />
+                        <input
+                            type="text"
+                            placeholder="Search active sessions by group name..."
+                            className="w-full pl-12 pr-4 py-4 bg-white border-2 border-gray-100 rounded-2xl focus:outline-none focus:border-safaricom-green focus:ring-4 focus:ring-green-50/50 font-bold text-gray-700 shadow-xl shadow-gray-100/50 transition-all placeholder:text-gray-300"
+                            value={groupSearchTerm}
+                            onChange={(e) => setGroupSearchTerm(e.target.value)}
+                        />
+                    </div>
+
+                    {filteredMeetings.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {activeMeetings.map(meeting => {
+                            {filteredMeetings.map(meeting => {
                                 const group = groups.find(g => g.id === meeting.groupId);
                                 return (
                                     <div
