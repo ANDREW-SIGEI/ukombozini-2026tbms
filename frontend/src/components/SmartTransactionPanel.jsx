@@ -789,16 +789,16 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                 <button
                                     type="submit"
                                     disabled={isProcessing || !amount || !calculationPreview || calculationPreview.isRestricted}
-                                    className={`w-full py-4 md:py-5 lg:py-6 rounded-xl md:rounded-2xl font-black text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base md:text-lg uppercase tracking-widest
+                                    className={`w-full py-4 md:py-5 lg:py-6 rounded-xl md:rounded-2xl font-black !text-white shadow-2xl transition-all flex items-center justify-center gap-3 active:scale-95 text-base md:text-lg uppercase tracking-widest
                                         ${isProcessing || !calculationPreview || calculationPreview.isRestricted
                                             ? 'bg-slate-400 cursor-not-allowed'
                                             : 'bg-safaricom-green hover:bg-green-600 animate-pulse hover:animate-none cursor-pointer shadow-[0_0_30px_rgba(0,209,178,0.5)]'
                                         }
 `}
                                 >
-                                    <span className="text-white flex items-center gap-3">
-                                        {isProcessing ? <FaSpinner className="animate-spin text-xl text-white" /> : <FaCircleCheck className="text-2xl text-white" />}
-                                        <span className="text-white">{isProcessing ? "PROCESSING..." : "✓ APPROVE & POST"}</span>
+                                    <span className="!text-white flex items-center gap-3">
+                                        {isProcessing ? <FaSpinner className="animate-spin text-xl !text-white" /> : <FaCircleCheck className="text-2xl !text-white" />}
+                                        <span className="!text-white font-black">{isProcessing ? "PROCESSING..." : "✓ APPROVE & POST"}</span>
                                     </span>
                                 </button>
                             </div>
