@@ -1,5 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./ukombozi.sqlite');
+const db = new sqlite3.Database('./ukombozini.sqlite');
 
 const seedOfficials = [
     { group_id: 1, member_id: 1, role: 'Chairman', term_start: '2025-01-01' },

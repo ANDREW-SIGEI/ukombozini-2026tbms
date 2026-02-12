@@ -57,6 +57,8 @@ const MeetingSessions = () => {
     const [showTransactionPanel, setShowTransactionPanel] = useState(false);
     const [cockpitLoading, setCockpitLoading] = useState(false);
     const [memberSearchTerm, setMemberSearchTerm] = useState('');
+    const [loansDue, setLoansDue] = useState({});
+    const [groupExposure, setGroupExposure] = useState(null);
 
     // Group Actions State
     const [showGroupLoanModal, setShowGroupLoanModal] = useState(false);
@@ -109,6 +111,18 @@ const MeetingSessions = () => {
         return groups.filter(g => assignedGroupIds.includes(g.id));
     }, [groups, assignedGroupIds, isElevatedRole]);
 
+    // Cockpit Attendance Stats
+    const attendanceStats = useMemo(() => {
+        const values = Object.values(memberAttendance);
+        const present = values.filter(v => v === 'PRESENT' || v === 'LATE').length;
+        const absent = values.filter(v => v === 'ABSENT').length;
+        const late = values.filter(v => v === 'LATE').length;
+        const total = sessionMembers.length;
+        const percent = total > 0 ? Math.round((present / total) * 100) : 0;
+
+        return { present, absent, late, total, percent };
+    }, [memberAttendance, sessionMembers]);
+
     // Open Meeting Cockpit for an active session
     const openCockpit = async (meeting) => {
         setCockpitLoading(true);
@@ -120,41 +134,78 @@ const MeetingSessions = () => {
             const members = await api.getMembersByGroup(meeting.group_id);
             setSessionMembers(members || []);
 
-            // Initialize attendance (all present by default)
-            const initialAttendance = {};
-            (members || []).forEach(m => {
-                initialAttendance[m.id] = true; // Present by default
-            });
-            setMemberAttendance(initialAttendance);
+            // Fetch attendance
+            try {
+                const attendanceData = await api.getAttendance(meeting.id);
+                const attendanceMap = {};
+                (attendanceData || []).forEach(a => {
+                    attendanceMap[a.member_id] = a.status;
+                });
+                // Fill defaults for missing members
+                (members || []).forEach(m => {
+                    if (!attendanceMap[m.id]) attendanceMap[m.id] = 'PRESENT';
+                });
+                setMemberAttendance(attendanceMap);
+            } catch (err) {
+                console.log('Using default attendance');
+                const initialAttendance = {};
+                (members || []).forEach(m => {
+                    initialAttendance[m.id] = 'PRESENT';
+                });
+                setMemberAttendance(initialAttendance);
+            }
+
+            // Fetch Loan Due Summary
+            try {
+                const dueData = await api.getLoansDueSummary(meeting.group_id);
+                const dueMap = {};
+                (dueData || []).forEach(d => {
+                    dueMap[d.member_id] = d;
+                });
+                setLoansDue(dueMap);
+            } catch (err) {
+                console.log('Failed to fetch due summary');
+                setLoansDue({});
+            }
+
+            // Fetch Group Exposure/Portfolio status
+            try {
+                const exposure = await api.getGroupExposure(meeting.group_id);
+                setGroupExposure(exposure);
+            } catch (err) {
+                console.error('Failed to fetch group exposure:', err);
+            }
 
             // Fetch session transactions to show member statuses
-            try {
-                const txData = await api.getSessionTransactions(meeting.id);
-                // Group transactions by member
-                const txByMember = {};
-                (txData || []).forEach(tx => {
-                    if (!txByMember[tx.member_id]) {
-                        txByMember[tx.member_id] = { savings: 0, welfare: 0, stl_repay: 0, ltl_repay: 0, penalty: 0, product_repay: 0 };
-                    }
-                    // Categorize by type
-                    const type = tx.type?.toLowerCase() || '';
-                    if (type === 'savings' || type === 'contribution') txByMember[tx.member_id].savings += tx.amount;
-                    else if (type === 'welfare') txByMember[tx.member_id].welfare += tx.amount;
-                    else if (type === 'loanrepayment' && tx.loan_type === 'STL') txByMember[tx.member_id].stl_repay += tx.amount;
-                    else if (type === 'loanrepayment' && tx.loan_type === 'LTL') txByMember[tx.member_id].ltl_repay += tx.amount;
-                    else if (type === 'penalty') txByMember[tx.member_id].penalty += tx.amount;
-                    else if (type === 'productfinancing' || type === 'product_repay') txByMember[tx.member_id].product_repay += tx.amount;
-                });
-                setMemberTransactions(txByMember);
-            } catch (err) {
-                console.log('No session transactions yet');
-                setMemberTransactions({});
-            }
+            await fetchSessionTransactions(meeting.id);
         } catch (error) {
             console.error('Failed to load cockpit data:', error);
             toast.error('Failed to load session members');
         } finally {
             setCockpitLoading(false);
+        }
+    };
+
+    const fetchSessionTransactions = async (sessionId) => {
+        try {
+            const txData = await api.getSessionTransactions(sessionId);
+            const txByMember = {};
+            (txData || []).forEach(tx => {
+                if (!txByMember[tx.member_id]) {
+                    txByMember[tx.member_id] = { savings: 0, welfare: 0, stl_repay: 0, ltl_repay: 0, penalty: 0, product_repay: 0 };
+                }
+                const type = tx.type?.toLowerCase() || '';
+                if (type === 'savings' || type === 'contribution') txByMember[tx.member_id].savings += tx.amount;
+                else if (type === 'welfare') txByMember[tx.member_id].welfare += tx.amount;
+                else if (type === 'loanrepayment' && tx.loan_type === 'STL') txByMember[tx.member_id].stl_repay += tx.amount;
+                else if (type === 'loanrepayment' && tx.loan_type === 'LTL') txByMember[tx.member_id].ltl_repay += tx.amount;
+                else if (type === 'penalty' || tx.transaction_type === 'PENALTY') txByMember[tx.member_id].penalty += tx.amount;
+                else if (type === 'productfinancing' || type === 'product_repay') txByMember[tx.member_id].product_repay += tx.amount;
+            });
+            setMemberTransactions(txByMember);
+        } catch (err) {
+            console.log('No session transactions yet');
+            setMemberTransactions({});
         }
     };
 
@@ -216,12 +267,31 @@ const MeetingSessions = () => {
         setShowTransactionPanel(true);
     };
 
-    // Toggle attendance
-    const toggleAttendance = (memberId) => {
-        setMemberAttendance(prev => ({
-            ...prev,
-            [memberId]: !prev[memberId]
-        }));
+    // Toggle attendance states: PRESENT -> LATE -> ABSENT
+    const toggleAttendance = async (memberId) => {
+        const currentStatus = memberAttendance[memberId] || 'PRESENT';
+        const statuses = ['PRESENT', 'LATE', 'ABSENT'];
+        const nextIndex = (statuses.indexOf(currentStatus) + 1) % statuses.length;
+        const nextStatus = statuses[nextIndex];
+
+        try {
+            const res = await api.recordAttendance(cockpitSession.id, memberId, nextStatus);
+            setMemberAttendance(prev => ({
+                ...prev,
+                [memberId]: nextStatus
+            }));
+
+            if (res.message && res.message.includes('penalty')) {
+                toast.info(res.message, { autoClose: 5000 });
+                // Refresh transactions to show penalty
+                await fetchSessionTransactions(cockpitSession.id);
+            } else {
+                toast.success(`Marked as ${nextStatus}`);
+            }
+        } catch (error) {
+            console.error('Attendance update failed:', error);
+            toast.error("Failed to update attendance");
+        }
     };
 
 
@@ -1003,7 +1073,8 @@ const MeetingSessions = () => {
                                             {filteredSessionMembers.map(member => {
                                                 const tx = memberTransactions[member.id] || {};
                                                 const hasAnyTx = (tx.savings || 0) + (tx.welfare || 0) + (tx.stl_repay || 0) + (tx.ltl_repay || 0) + (tx.penalty || 0) + (tx.product_repay || 0) > 0;
-                                                const isPresent = memberAttendance[member.id];
+                                                const currentStatus = memberAttendance[member.id] || 'PRESENT';
+                                                const isPresent = currentStatus !== 'ABSENT';
 
                                                 return (
                                                     <tr
@@ -1013,12 +1084,15 @@ const MeetingSessions = () => {
                                                         <td className="px-2 md:px-6 py-3 md:py-4">
                                                             <button
                                                                 onClick={() => toggleAttendance(member.id)}
-                                                                className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center transition-all text-sm ${isPresent
+                                                                className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-black ${memberAttendance[member.id] === 'PRESENT'
                                                                     ? 'bg-green-100 text-green-600 hover:bg-green-200'
-                                                                    : 'bg-red-100 text-red-600 hover:bg-red-200'
+                                                                    : memberAttendance[member.id] === 'LATE'
+                                                                        ? 'bg-orange-100 text-orange-600 hover:bg-orange-200'
+                                                                        : 'bg-red-100 text-red-600 hover:bg-red-200'
                                                                     }`}
+                                                                title={`Current: ${memberAttendance[member.id] || 'PRESENT'}. Click to cycle status.`}
                                                             >
-                                                                {isPresent ? <FaUserCheck /> : <FaUserTimes />}
+                                                                {memberAttendance[member.id] === 'PRESENT' ? 'P' : memberAttendance[member.id] === 'LATE' ? 'L' : 'A'}
                                                             </button>
                                                         </td>
                                                         <td className="px-2 md:px-6 py-3 md:py-4">
@@ -1042,10 +1116,21 @@ const MeetingSessions = () => {
                                                                 {tx.welfare ? `KES ${tx.welfare.toLocaleString()}` : '—'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
+                                                        <td className="px-6 py-4 text-center relative group">
                                                             <span className={`font-mono font-bold ${tx.stl_repay ? 'text-orange-600' : 'text-slate-300'}`}>
                                                                 {tx.stl_repay ? `KES ${tx.stl_repay.toLocaleString()}` : '—'}
                                                             </span>
+                                                            {loansDue[member.id] && (
+                                                                <div className="absolute top-1 right-2 animate-pulse">
+                                                                    <div className="w-2 h-2 rounded-full bg-orange-500" title={`Due: KES ${loansDue[member.id].expected_installment.toLocaleString()}`}></div>
+                                                                </div>
+                                                            )}
+                                                            {loansDue[member.id] && (
+                                                                <div className="invisible group-hover:visible absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] py-1.5 px-3 rounded-lg shadow-2xl z-50 whitespace-nowrap">
+                                                                    <div className="font-black text-orange-400">STL DUE: KES {loansDue[member.id].expected_installment.toLocaleString()}</div>
+                                                                    <div className="text-slate-400 mt-0.5">Principal: {loansDue[member.id].expected_principal} | Interest: {loansDue[member.id].expected_interest}</div>
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 text-center">
                                                             <span className={`font-mono font-bold ${tx.ltl_repay ? 'text-amber-600' : 'text-slate-300'}`}>
@@ -1062,10 +1147,14 @@ const MeetingSessions = () => {
                                                                 {tx.product_repay ? `KES ${tx.product_repay.toLocaleString()}` : '—'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            {!isPresent ? (
+                                                        <td className="px-2 md:px-6 py-3 md:py-4 text-center">
+                                                            {memberAttendance[member.id] === 'ABSENT' ? (
                                                                 <span className="px-3 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-600 border border-red-200">
                                                                     ABSENT
+                                                                </span>
+                                                            ) : memberAttendance[member.id] === 'LATE' ? (
+                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-orange-100 text-orange-600 border border-orange-200">
+                                                                    LATE
                                                                 </span>
                                                             ) : hasAnyTx ? (
                                                                 <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-100 text-green-600 border border-green-200">
@@ -1114,18 +1203,24 @@ const MeetingSessions = () => {
                                         setGroupLoanType('STL');
                                         setShowGroupLoanModal(true);
                                     }}
-                                    className="px-6 py-3 bg-orange-500 text-white rounded-xl font-black text-sm hover:bg-orange-600 transition-all flex items-center gap-2 shadow-lg"
+                                    className="px-6 py-3 bg-orange-500 text-white rounded-xl font-black text-sm hover:bg-orange-600 transition-all flex flex-col items-center justify-center shadow-lg min-w-[180px]"
                                 >
-                                    <FaHandHoldingDollar /> Repay Ukombozini STL
+                                    <div className="flex items-center gap-2">
+                                        <FaHandHoldingDollar /> Repay STL
+                                    </div>
+                                    <span className="text-[10px] opacity-80">Bal: KES {groupExposure?.portfolio?.totalTopUp?.toLocaleString() || '0'}</span>
                                 </button>
                                 <button
                                     onClick={() => {
                                         setGroupLoanType('LTL');
                                         setShowGroupLoanModal(true);
                                     }}
-                                    className="px-6 py-3 bg-amber-500 text-white rounded-xl font-black text-sm hover:bg-amber-600 transition-all flex items-center gap-2 shadow-lg"
+                                    className="px-6 py-3 bg-amber-500 text-white rounded-xl font-black text-sm hover:bg-amber-600 transition-all flex flex-col items-center justify-center shadow-lg min-w-[180px]"
                                 >
-                                    <FaHandHoldingDollar /> Repay Ukombozini LTL
+                                    <div className="flex items-center gap-2">
+                                        <FaHandHoldingDollar /> Repay LTL
+                                    </div>
+                                    <span className="text-[10px] opacity-80">Bal: KES {groupExposure?.portfolio?.totalProductFinance?.toLocaleString() || '0'}</span>
                                 </button>
                             </div>
                         </div>
@@ -1133,10 +1228,23 @@ const MeetingSessions = () => {
 
                     {/* Cockpit Footer Actions */}
                     <div className="bg-slate-800 p-4 flex items-center justify-between shrink-0">
-                        <div className="text-slate-400 text-sm font-bold">
-                            <span className="text-green-400">{Object.values(memberAttendance).filter(Boolean).length}</span> Present •
-                            <span className="text-red-400 ml-1">{Object.values(memberAttendance).filter(v => !v).length}</span> Absent •
-                            <span className="text-blue-400 ml-1">{Object.keys(memberTransactions).length}</span> Contributed
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <div className="flex -space-x-2">
+                                    <div className="w-8 h-8 rounded-full bg-green-500 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">{attendanceStats.present}</div>
+                                    <div className="w-8 h-8 rounded-full bg-red-500 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">{attendanceStats.absent}</div>
+                                </div>
+                                <div className="ml-2">
+                                    <p className="text-white text-xs font-black uppercase tracking-wider">Attendance: {attendanceStats.percent}%</p>
+                                    <p className="text-slate-400 text-[10px] font-bold">
+                                        {attendanceStats.present} Present • {attendanceStats.absent} Absent • {attendanceStats.late} Late
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="h-8 w-px bg-slate-700 mx-2" />
+                            <div className="text-blue-400 text-sm font-bold">
+                                <span className="text-blue-400">{Object.keys(memberTransactions).length}</span> Contributed
+                            </div>
                         </div>
                         <div className="flex items-center gap-3">
                             <button

@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const JWT_SECRET = process.env.JWT_SECRET || 'ukombozi-secret-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'ukombozini-secret-key-2026';
 
 /**
  * 🔐 AUDITOR MODE: Mutation Blocker

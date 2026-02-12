@@ -13,6 +13,7 @@ const OfficialsDirectory = () => {
     const [loading, setLoading] = useState(true);
     const [selectedRole, setSelectedRole] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [fetchError, setFetchError] = useState(null);
 
     useEffect(() => {
         fetchData();
@@ -20,11 +21,18 @@ const OfficialsDirectory = () => {
 
     const fetchData = async () => {
         setLoading(true);
+        setFetchError(null);
         try {
+            console.log("Fetching officials...");
             const data = await api.getOfficials();
+            console.log("Officials data received:", data);
+
+            if (!data) throw new Error("No data received from API");
+
             setOfficials(data || []);
         } catch (error) {
-            console.error(error);
+            console.error("Error fetching officials:", error);
+            setFetchError(error.message || "Failed to load directory");
             toast.error("Failed to load directory");
         } finally {
             setLoading(false);
@@ -175,6 +183,14 @@ const OfficialsDirectory = () => {
                         <div className="py-20 text-center animate-pulse">
                             <div className="w-12 h-12 bg-gray-100 rounded-full mx-auto mb-4"></div>
                             <p className="text-sm font-black text-gray-400 uppercase tracking-widest">Loading Directory...</p>
+                        </div>
+                    ) : fetchError ? (
+                        <div className="py-20 text-center flex flex-col items-center gap-4">
+                            <div className="text-red-500 text-6xl">⚠️</div>
+                            <span className="text-sm font-black text-red-500 uppercase tracking-widest italic leading-relaxed">
+                                {fetchError}<br />
+                                <button onClick={fetchData} className="text-gray-800 hover:underline mt-2">Retry</button>
+                            </span>
                         </div>
                     ) : filteredOfficials.length > 0 ? (
                         <table className="w-full text-left">

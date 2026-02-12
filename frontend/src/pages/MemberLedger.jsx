@@ -12,7 +12,8 @@ import {
     FaMoneyBillWave,
     FaFilePdf,
     FaFileExcel,
-    FaUndo
+    FaUndo,
+    FaFileInvoice
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import PdfService from '../services/pdfService';
@@ -190,47 +191,21 @@ const MemberLedger = () => {
     if (!member) return null;
 
     const handleExportPDF = () => {
-        if (!member || !transactions.length) {
+        if (!member) {
             toast.warn("No data to export");
             return;
         }
-        PdfService.generateMemberStatement(member, transactions, "All Time");
-        toast.success("Statement Exported!");
+        api.downloadMemberStatementPDF(member.id, startDate, endDate);
+        toast.success("Professional Statement Requested!");
     };
 
     const handleExportExcel = () => {
-        if (!member || !transactions.length) {
+        if (!member) {
             toast.warn("No data to export");
             return;
         }
-        // Format data for Excel
-        const data = transactions.map(t => ({
-            Date: new Date(t.created_at).toLocaleDateString(),
-            Ref: `TX-${t.id}`,
-            Type: t.transaction_type,
-            Description: t.description,
-            Amount: t.amount || (t.savings_amount + t.loan_interest) || 0,
-            Status: 'Completed'
-        }));
-
-        // Define Columns
-        const columns = [
-            { header: 'Date', key: 'Date' },
-            { header: 'Reference', key: 'Ref' },
-            { header: 'Type', key: 'Type' },
-            { header: 'Description', key: 'Description' },
-            { header: 'Amount (KES)', key: 'Amount' },
-            { header: 'Status', key: 'Status' }
-        ];
-
-        ExcelService.exportToExcel(
-            data,
-            columns,
-            "Member Ledger Statement",
-            `Statement_${member.name.replace(/\s+/g, '_')}`,
-            { "Member Name": member.name, "Member ID": member.id }
-        );
-        toast.success("Excel Exported!");
+        api.downloadMemberStatementExcel(member.id, startDate, endDate);
+        toast.success("Excel Analytics Requested!");
     };
 
     const handlePrint = () => {
@@ -611,19 +586,31 @@ const MemberLedger = () => {
                                             </td>
                                             <td className="px-6 py-4 text-gray-600 text-xs">{txn.notes}</td>
                                             <td className="px-6 py-4 text-center">
-                                                {txn.status !== 'REVERSED' ? (
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedTxn(txn);
-                                                            setShowReversalModal(true);
-                                                        }}
-                                                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors title='Request Reversal'"
-                                                    >
-                                                        <FaUndo size={14} />
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-[10px] font-bold text-red-500 uppercase tracking-tighter">Reversed</span>
-                                                )}
+                                                <div className="flex items-center justify-center gap-2">
+                                                    {txn.status !== 'REVERSED' && (
+                                                        <button
+                                                            onClick={() => api.downloadReceiptPDF(txn.id)}
+                                                            className="p-2 text-safaricom-green hover:bg-green-50 rounded-lg transition-colors"
+                                                            title="Download Official Receipt"
+                                                        >
+                                                            <FaFileInvoice size={14} />
+                                                        </button>
+                                                    )}
+                                                    {txn.status !== 'REVERSED' ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedTxn(txn);
+                                                                setShowReversalModal(true);
+                                                            }}
+                                                            className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                                            title="Request Reversal"
+                                                        >
+                                                            <FaUndo size={14} />
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-[10px] font-bold text-red-500 uppercase tracking-tighter">Reversed</span>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     ))

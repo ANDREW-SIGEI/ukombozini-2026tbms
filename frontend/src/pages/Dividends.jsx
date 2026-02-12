@@ -6,8 +6,11 @@ import {
 } from 'react-icons/fa6';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
+import { FaHistory, FaGears, FaHandHoldingUsd, FaFileInvoiceDollar, FaChartArea } from 'react-icons/fa6';
+
 // Register ChartJS
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
@@ -42,6 +45,12 @@ const Dividends = () => {
     // Manual Mode State
     const [isManualMode, setIsManualMode] = useState(false);
 
+    // Phase 12: Tab State
+    const [activeTab, setActiveTab] = useState('dividends'); // 'dividends' or 'surplus'
+    const [allocationHistory, setAllocationHistory] = useState([]);
+    const [allocationRules, setAllocationRules] = useState(null);
+    const [rulesLoading, setRulesLoading] = useState(false);
+
     const [calculations, setCalculations] = useState({
         trf: 0,
         availableProfit: 0,
@@ -63,11 +72,11 @@ const Dividends = () => {
             if (data && data.length > 0) {
                 setGroups(data);
             } else {
-                setGroups([{ id: 'demo-1', name: 'UKOMBOZI Group A (Demo)' }]);
+                setGroups([{ id: 'demo-1', name: 'UKOMBOZINI Group A (Demo)' }]);
             }
         } catch (error) {
             console.warn("Failed to load groups, using demo group", error);
-            setGroups([{ id: 'demo-1', name: 'UKOMBOZI Group A (Demo)' }]);
+            setGroups([{ id: 'demo-1', name: 'UKOMBOZINI Group A (Demo)' }]);
         }
     };
 
@@ -76,6 +85,53 @@ const Dividends = () => {
         calculateDividends();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [financials, members]);
+
+    // Phase 12: Load History when Tab Changes
+    useEffect(() => {
+        if (activeTab === 'surplus') {
+            loadAllocationHistory();
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (selectedGroupId && activeTab === 'surplus') {
+            loadAllocationRules(selectedGroupId);
+        }
+    }, [selectedGroupId, activeTab]);
+
+    const loadAllocationHistory = async () => {
+        setLoading(true);
+        try {
+            const history = await api.getAllocationHistory();
+            setAllocationHistory(history || []);
+        } catch (error) {
+            console.error("History Load Error", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadAllocationRules = async (groupId) => {
+        setRulesLoading(true);
+        try {
+            const rules = await api.getAllocationRules(groupId);
+            setAllocationRules(rules);
+        } catch (error) {
+            console.error("Rules Load Error", error);
+        } finally {
+            setRulesLoading(false);
+        }
+    };
+
+    const handleUpdateRules = async (rules) => {
+        try {
+            await api.updateAllocationRules(selectedGroupId, rules);
+            setAllocationRules(rules);
+            toast.success("Allocation Matrix Updated!");
+        } catch (error) {
+            toast.error("Failed to update rules");
+        }
+    };
 
     const handleGenerateReport = async () => {
         setIsManualMode(false); // Disable manual mode if auto-generating
@@ -386,6 +442,23 @@ const Dividends = () => {
                         Institutional Standard • {dividendState.year} Financial Year
                     </p>
                 </div>
+
+                {/* Tab Switcher */}
+                <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200">
+                    <button
+                        onClick={() => setActiveTab('dividends')}
+                        className={`px-6 py-2 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${activeTab === 'dividends' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}
+                    >
+                        <FaHandHoldingUsd /> Member Dividends
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('surplus')}
+                        className={`px-6 py-2 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${activeTab === 'surplus' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}
+                    >
+                        <FaChartArea /> Institutional Surplus
+                    </button>
+                </div>
+
                 <div className="flex gap-3">
                     <button
                         onClick={activateManualMode}
@@ -424,21 +497,13 @@ const Dividends = () => {
                 {!isManualMode && (
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-end z-20 relative">
                         <div className="flex-1 w-full">
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Select Group to Process</label>
-                            <div className="relative">
-                                <select
-                                    value={selectedGroupId}
-                                    onChange={(e) => setSelectedGroupId(e.target.value)}
-                                    className="w-full appearance-none bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-bold text-gray-700 focus:outline-none focus:border-safaricom-green/50"
-                                >
-                                    <option value="">-- Choose a Group --</option>
-                                    {groups.map(g => (
-                                        <option key={g.id} value={g.id}>{g.name}</option>
-                                    ))}
-                                </select>
-                                <div className="absolute right-4 top-4 text-gray-400 pointer-events-none">
-                                    <FaMagnifyingGlass />
-                                </div>
+                            <div className="relative z-20">
+                                <SearchableGroupSelector
+                                    label="Select Group to Process"
+                                    groups={groups}
+                                    selectedGroupId={selectedGroupId}
+                                    onSelect={(id) => setSelectedGroupId(id)}
+                                />
                             </div>
                         </div>
                         <div className="w-48">
@@ -461,220 +526,329 @@ const Dividends = () => {
                     </div>
                 )}
 
-                {/* MANUAL MODE BANNER */}
-                {isManualMode && (
-                    <div className="bg-orange-50 border-2 border-orange-200 p-4 rounded-2xl flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-orange-100 text-orange-600 rounded-lg"><FaKeyboard size={20} /></div>
-                            <div>
-                                <h3 className="font-bold text-orange-900">Manual Entry Mode Active</h3>
-                                <p className="text-sm text-orange-700">You are manually entering data. Inputs are unlocked. Charts update live.</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* 🧱 CONTROL PANEL + ANALYTICS GRID */}
-                {(members.length > 0 || isManualMode) ? (
-                    <div className="grid grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {/* LEFT: Financial Inputs */}
-                        <div className="col-span-12 lg:col-span-5 space-y-6">
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                                    <h3 className="font-black text-gray-800 flex items-center gap-2">
-                                        <FaCalculator /> TRF & Profit Logic
-                                    </h3>
-                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">Calculator</span>
+                {/* --- MEMBER DIVIDENDS VIEW --- */}
+                {activeTab === 'dividends' && (
+                    <>
+                        {/* MANUAL MODE BANNER */}
+                        {isManualMode && (
+                            <div className="bg-orange-50 border-2 border-orange-200 p-4 rounded-2xl flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-orange-100 text-orange-600 rounded-lg"><FaKeyboard size={20} /></div>
+                                    <div>
+                                        <h3 className="font-bold text-orange-900">Manual Entry Mode Active</h3>
+                                        <p className="text-sm text-orange-700">You are manually entering data. Inputs are unlocked. Charts update live.</p>
+                                    </div>
                                 </div>
-                                <div className="p-6 space-y-4">
-                                    <InputRow label="Banking Interest" value={financials.bankInterest} onChange={v => setFinancials({ ...financials, bankInterest: v })} />
-                                    <InputRow label="STL Interest" value={financials.stlInterest} onChange={v => setFinancials({ ...financials, stlInterest: v })} />
-                                    <InputRow label="LTL Interest" value={financials.ltlInterest} onChange={v => setFinancials({ ...financials, ltlInterest: v })} />
-                                    <InputRow label="Penalties" value={financials.penalties} onChange={v => setFinancials({ ...financials, penalties: v })} />
-                                    <InputRow label="Other Income" value={financials.otherIncome} onChange={v => setFinancials({ ...financials, otherIncome: v })} />
-                                    <div className="h-px bg-gray-100 my-2"></div>
-                                    <InputRow label="Less: Expenses" value={financials.expenses} onChange={v => setFinancials({ ...financials, expenses: v })} isDeduction />
-                                    <InputRow label="Less: Reinvested Loans" value={financials.reinvestedLoans} onChange={v => setFinancials({ ...financials, reinvestedLoans: v })} isDeduction />
+                            </div>
+                        )}
 
-                                    <div className="bg-safaricom-green/10 p-4 rounded-xl border border-safaricom-green/20 mt-4">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <div className="text-xs font-bold text-safaricom-green uppercase mb-1">Final Dividend Rate</div>
-                                                <div className="text-3xl font-black text-gray-800">
-                                                    {calculations.dividendRate.toFixed(4)}
-                                                </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Payout</div>
-                                                <div className="text-xl font-black text-safaricom-green">
-                                                    KES {calculations.profitToShareOut.toLocaleString()}
+                        {/* 🧱 CONTROL PANEL + ANALYTICS GRID */}
+                        {(members.length > 0 || isManualMode) ? (
+                            <div className="grid grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                {/* LEFT: Financial Inputs */}
+                                <div className="col-span-12 lg:col-span-5 space-y-6">
+                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                        <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                            <h3 className="font-black text-gray-800 flex items-center gap-2">
+                                                <FaCalculator /> TRF & Profit Logic
+                                            </h3>
+                                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">Calculator</span>
+                                        </div>
+                                        <div className="p-6 space-y-4">
+                                            <InputRow label="Banking Interest" value={financials.bankInterest} onChange={v => setFinancials({ ...financials, bankInterest: v })} />
+                                            <InputRow label="STL Interest" value={financials.stlInterest} onChange={v => setFinancials({ ...financials, stlInterest: v })} />
+                                            <InputRow label="LTL Interest" value={financials.ltlInterest} onChange={v => setFinancials({ ...financials, ltlInterest: v })} />
+                                            <InputRow label="Penalties" value={financials.penalties} onChange={v => setFinancials({ ...financials, penalties: v })} />
+                                            <InputRow label="Other Income" value={financials.otherIncome} onChange={v => setFinancials({ ...financials, otherIncome: v })} />
+                                            <div className="h-px bg-gray-100 my-2"></div>
+                                            <InputRow label="Less: Expenses" value={financials.expenses} onChange={v => setFinancials({ ...financials, expenses: v })} isDeduction />
+                                            <InputRow label="Less: Reinvested Loans" value={financials.reinvestedLoans} onChange={v => setFinancials({ ...financials, reinvestedLoans: v })} isDeduction />
+
+                                            <div className="bg-safaricom-green/10 p-4 rounded-xl border border-safaricom-green/20 mt-4">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <div className="text-xs font-bold text-safaricom-green uppercase mb-1">Final Dividend Rate</div>
+                                                        <div className="text-3xl font-black text-gray-800">
+                                                            {calculations.dividendRate.toFixed(4)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Payout</div>
+                                                        <div className="text-xl font-black text-safaricom-green">
+                                                            KES {calculations.profitToShareOut.toLocaleString()}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* RIGHT: Visual Analytics */}
-                        <div className="col-span-12 lg:col-span-7 space-y-6">
-                            {/* Stats */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-5 rounded-2xl border border-orange-100 relative overflow-hidden">
-                                    <FaTrophy className="absolute -right-4 -bottom-4 text-8xl text-orange-200/50" />
-                                    <div className="relative z-10">
-                                        <div className="text-xs font-bold text-orange-600 uppercase">Top Earner</div>
-                                        <div className="text-2xl font-black text-gray-800 mt-1">{calculations.topEarner}</div>
-                                        <div className="text-sm font-bold text-orange-600">KES {calculations.maxDividend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                                {/* RIGHT: Visual Analytics */}
+                                <div className="col-span-12 lg:col-span-7 space-y-6">
+                                    {/* Stats */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-5 rounded-2xl border border-orange-100 relative overflow-hidden">
+                                            <FaTrophy className="absolute -right-4 -bottom-4 text-8xl text-orange-200/50" />
+                                            <div className="relative z-10">
+                                                <div className="text-xs font-bold text-orange-600 uppercase">Top Earner</div>
+                                                <div className="text-2xl font-black text-gray-800 mt-1">{calculations.topEarner}</div>
+                                                <div className="text-sm font-bold text-orange-600">KES {calculations.maxDividend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 relative overflow-hidden">
+                                            <FaChartPie className="absolute -right-4 -bottom-4 text-8xl text-blue-200/50" />
+                                            <div className="relative z-10">
+                                                <div className="text-xs font-bold text-blue-600 uppercase">Profit Utilized</div>
+                                                <div className="text-2xl font-black text-gray-800 mt-1">{(dividendState.shareOutRate * 100)}%</div>
+                                                <div className="text-sm font-bold text-blue-600">Distributed to Members</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {/* Charts */}
+                                    <div className="grid grid-cols-2 gap-4 h-64">
+                                        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
+                                            <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 w-full text-left">Income Mix</h4>
+                                            <div className="w-40 h-40">
+                                                <Doughnut data={trfData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } } }} />
+                                            </div>
+                                        </div>
+                                        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
+                                            <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 w-full text-left">Fund Allocation</h4>
+                                            <div className="w-full h-40">
+                                                <Bar data={distributionData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }} />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 relative overflow-hidden">
-                                    <FaChartPie className="absolute -right-4 -bottom-4 text-8xl text-blue-200/50" />
-                                    <div className="relative z-10">
-                                        <div className="text-xs font-bold text-blue-600 uppercase">Profit Utilized</div>
-                                        <div className="text-2xl font-black text-gray-800 mt-1">{(dividendState.shareOutRate * 100)}%</div>
-                                        <div className="text-sm font-bold text-blue-600">Distributed to Members</div>
-                                    </div>
-                                </div>
-                            </div>
-                            {/* Charts */}
-                            <div className="grid grid-cols-2 gap-4 h-64">
-                                <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
-                                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 w-full text-left">Income Mix</h4>
-                                    <div className="w-40 h-40">
-                                        <Doughnut data={trfData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } } }} />
-                                    </div>
-                                </div>
-                                <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
-                                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2 w-full text-left">Fund Allocation</h4>
-                                    <div className="w-full h-40">
-                                        <Bar data={distributionData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
 
-                        {/* BOTTOM: Full Width Member Table */}
-                        <div className="col-span-12">
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
-                                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <h3 className="font-black text-gray-800">Member Share Snapshot</h3>
-                                        {isManualMode && (
-                                            <button onClick={addManualMember} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-blue-100">
-                                                <FaPlus /> Add Member
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
-                                        <FaCircleInfo /> Bi-Monthly Balances
-                                    </div>
-                                </div>
-                                <div className="flex-1 overflow-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="bg-gray-50 text-xs text-gray-500 uppercase font-black tracking-wide">
-                                                <th className="p-4 border-b border-gray-200 sticky left-0 bg-gray-50 z-10 w-48 shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">Member</th>
-                                                {['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Nov'].map(m => (
-                                                    <th key={m} className="p-4 border-b border-gray-200 text-right min-w-[100px]">{m}</th>
-                                                ))}
-                                                <th className="p-4 border-b border-gray-200 text-right bg-blue-50 text-blue-800">Avg Shares</th>
-                                                <th className="p-4 border-b border-gray-200 text-right bg-green-50 text-green-800">Dividend</th>
-                                                {isManualMode && <th className="p-4 border-b border-gray-200 w-10"></th>}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="text-sm">
-                                            {members.map((member) => {
-                                                const avgShares = Object.values(member.balances).reduce((a, b) => a + b, 0) / 6;
-                                                const dividend = avgShares * calculations.dividendRate;
-
-                                                return (
-                                                    <tr key={member.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                                        <td className="p-4 font-bold text-gray-800 sticky left-0 bg-white shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">
-                                                            {isManualMode ? (
-                                                                <input
-                                                                    type="text"
-                                                                    value={member.name}
-                                                                    onChange={(e) => handleNameChange(member.id, e.target.value)}
-                                                                    className="w-full bg-gray-50 border-b border-gray-300 focus:border-blue-500 outline-none px-1"
-                                                                />
-                                                            ) : member.name}
-                                                        </td>
-                                                        {['jan', 'mar', 'may', 'jul', 'sep', 'nov'].map(month => (
-                                                            <td key={month} className="p-2 text-right">
-                                                                <input
-                                                                    type="number"
-                                                                    value={member.balances[month]}
-                                                                    onChange={(e) => handleBalanceChange(member.id, month, e.target.value)}
-                                                                    className="w-full text-right bg-transparent focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 rounded px-2 py-1 outline-none font-medium text-gray-600"
-                                                                />
-                                                            </td>
+                                {/* BOTTOM: Full Width Member Table */}
+                                <div className="col-span-12">
+                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
+                                        <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                            <div className="flex items-center gap-4">
+                                                <h3 className="font-black text-gray-800">Member Share Snapshot</h3>
+                                                {isManualMode && (
+                                                    <button onClick={addManualMember} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-blue-100">
+                                                        <FaPlus /> Add Member
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
+                                                <FaCircleInfo /> Bi-Monthly Balances
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 overflow-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-gray-50 text-xs text-gray-500 uppercase font-black tracking-wide">
+                                                        <th className="p-4 border-b border-gray-200 sticky left-0 bg-gray-50 z-10 w-48 shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">Member</th>
+                                                        {['Jan', 'Mar', 'May', 'Jul', 'Sep', 'Nov'].map(m => (
+                                                            <th key={m} className="p-4 border-b border-gray-200 text-right min-w-[100px]">{m}</th>
                                                         ))}
-                                                        <td className="p-4 text-right font-black text-gray-800 bg-blue-50/30">
-                                                            {avgShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                                        </td>
-                                                        <td className="p-4 text-right font-black text-safaricom-green bg-green-50/30 text-base">
-                                                            {dividend.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                                        </td>
-                                                        {isManualMode && (
-                                                            <td className="p-4 text-center">
-                                                                <button onClick={() => removeMember(member.id)} className="text-red-300 hover:text-red-500 transition-colors">
-                                                                    <FaTrash />
-                                                                </button>
-                                                            </td>
-                                                        )}
+                                                        <th className="p-4 border-b border-gray-200 text-right bg-blue-50 text-blue-800">Avg Shares</th>
+                                                        <th className="p-4 border-b border-gray-200 text-right bg-green-50 text-green-800">Dividend</th>
+                                                        {isManualMode && <th className="p-4 border-b border-gray-200 w-10"></th>}
                                                     </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                        <tfoot className="bg-gray-100 font-black text-gray-900 border-t-2 border-gray-200 sticky bottom-0 z-10 shadow-lg">
-                                            <tr>
-                                                <td className="p-4 sticky left-0 bg-gray-100 uppercase text-xs z-20 shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">Total</td>
-                                                <td colSpan={6} className="p-4 text-right text-xs text-gray-500 uppercase tracking-wide">Total Average Shares:</td>
-                                                <td className="p-4 text-right">{calculations.totalAverageShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                                                <td className="p-4 text-right text-safaricom-green">{members.reduce((sum, m) => sum + ((Object.values(m.balances).reduce((a, b) => a + b, 0) / 6) * calculations.dividendRate), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                                                {isManualMode && <td></td>}
-                                            </tr>
-                                        </tfoot>
-                                    </table>
+                                                </thead>
+                                                <tbody className="text-sm">
+                                                    {members.map((member) => {
+                                                        const avgShares = Object.values(member.balances).reduce((a, b) => a + b, 0) / 6;
+                                                        const dividend = avgShares * calculations.dividendRate;
+
+                                                        return (
+                                                            <tr key={member.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                                                                <td className="p-4 font-bold text-gray-800 sticky left-0 bg-white shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">
+                                                                    {isManualMode ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            value={member.name}
+                                                                            onChange={(e) => handleNameChange(member.id, e.target.value)}
+                                                                            className="w-full bg-gray-50 border-b border-gray-300 focus:border-blue-500 outline-none px-1"
+                                                                        />
+                                                                    ) : member.name}
+                                                                </td>
+                                                                {['jan', 'mar', 'may', 'jul', 'sep', 'nov'].map(month => (
+                                                                    <td key={month} className="p-2 text-right">
+                                                                        <input
+                                                                            type="number"
+                                                                            value={member.balances[month]}
+                                                                            onChange={(e) => handleBalanceChange(member.id, month, e.target.value)}
+                                                                            className="w-full text-right bg-transparent focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 rounded px-2 py-1 outline-none font-medium text-gray-600"
+                                                                        />
+                                                                    </td>
+                                                                ))}
+                                                                <td className="p-4 text-right font-black text-gray-800 bg-blue-50/30">
+                                                                    {avgShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                                </td>
+                                                                <td className="p-4 text-right font-black text-safaricom-green bg-green-50/30 text-base">
+                                                                    {dividend.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                                </td>
+                                                                {isManualMode && (
+                                                                    <td className="p-4 text-center">
+                                                                        <button onClick={() => removeMember(member.id)} className="text-red-300 hover:text-red-500 transition-colors">
+                                                                            <FaTrash />
+                                                                        </button>
+                                                                    </td>
+                                                                )}
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                                <tfoot className="bg-gray-100 font-black text-gray-900 border-t-2 border-gray-200 sticky bottom-0 z-10 shadow-lg">
+                                                    <tr>
+                                                        <td className="p-4 sticky left-0 bg-gray-100 uppercase text-xs z-20 shadow-[1px_0_3px_-2px_rgba(0,0,0,0.1)]">Total</td>
+                                                        <td colSpan={6} className="p-4 text-right text-xs text-gray-500 uppercase tracking-wide">Total Average Shares:</td>
+                                                        <td className="p-4 text-right">{calculations.totalAverageShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                                        <td className="p-4 text-right text-safaricom-green">{members.reduce((sum, m) => sum + ((Object.values(m.balances).reduce((a, b) => a + b, 0) / 6) * calculations.dividendRate), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                                        {isManualMode && <td></td>}
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
+
+                        {/* --- INSTITUTIONAL SURPLUS VIEW (PHASE 12) --- */}
+                        {activeTab === 'surplus' && (
+                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="grid grid-cols-12 gap-8">
+                                    {/* Matrix Controls */}
+                                    <div className="col-span-12 lg:col-span-4">
+                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                            <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                                <h3 className="font-black text-gray-800 flex items-center gap-2">
+                                                    <FaGears className="text-blue-600" /> Allocation Matrix
+                                                </h3>
+                                                <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-black uppercase">Rules</span>
+                                            </div>
+                                            <div className="p-6 space-y-4">
+                                                {rulesLoading ? (
+                                                    <div className="py-20 text-center"><FaSpinner className="animate-spin text-4xl text-blue-600 mx-auto" /></div>
+                                                ) : !selectedGroupId ? (
+                                                    <div className="py-10 text-center text-gray-400 font-bold">Select a group to see rules</div>
+                                                ) : allocationRules && (
+                                                    <>
+                                                        <MatrixInput label="STL Allocation" value={allocationRules.stl_pct} onChange={v => handleUpdateRules({ ...allocationRules, stl_pct: v })} />
+                                                        <MatrixInput label="LTL Allocation" value={allocationRules.ltl_pct} onChange={v => handleUpdateRules({ ...allocationRules, ltl_pct: v })} />
+                                                        <MatrixInput label="Member Dividend" value={allocationRules.dividend_pct} onChange={v => handleUpdateRules({ ...allocationRules, dividend_pct: v })} />
+                                                        <MatrixInput label="Refund Reserve" value={allocationRules.refund_reserve_pct} onChange={v => handleUpdateRules({ ...allocationRules, refund_reserve_pct: v })} />
+                                                        <MatrixInput label="Education Project" value={allocationRules.edu_project_pct} onChange={v => handleUpdateRules({ ...allocationRules, edu_project_pct: v })} />
+                                                        <MatrixInput label="Agriculture Project" value={allocationRules.agri_project_pct} onChange={v => handleUpdateRules({ ...allocationRules, agri_project_pct: v })} />
+
+                                                        <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                                                            <p className="text-[11px] text-blue-800 font-medium leading-relaxed italic">
+                                                                These percentages are applied to the "Net Surplus" of every session posting.
+                                                                Changes apply to future sessions.
+                                                            </p>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* History Table */}
+                                    <div className="col-span-12 lg:col-span-8">
+                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full">
+                                            <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                                <h3 className="font-black text-gray-800 flex items-center gap-2">
+                                                    <FaHistory className="text-safaricom-green" /> Collection Records
+                                                </h3>
+                                                <button onClick={loadAllocationHistory} className="text-blue-600 font-bold text-xs hover:underline flex items-center gap-1">
+                                                    <FaClockRotateLeft /> Refresh History
+                                                </button>
+                                            </div>
+                                            <div className="flex-1 overflow-auto max-h-[600px]">
+                                                <table className="w-full text-left border-collapse">
+                                                    <thead>
+                                                        <tr className="bg-gray-50 text-[11px] text-gray-500 uppercase font-black tracking-wider">
+                                                            <th className="p-4 border-b border-gray-200">Date & Group</th>
+                                                            <th className="p-4 border-b border-gray-200 text-right">Cash In</th>
+                                                            <th className="p-4 border-b border-gray-200 text-right">Cash Out</th>
+                                                            <th className="p-4 border-b border-gray-200 text-right">Net Surplus</th>
+                                                            <th className="p-4 border-b border-gray-200 text-center">Status</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="text-sm">
+                                                        {allocationHistory.length === 0 ? (
+                                                            <tr><td colSpan={5} className="p-20 text-center text-gray-400 font-bold italic">No allocation history found.</td></tr>
+                                                        ) : allocationHistory.map((row) => (
+                                                            <tr key={row.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                                                                <td className="p-4">
+                                                                    <div className="font-black text-gray-800">{row.group_name}</div>
+                                                                    <div className="text-[10px] text-gray-500 font-bold uppercase">Session on {row.session_date ? new Date(row.session_date).toLocaleDateString() : 'Unknown Date'}</div>
+                                                                </td>
+                                                                <td className="p-4 text-right font-mono font-bold text-gray-600">
+                                                                    {row.total_cash_in.toLocaleString()}
+                                                                </td>
+                                                                <td className="p-4 text-right font-mono font-bold text-gray-600">
+                                                                    -{row.total_cash_out.toLocaleString()}
+                                                                </td>
+                                                                <td className="p-4 text-right">
+                                                                    <span className={`font-black text-base ${row.net_surplus >= 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
+                                                                        KES {row.net_surplus.toLocaleString()}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-4 text-center">
+                                                                    <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                                                                        {row.status}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                ) : (
-                    <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gray-300">
-                        <FaCalculator className="text-6xl text-gray-200 mx-auto mb-4" />
-                        <h3 className="text-xl font-bold text-gray-400">Select Mode</h3>
-                        <div className="flex justify-center gap-4 mt-4">
-                            <button onClick={activateManualMode} className="px-6 py-2 bg-orange-100 text-orange-700 font-bold rounded-xl hover:bg-orange-200 transition-colors">
-                                <FaKeyboard className="inline mr-2" /> Manual Entry
-                            </button>
-                            <span className="self-center text-gray-400">or select a group above</span>
-                        </div>
-                    </div>
-                )}
             </div>
-        </div>
-    );
+            );
 };
 
-const InputRow = ({ label, value, onChange, isDeduction }) => (
-    <div className="flex items-center justify-between">
-        <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>
-        <div className="relative w-32">
-            <input
-                type="number"
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
-                    ? 'border-red-200 text-red-600 focus:ring-red-200'
-                    : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
-                    }`}
-                placeholder="0"
-            />
-            {isDeduction && <span className="absolute left-2 top-2 text-red-400 text-xs">-</span>}
-        </div>
-    </div>
-);
+            // ... existing InputRow ...
 
-export default Dividends;
+            const MatrixInput = ({label, value, onChange}) => (
+            <div className="flex items-center justify-between group">
+                <label className="text-xs font-black text-gray-500 uppercase tracking-tight">{label}</label>
+                <div className="relative w-28">
+                    <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={value}
+                        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+                        className="w-full text-right pr-8 pl-3 py-2 border-2 border-gray-100 rounded-xl font-black text-gray-700 outline-none focus:border-blue-500/50 transition-all bg-gray-50/50 group-hover:bg-white"
+                    />
+                    <span className="absolute right-3 top-2.5 text-[10px] font-black text-gray-400 pointer-events-none">%</span>
+                </div>
+            </div>
+            );
+
+            const InputRow = ({label, value, onChange, isDeduction}) => (
+            <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>
+                <div className="relative w-32">
+                    <input
+                        type="number"
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
+                            ? 'border-red-200 text-red-600 focus:ring-red-200'
+                            : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
+                            }`}
+                        placeholder="0"
+                    />
+                    {isDeduction && <span className="absolute left-2 top-2 text-red-400 text-xs">-</span>}
+                </div>
+            </div>
+            );
+
+            export default Dividends;

@@ -4,7 +4,7 @@ import {
     FaLeaf, FaFileInvoiceDollar, FaBuildingColumns, FaTriangleExclamation,
     FaArrowRight, FaSpinner, FaCircleCheck, FaSackDollar, FaBoxArchive,
     FaShieldHalved, FaMoneyBillTransfer, FaUserShield, FaChartLine,
-    FaFilePdf
+    FaFilePdf, FaCommentSms
 } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
 import { api } from '../services/api';
@@ -839,6 +839,12 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                     className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3 active:scale-95"
                                 >
                                     <FaFilePdf className="text-xl" /> DOWNLOAD PDF RECEIPT
+                                </button>
+                                <button
+                                    onClick={() => ReceiptService.resendSMSReceipt(memberContext, lastTxData)}
+                                    className="w-full py-5 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-3xl font-black shadow-sm hover:bg-blue-100 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                >
+                                    <FaCommentSms className="text-xl" /> RE-SEND SMS RECEIPT
                                 </button>
                                 <button
                                     onClick={onClose}

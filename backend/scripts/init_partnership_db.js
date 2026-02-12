@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 // Connect to existing DB
-const dbPath = path.resolve(__dirname, '../ukombozi.sqlite');
+const dbPath = path.resolve(__dirname, '../ukombozini.sqlite');
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
         console.error('Error opening database', err.message);

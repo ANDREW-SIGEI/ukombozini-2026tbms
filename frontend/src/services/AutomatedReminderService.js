@@ -1,5 +1,5 @@
 /**
- * UKOMBOZI Automated SMS Reminder Service
+ * UKOMBOZINI Automated SMS Reminder Service
  * Institutional-Grade SMS Automation
  * 
  * Features:
@@ -54,7 +54,7 @@ class AutomatedReminderService {
      */
     generateContributionReminderMessage(member, month) {
         const expectedAmount = 2000; // Could be dynamic based on member tier
-        const groupName = member.groupName || 'UKOMBOZI';
+        const groupName = member.groupName || 'UKOMBOZINI';
 
         return `Dear ${member.name},\n\n` +
             `🔔 REMINDER: Your ${month} contribution of KES ${expectedAmount.toLocaleString()} is due.\n\n` +
@@ -393,35 +393,35 @@ class AutomatedReminderService {
 export const SMS_TEMPLATES = {
     CONTRIBUTION_REMINDER: {
         name: 'Monthly Contribution Reminder',
-        message: `Dear {{name}},\n\n🔔 Your {{month}} contribution of KES {{amount}} is due.\n\nPay at the next meeting.\n\nUKOMBOZI`
+        message: `Dear {{name}},\n\n🔔 Your {{month}} contribution of KES {{amount}} is due.\n\nPay at the next meeting.\n\nUKOMBOZINI`
     },
     LOAN_REMINDER: {
         name: 'Loan Repayment Reminder',
-        message: `Dear {{name}},\n\n⏰ Loan payment of KES {{amount}} due on {{date}}.\n\nUKOMBOZI`
+        message: `Dear {{name}},\n\n⏰ Loan payment of KES {{amount}} due on {{date}}.\n\nUKOMBOZINI`
     },
     OVERDUE_ALERT: {
         name: 'Overdue Payment Alert',
-        message: `🚨 URGENT: Your payment of KES {{amount}} is {{days}} days overdue.\n\nContact us immediately.\n\nUKOMBOZI`
+        message: `🚨 URGENT: Your payment of KES {{amount}} is {{days}} days overdue.\n\nContact us immediately.\n\nUKOMBOZINI`
     },
     MEETING_NOTIFICATION: {
         name: 'Meeting Notification',
-        message: `📅 MEETING: {{date}} at {{time}}\n\nBring contribution & loan payments.\n\nUKOMBOZI`
+        message: `📅 MEETING: {{date}} at {{time}}\n\nBring contribution & loan payments.\n\nUKOMBOZINI`
     },
     WELCOME_MEMBER: {
         name: 'Welcome New Member',
-        message: `Welcome to UKOMBOZI, {{name}}!\n\nYour membership is confirmed.\n\nExpected monthly contribution: KES {{amount}}\n\nUKOMBOZI`
+        message: `Welcome to UKOMBOZINI, {{name}}!\n\nYour membership is confirmed.\n\nExpected monthly contribution: KES {{amount}}\n\nUKOMBOZINI`
     },
     LOAN_APPROVED: {
         name: 'Loan Approval Notification',
-        message: `✅ APPROVED: Your loan of KES {{amount}} has been approved.\n\nDisbursement: {{date}}\n\nUKOMBOZI`
+        message: `✅ APPROVED: Your loan of KES {{amount}} has been approved.\n\nDisbursement: {{date}}\n\nUKOMBOZINI`
     },
     LOAN_REJECTED: {
         name: 'Loan Rejection Notification',
-        message: `❌ DECLINED: Your loan application has been declined.\n\nReason: {{reason}}\n\nContact us for details.\n\nUKOMBOZI`
+        message: `❌ DECLINED: Your loan application has been declined.\n\nReason: {{reason}}\n\nContact us for details.\n\nUKOMBOZINI`
     },
     CONTRIBUTION_CONFIRMED: {
         name: 'Contribution Confirmation',
-        message: `✅ RECEIVED: KES {{amount}} contribution.\n\nNew Balance: KES {{newBalance}}\n\nThank you!\n\nUKOMBOZI`
+        message: `✅ RECEIVED: KES {{amount}} contribution.\n\nNew Balance: KES {{newBalance}}\n\nThank you!\n\nUKOMBOZINI`
     }
 };
 

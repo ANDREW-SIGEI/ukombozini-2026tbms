@@ -207,6 +207,40 @@ class RiskService {
             });
         });
     }
+
+    /**
+     * 🌍 System-wide liquidity and loan exposure aggregation.
+     * Used as a real-time fallback when risk_scores table is empty.
+     */
+    static async getGlobalRiskStats() {
+        return new Promise((resolve, reject) => {
+            const query = `
+                SELECT 
+                    COALESCE(SUM(current_savings), 0) as total_savings,
+                    COALESCE(SUM(active_loan_balance), 0) as total_loans
+                FROM members
+            `;
+            db.get(query, [], (err, row) => {
+                if (err) return reject(err);
+
+                // Also get the number of groups at risk (score >= 70)
+                db.get(`
+                    SELECT COUNT(*) as atRiskCount 
+                    FROM groups 
+                    WHERE risk_score >= 70
+                `, (err, riskRow) => {
+                    if (err) return reject(err);
+
+                    resolve({
+                        total_savings: row.total_savings,
+                        total_loans: row.total_loans,
+                        total_liquidity: row.total_savings - row.total_loans,
+                        system_at_risk: riskRow?.atRiskCount || 0
+                    });
+                });
+            });
+        });
+    }
 }
 
 module.exports = RiskService;

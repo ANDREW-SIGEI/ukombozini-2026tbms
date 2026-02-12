@@ -903,7 +903,7 @@ const ProjectManager = () => {
                                                     )}
                                                 </div>
 
-                                                <p className="text-[10px] text-gray-300 italic font-bold uppercase tracking-widest">Digital Audit Trail Protected by Ukombozi Engine</p>
+                                                <p className="text-[10px] text-gray-300 italic font-bold uppercase tracking-widest">Digital Audit Trail Protected by UKOMBOZINI Engine</p>
                                             </div>
                                         </div>
                                     )}

@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
-import { Calendar, Search, FileText, Smartphone, Download } from 'lucide-react';
+import { Calendar, Search, FileText, Smartphone, Download, X, ArrowRight, TrendingUp } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 const AuditorMode = () => {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [loading, setLoading] = useState(false);
     const [snapshot, setSnapshot] = useState(null);
     const [filterGroup, setFilterGroup] = useState('');
+    const [selectedMember, setSelectedMember] = useState(null);
+    const [trail, setTrail] = useState([]);
+    const [trailLoading, setTrailLoading] = useState(false);
 
     const handleGenerate = async () => {
         setLoading(true);
@@ -18,6 +22,42 @@ const AuditorMode = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleDrillDown = async (member) => {
+        setSelectedMember(member);
+        setTrailLoading(true);
+        try {
+            const data = await api.getAuditTrail(member.id, date);
+            setTrail(data || []);
+        } catch (error) {
+            toast.error("Failed to load transaction trail");
+        } finally {
+            setTrailLoading(false);
+        }
+    };
+
+    const handleExportCSV = () => {
+        if (!snapshot) return;
+        const headers = ['Member', 'Group', 'Savings', 'Project', 'Welfare', 'Loan Balance'];
+        const csvRows = [
+            headers.join(','),
+            ...snapshot.map(row => [
+                `"${row.name}"`,
+                `"${row.group_name}"`,
+                row.historical_savings,
+                row.historical_project,
+                row.historical_welfare,
+                row.historical_loan_balance
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvRows], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Audit_Snapshot_${date}.csv`;
+        a.click();
     };
 
     const formatCurrency = (amount) => {
@@ -46,6 +86,16 @@ const AuditorMode = () => {
                             Time-Travel Snapshot Engine. Reconstructs historical balances from transaction ledger.
                         </p>
                     </div>
+                    {snapshot && (
+                        <div className="flex gap-3">
+                            <button
+                                onClick={handleExportCSV}
+                                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                                <Download className="w-4 h-4" /> Export CSV
+                            </button>
+                        </div>
+                    )}
                 </div>
             </header>
 
@@ -118,17 +168,26 @@ const AuditorMode = () => {
                                         <th className="px-6 py-3 text-right">Project</th>
                                         <th className="px-6 py-3 text-right">Welfare</th>
                                         <th className="px-6 py-3 text-right">Loan Bal</th>
+                                        <th className="px-6 py-3">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredData.map((row) => (
-                                        <tr key={row.id} className="hover:bg-gray-50">
+                                        <tr key={row.id} className="hover:bg-gray-50 group">
                                             <td className="px-6 py-3 font-medium text-gray-900">{row.name}</td>
                                             <td className="px-6 py-3 text-gray-500">{row.group_name}</td>
                                             <td className="px-6 py-3 text-right font-mono">{formatCurrency(row.historical_savings)}</td>
                                             <td className="px-6 py-3 text-right font-mono">{formatCurrency(row.historical_project)}</td>
                                             <td className="px-6 py-3 text-right font-mono">{formatCurrency(row.historical_welfare)}</td>
                                             <td className="px-6 py-3 text-right font-mono text-red-600">{formatCurrency(row.historical_loan_balance)}</td>
+                                            <td className="px-6 py-3">
+                                                <button
+                                                    onClick={() => handleDrillDown(row)}
+                                                    className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    Audit Trail <ArrowRight className="w-3 h-3" />
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -136,6 +195,79 @@ const AuditorMode = () => {
                         </div>
                         <div className="p-4 border-t bg-gray-50 text-xs text-gray-400 text-center">
                             * Balances are reconstructed by summing all transactions on or before {date}. This is a read-only audit view.
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* DRILL DOWN MODAL */}
+            {selectedMember && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col">
+                        <div className="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">{selectedMember.name}</h2>
+                                <p className="text-sm text-gray-500">Transaction Trail up to {date}</p>
+                            </div>
+                            <button onClick={() => setSelectedMember(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                                <X className="w-6 h-6 text-gray-500" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6">
+                            {trailLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20 grayscale">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+                                    <p className="text-gray-500 font-medium">Tracing transactions...</p>
+                                </div>
+                            ) : trail.length === 0 ? (
+                                <div className="text-center py-20">
+                                    <p className="text-gray-400">No transactions found for this member up to {date}.</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+                                        <tr>
+                                            <th className="px-4 py-2 text-left">Date</th>
+                                            <th className="px-4 py-2 text-left">Type</th>
+                                            <th className="px-4 py-2 text-right">Amount</th>
+                                            <th className="px-4 py-2 text-left">Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                        {trail.map((t, idx) => (
+                                            <tr key={idx} className="hover:bg-blue-50/50">
+                                                <td className="px-4 py-3 whitespace-nowrap text-gray-600">{t.date}</td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${t.type.includes('WITHDRAWAL') ? 'bg-red-100 text-red-700' :
+                                                            t.type.includes('LOAN') ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                                                        }`}>
+                                                        {t.type.replace('_', ' ')}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono font-bold">{formatCurrency(t.amount)}</td>
+                                                <td className="px-4 py-3 text-gray-500 text-xs">{t.description}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        <div className="p-6 border-t bg-gray-50 rounded-b-2xl flex justify-between items-center">
+                            <div className="flex gap-4">
+                                <div className="text-xs">
+                                    <span className="text-gray-400 block uppercase font-bold">Total Contribution</span>
+                                    <span className="text-lg font-bold text-gray-900">{formatCurrency(selectedMember.historical_savings + selectedMember.historical_project)}</span>
+                                </div>
+                                <div className="text-xs">
+                                    <span className="text-gray-400 block uppercase font-bold">Unpaid Loans</span>
+                                    <span className="text-lg font-bold text-red-600">{formatCurrency(selectedMember.historical_loan_balance)}</span>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedMember(null)} className="px-6 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-black transition-colors">
+                                Close Audit
+                            </button>
                         </div>
                     </div>
                 </div>

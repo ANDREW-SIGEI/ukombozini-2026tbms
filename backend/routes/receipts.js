@@ -38,7 +38,7 @@ router.get('/:transactionId', authenticateToken, async (req, res) => {
 
             // --- PREMIUM BRANDING HEADER ---
             doc.rect(0, 0, doc.page.width, 100).fill('#76BC21'); // Safaricom Green
-            doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('UKOMBOZI TBMS', 40, 30);
+            doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('UKOMBOZINI TBMS', 40, 30);
             doc.fontSize(10).font('Helvetica').text('INSTITUTIONAL FINANCIAL SERVICES', 40, 58);
             doc.rect(40, 75, 120, 1.5).fill('#ffffff');
 
@@ -141,7 +141,7 @@ router.get('/loan-statement/:loanId', authenticateToken, (req, res) => {
 
         // Header
         doc.rect(0, 0, doc.page.width, 100).fill('#1a365d');
-        doc.fillColor('#ffffff').fontSize(24).font('Helvetica-Bold').text('UKOMBOZI TBMS', 50, 30);
+        doc.fillColor('#ffffff').fontSize(24).font('Helvetica-Bold').text('UKOMBOZINI TBMS', 50, 30);
         doc.fontSize(12).font('Helvetica').text('Official Loan Statement', 50, 65);
 
         // Member Info

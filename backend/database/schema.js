@@ -223,6 +223,42 @@ const initSchema = () => {
         db.run("ALTER TABLE meeting_sessions ADD COLUMN expected_attendance INTEGER", (err) => {
             if (!err) console.log("Planning: 'expected_attendance' added to meeting_sessions");
         });
+        db.run("ALTER TABLE meeting_sessions ADD COLUMN ukombozini_repayment REAL DEFAULT 0", (err) => {
+            if (!err) console.log("Finance: 'ukombozini_repayment' added to meeting_sessions");
+        });
+
+        // 8. Risk Intelligence Tables
+        db.run(`CREATE TABLE IF NOT EXISTS risk_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT CHECK(scope IN ('GROUP', 'MEMBER', 'OFFICER')),
+            target_id INTEGER NOT NULL,
+            score REAL DEFAULT 0,
+            metrics_snapshot TEXT,
+            calculated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        db.run(`CREATE TABLE IF NOT EXISTS risk_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT CHECK(scope IN ('GROUP', 'MEMBER', 'OFFICER')),
+            target_id INTEGER NOT NULL,
+            alert_type TEXT,
+            severity TEXT,
+            message TEXT,
+            is_resolved INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // 9. Attendance Tracking
+        db.run(`CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            status TEXT CHECK(status IN ('PRESENT', 'ABSENT', 'LATE')) DEFAULT 'PRESENT',
+            recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(session_id) REFERENCES meeting_sessions(id),
+            FOREIGN KEY(member_id) REFERENCES members(id),
+            UNIQUE(session_id, member_id)
+        )`);
 
         // 7. Defaults
         db.run("INSERT OR IGNORE INTO system_settings (key, value, description) VALUES (?, ?, ?)", ["SYSTEM_LOCKDOWN", "false", "Emergency Global Freeze"]);

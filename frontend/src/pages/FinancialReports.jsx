@@ -74,12 +74,16 @@ const FinancialReports = () => {
                         </p>
                         <div className="mt-4 flex flex-col gap-1 text-sm">
                             <div className="flex justify-between text-gray-600">
-                                <span>Loans Portfolio</span>
-                                <span className="font-bold">KES {balanceSheet?.assets.loansPortfolio.toLocaleString()}</span>
+                                <span>Members Deposits</span>
+                                <span className="font-bold">KES {balanceSheet?.liabilities.memberSavings.toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between text-gray-600">
-                                <span>Cash Equivalents</span>
-                                <span className="font-bold">KES {balanceSheet?.assets.cashAtHand.toLocaleString()}</span>
+                                <span>Projects Deposits</span>
+                                <span className="font-bold">KES {balanceSheet?.liabilities.projectSavings?.toLocaleString() || '0'}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600 pt-1 border-t border-gray-100">
+                                <span>Loans Portfolio</span>
+                                <span className="font-bold">KES {balanceSheet?.assets.loansPortfolio.toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
@@ -101,7 +105,7 @@ const FinancialReports = () => {
                                 <span className="font-bold">KES {incomeData?.revenue.interestIncome.toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between text-gray-600">
-                                <span>Fees & Fines</span>
+                                <span>Fees & Other Revenue</span>
                                 <span className="font-bold">KES {incomeData?.revenue.feesAndPenalties.toLocaleString()}</span>
                             </div>
                         </div>
@@ -121,7 +125,10 @@ const FinancialReports = () => {
                         <div className="mt-4 flex flex-col gap-1 text-sm">
                             <div className="flex justify-between text-gray-600">
                                 <span>Total In (Collections)</span>
-                                <span className="font-bold text-green-600">+{cashFlow?.cashIn.total.toLocaleString()}</span>
+                                <span className="font-bold text-green-600">
+                                    <span className="text-xs text-gray-400 mr-1">(Sav+Rep+Proj)</span>
+                                    +{cashFlow?.cashIn.total.toLocaleString()}
+                                </span>
                             </div>
                             <div className="flex justify-between text-gray-600">
                                 <span>Total Out (Disbursements)</span>

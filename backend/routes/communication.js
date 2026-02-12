@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { authenticateToken, isAdmin } = require('../middleware/auth');
 const { logAndSendSMS, logAudit } = require('../utils/logger');
+const { calculateNextMeeting, getSeasonalGreeting } = require('../utils/dates');
 const axios = require('axios');
 
 // SMS Gateway Config (Africa's Talking) - Replicated for balance check
@@ -54,30 +55,43 @@ router.post('/bulk', authenticateToken, async (req, res) => {
         if (target === 'CUSTOM' && customRecipients) {
             recipients = customRecipients;
         } else if (target === 'GROUPS') {
-            sql = `SELECT phone, name, id FROM members WHERE group_id IN (${targetIds.map(() => '?').join(',')}) AND phone IS NOT NULL`;
+            sql = `
+                SELECT m.phone, m.name, m.id, m.current_savings, 
+                       (m.education_savings + m.agriculture_savings) as project_balance, 
+                       m.active_loan_balance, g.meetingDay, g.name as group_name
+                FROM members m
+                JOIN groups g ON m.group_id = g.id
+                WHERE m.group_id IN (${targetIds.map(() => '?').join(',')}) AND m.phone IS NOT NULL`;
             params = targetIds;
         } else if (target === 'MEMBERS') {
-            sql = `SELECT phone, name, id FROM members WHERE id IN (${targetIds.map(() => '?').join(',')}) AND phone IS NOT NULL`;
+            sql = `
+                SELECT m.phone, m.name, m.id, m.current_savings, 
+                       (m.education_savings + m.agriculture_savings) as project_balance, 
+                       m.active_loan_balance, g.meetingDay, g.name as group_name
+                FROM members m
+                JOIN groups g ON m.group_id = g.id
+                WHERE m.id IN (${targetIds.map(() => '?').join(',')}) AND m.phone IS NOT NULL`;
             params = targetIds;
         } else if (target === 'ROLES') {
-            // targetIds: ['Chairman', 'Secretary', 'Treasurer']
-            // Combine group_officials (new) and groups table legacy columns for maximum reach
             sql = `
-                SELECT DISTINCT phone, name, id FROM (
-                    SELECT m.phone, m.name, m.id 
+                SELECT DISTINCT phone, name, id, current_savings, project_balance, active_loan_balance, meetingDay, group_name FROM (
+                    SELECT m.phone, m.name, m.id, m.current_savings, 
+                           (m.education_savings + m.agriculture_savings) as project_balance, 
+                           m.active_loan_balance, g.meetingDay, g.name as group_name
                     FROM members m
                     JOIN group_officials go ON m.id = go.member_id
+                    JOIN groups g ON m.group_id = g.id
                     WHERE go.role IN (${targetIds.map(() => '?').join(',')}) 
                       AND go.status = 'active'
                     UNION
-                    SELECT m.phone, m.name, m.id
+                    SELECT m.phone, m.name, m.id, m.current_savings, 
+                           (m.education_savings + m.agriculture_savings) as project_balance, 
+                           m.active_loan_balance, g.meetingDay, g.name as group_name
                     FROM members m
                     JOIN groups g ON (m.id = g.chairperson_id OR m.id = g.secretary_id OR m.id = g.treasurer_id)
                     WHERE m.phone IS NOT NULL
                 )
             `;
-            // Repeat targetIds for both parts of the union if needed, but the second part handles all roles globally
-            // Let's simplify the SQL to be more direct.
             params = targetIds;
         } else if (target === 'OFFICERS') {
             sql = `SELECT phone, name, id FROM officers WHERE role IN (${targetIds.map(() => '?').join(',')}) AND phone IS NOT NULL`;
@@ -100,10 +114,24 @@ router.post('/bulk', authenticateToken, async (req, res) => {
         for (const person of recipients) {
             if (!person.phone) continue;
 
+            let finalMessage = message;
+            if (req.body.variables) {
+                const nextMeeting = calculateNextMeeting(person.meetingDay);
+                finalMessage = message
+                    .replace(/\[NAME\]/g, person.name || 'Member')
+                    .replace(/\[PHONE\]/g, person.phone || '')
+                    .replace(/\[GROUP\]/g, person.group_name || 'Your Group')
+                    .replace(/\[SAVINGS\]/g, person.current_savings ? (person.current_savings).toLocaleString() : '0')
+                    .replace(/\[PROJECT_BAL\]/g, person.project_balance ? (person.project_balance).toLocaleString() : '0')
+                    .replace(/\[LOAN_BAL\]/g, person.active_loan_balance ? (person.active_loan_balance).toLocaleString() : '0')
+                    .replace(/\[NEXT_MEETING\]/g, nextMeeting);
+            }
+
+            finalMessage += getSeasonalGreeting();
+
             try {
                 const type = `BROADCAST_${target}`;
-                // person.id might be missing for CUSTOM
-                const success = await logAndSendSMS(person.id || 0, message, type, null, target === 'OFFICERS' ? 'officers' : 'members');
+                const success = await logAndSendSMS(person.id || 0, finalMessage, type, null, target === 'OFFICERS' ? 'officers' : 'members');
                 if (success) stats.sent++;
                 else stats.failed++;
             } catch (sendErr) {
@@ -167,6 +195,27 @@ router.get('/logs', authenticateToken, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
+});
+
+// POST /api/communication/resend-receipt - Manual receipt trigger
+router.post('/resend-receipt', authenticateToken, async (req, res) => {
+    const { memberId, txRef, message } = req.body;
+
+    if (!memberId || !txRef || !message) {
+        return res.status(400).json({ error: "Member ID, Transaction Ref, and Message are required." });
+    }
+
+    try {
+        const success = await logAndSendSMS(memberId, message, 'RECEIPT_RESEND', txRef, 'members');
+        if (success) {
+            res.json({ success: true, message: "Receipt SMS re-sent successfully." });
+        } else {
+            res.status(500).json({ error: "Failed to send SMS. Check logs." });
+        }
+    } catch (err) {
+        console.error("Resend Receipt Error:", err);
+        res.status(500).json({ error: "Internal server error." });
+    }
 });
 
 module.exports = router;

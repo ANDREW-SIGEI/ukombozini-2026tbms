@@ -300,7 +300,7 @@ const CompanyPartnershipManager = () => {
                         </div>
                         <div>
                             <h1 className="text-3xl md:text-4xl font-black tracking-tight">
-                                Ukombozi Partnership Hub
+                                UKOMBOZINI Partnership Hub
                                 {matrixStatus && (
                                     <span className={`ml-4 px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest border-2 shadow-lg animate-pulse ${matrixStatus.currentTier.color_code === 'gold' ? 'bg-yellow-400 text-yellow-950 border-yellow-200' :
                                         matrixStatus.currentTier.color_code === 'platinum' ? 'bg-slate-300 text-slate-900 border-white' :

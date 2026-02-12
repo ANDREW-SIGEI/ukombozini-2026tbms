@@ -192,7 +192,7 @@ const Dashboard = () => {
     const stats = [
         { title: 'Total Members', value: realStats?.totalMembers || '0', icon: <FaUsers />, color: 'bg-green-500', trend: 'Active portfolio', link: '/members' },
         { title: 'Active Loans', value: realStats?.activeLoans || '0', icon: <FaMoneyBillWave />, color: 'bg-yellow-500', trend: 'Issued capital', link: '/loans' },
-        { title: 'Total Contributions', value: `KES ${(realStats?.totalContributions || 0).toLocaleString()}`, icon: <FaPiggyBank />, color: 'bg-blue-500', trend: 'Member savings', link: '/contributions' },
+        { title: 'Total Contributions', value: `KES ${(realStats?.totalContributions || 0).toLocaleString()}`, icon: <FaPiggyBank />, color: 'bg-blue-500', trend: 'Member & Project Savings', link: '/contributions' },
         { title: 'Pending Repayments', value: realStats?.pendingRepayments || '0', icon: <FaTriangleExclamation />, color: 'bg-red-500', trend: 'Overdue loans', link: '/loans' },
         { title: 'Total Dividends', value: `KES ${(realStats?.totalDividends || 0).toLocaleString()}`, icon: <FaGift />, color: 'bg-purple-500', trend: 'Distributed profit', link: '/dividends' },
         { title: 'Cash In / Out', value: `KES ${(realStats?.netCashFlow || 0).toLocaleString()}`, icon: <FaRightLeft />, color: 'bg-emerald-600', trend: 'Net cash flow', link: '/reconciliation' },
@@ -449,7 +449,7 @@ const Dashboard = () => {
                         </div>
                         <div className="flex flex-col justify-center gap-4">
                             <div className="border-l-2 border-safaricom-green pl-3">
-                                <p className="text-[10px] text-gray-400 font-black uppercase">Group Capital</p>
+                                <p className="text-[10px] text-gray-400 font-black uppercase">Group Capital (Inc. Projects)</p>
                                 <p className="text-xl font-black">KES {(realStats?.liquidityMatrix?.groupCapital || 0).toLocaleString()}</p>
                             </div>
                             <div className="border-l-2 border-blue-500 pl-3">
@@ -524,7 +524,7 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* UKOMBOZI PARTNERSHIP MANAGER BUTTON (CRITCAL) */}
+            {/* UKOMBOZINI PARTNERSHIP MANAGER BUTTON (CRITICAL) */}
             <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-900 rounded-xl shadow-lg p-1 mb-6 transform hover:scale-[1.01] transition-transform">
                 <Link to="/partnership-manager" className="block bg-white/10 hover:bg-white/20 rounded-lg p-6 flex justify-between items-center group">
                     <div className="flex items-center gap-4">
@@ -532,7 +532,7 @@ const Dashboard = () => {
                             <FaHandshake size={32} />
                         </div>
                         <div>
-                            <h3 className="text-2xl font-black text-white tracking-tight">UKOMBOZI LOAN & TOP-UP MANAGER</h3>
+                            <h3 className="text-2xl font-black text-white tracking-tight">UKOMBOZINI LOAN & TOP-UP MANAGER</h3>
                             <p className="text-blue-200 font-medium">Manage Capital Injections, Commitment Deposits & Product Financing</p>
                         </div>
                     </div>

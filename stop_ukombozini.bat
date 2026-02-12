@@ -1,10 +1,10 @@
 @echo off
 echo ==============================================
-echo       UKOMBOZI TBMS - SYSTEM SHUTDOWN
+echo       UKOMBOZINI TBMS - SYSTEM SHUTDOWN
 echo ==============================================
 echo.
 
-echo Stopping UKOMBOZI services...
+echo Stopping UKOMBOZINI services...
 docker-compose down
 
 echo.

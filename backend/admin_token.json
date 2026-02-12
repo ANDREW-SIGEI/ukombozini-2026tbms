@@ -1,1 +1,9 @@
-{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwiZW1haWwiOiJhbmRyZXdzaWdlaTZAZ21haWwuY29tIiwicm9sZSI6IkRpcmVjdG9yIiwiaWF0IjoxNzcwMTM0MTY2LCJleHAiOjE3NzAyMjA1NjZ9.qq82re8Bg-qg-F4RbuN7iNfCj73pT6tvD8Cu6NuPiqA","user":{"id":2,"email":"andrewsigei6@gmail.com","name":"Andrew Sigei","role":"director"}}
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhbmRyZXdzaWdlaTY4NEBnbWFpbC5jb20iLCJyb2xlIjoiQWRtaW4iLCJpYXQiOjE3NzA3MjcxNzEsImV4cCI6MTc3MDgxMzU3MX0.bK9grRSQO7FBgbCrMRrWnQElQKkrq7f68QntfgyHjaw",
+  "user": {
+    "id": 1,
+    "email": "andrewsigei684@gmail.com",
+    "name": "System Admin",
+    "role": "admin"
+  }
+}

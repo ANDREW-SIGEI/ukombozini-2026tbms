@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import { FaUndo, FaCheckCircle, FaTimesCircle, FaShieldAlt, FaHistory, FaSearch } from 'react-icons/fa';

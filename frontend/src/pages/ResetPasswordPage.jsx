@@ -42,7 +42,7 @@ const ResetPasswordPage = () => {
         <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 px-6 lg:px-8 font-sans">
             <div className="sm:mx-auto sm:w-full sm:max-w-md">
                 <div className="text-center mb-10">
-                    <h1 className="text-4xl font-black text-safaricom-green">UKOMBOZI</h1>
+                    <h1 className="text-4xl font-black text-safaricom-green">UKOMBOZINI</h1>
                     <p className="text-[10px] uppercase font-bold tracking-widest text-gray-400 mt-1">Institutional TBMS</p>
                 </div>
             </div>

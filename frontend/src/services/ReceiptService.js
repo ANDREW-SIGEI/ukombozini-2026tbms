@@ -1,7 +1,8 @@
 import { api } from './api';
+import { toast } from 'react-toastify';
 
 /**
- * UKOMBOZI Receipt Service
+ * UKOMBOZINI Receipt Service
  * Generates professional PDF receipts for transactions.
  */
 const ReceiptService = {
@@ -22,7 +23,22 @@ const ReceiptService = {
             await api.downloadReceiptPDF(tx.id);
         } catch (error) {
             console.error("Failed to download receipt:", error);
-            // Fallback to minimal notification if needed
+        }
+    },
+
+    async resendSMSReceipt(member, tx) {
+        if (!tx || !tx.id) return;
+        try {
+            const amountStr = Math.abs(tx.amount).toLocaleString();
+            const message = `UKOMBOZINI: Receipt Re-sent. Confirmed KES ${amountStr} for ${tx.type}. Ref: ${tx.id}.`;
+            await api.resendSMSReceipt({
+                memberId: member.id,
+                txRef: tx.id,
+                message
+            });
+            toast.success("Receipt SMS Queued");
+        } catch (error) {
+            toast.error("Failed to re-send SMS");
         }
     }
 };

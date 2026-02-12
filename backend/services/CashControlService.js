@@ -1,6 +1,8 @@
 const db = require('../db');
-const { crypto } = require('crypto');
+const crypto = require('crypto');
 const MonthlyReportService = require('./MonthlyReportService');
+const { logAndSendSMS } = require('../utils/logger');
+const { getSeasonalGreeting } = require('../utils/dates');
 
 class CashControlService {
     /**
@@ -30,7 +32,7 @@ class CashControlService {
      * Opens a new cash session for a group.
      * Enforces sequential integrity.
      */
-    static async openSession(groupId, officerId, date) {
+    static async openSession(groupId, officerId, date, meetingId = null) {
         return new Promise(async (resolve, reject) => {
             try {
                 // 1. Check for any currently OPEN session for this group
@@ -47,10 +49,10 @@ class CashControlService {
                 // 3. Create new session
                 const id = require('crypto').randomUUID();
                 const sql = `
-                    INSERT INTO cash_sessions (id, group_id, meeting_date, opening_balance, reported_by)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO cash_sessions (id, group_id, meeting_date, opening_balance, reported_by, meeting_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 `;
-                db.run(sql, [id, groupId, date, openingBalance, officerId], (err) => {
+                db.run(sql, [id, groupId, date, openingBalance, officerId, meetingId], (err) => {
                     if (err) reject(err);
                     else resolve({ id, opening_balance: openingBalance });
                 });
@@ -75,7 +77,12 @@ class CashControlService {
     static async verifyAndLock(sessionId, physicalCount, explanation, officerId) {
         return new Promise(async (resolve, reject) => {
             try {
-                const session = await this.getInternal(`SELECT * FROM cash_sessions WHERE id = ?`, [sessionId]);
+                const session = await this.getInternal(`
+                    SELECT s.*, g.name as group_name 
+                    FROM cash_sessions s 
+                    JOIN groups g ON s.group_id = g.id 
+                    WHERE s.id = ?
+                `, [sessionId]);
                 if (!session) return reject(new Error("Session not found"));
                 if (session.status !== 'OPEN') return reject(new Error("Session is not in OPEN state"));
 
@@ -132,6 +139,26 @@ class CashControlService {
                         } catch (recalcErr) {
                             console.error("Monthly Rollup Failure:", recalcErr);
                             // We don't want to fail the whole lock if just the rollup fails, but we should log it
+                        }
+
+                        // 📲 TRIGGER OFFICIAL SUMMARIES
+                        try {
+                            const officials = await new Promise((res) => {
+                                db.all(`
+                                    SELECT m.name, m.phone, m.id
+                                    FROM members m
+                                    JOIN groups g ON (m.id = g.chairperson_id OR m.id = g.secretary_id OR m.id = g.treasurer_id)
+                                    WHERE g.id = ? AND m.phone IS NOT NULL
+                                `, [session.group_id], (err, rows) => res(rows || []));
+                            });
+
+                            const summaryMsg = `UKOMBOZINI: ${session.group_name} Meeting Closed. In: KES ${totals.total_in || 0} | Out: ${totals.total_out || 0} | Net: ${physicalCount.toLocaleString()}. Var: ${variance}${getSeasonalGreeting()}`;
+
+                            for (const off of officials) {
+                                logAndSendSMS(off.id, summaryMsg, 'MEETING_CLOSEOUT', sessionId, 'members');
+                            }
+                        } catch (smsErr) {
+                            console.error("Closeout SMS Failure:", smsErr);
                         }
                         resolve({ success: true, risk_triggered: riskFlag, hash: auditHash });
                     }

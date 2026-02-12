@@ -1,5 +1,5 @@
 /**
- * UKOMBOZI Offline Manager - PWA Service
+ * UKOMBOZINI Offline Manager - PWA Service
  * Enables officers to work without internet connection
  * 
  * Features:
@@ -12,7 +12,7 @@
 
 class OfflineManager {
     constructor() {
-        this.dbName = 'ukombozi_offline';
+        this.dbName = 'ukombozini_offline';
         this.dbVersion = 1;
         this.db = null;
         this.syncQueue = [];
@@ -87,6 +87,11 @@ class OfflineManager {
                 // Cached loan products
                 if (!db.objectStoreNames.contains('cachedLoanProducts')) {
                     db.createObjectStore('cachedLoanProducts', { keyPath: 'id' });
+                }
+
+                // Draft sessions (for auto-save)
+                if (!db.objectStoreNames.contains('draftSessions')) {
+                    db.createObjectStore('draftSessions', { keyPath: 'groupId' });
                 }
             };
         });
@@ -197,6 +202,12 @@ class OfflineManager {
                     case 'repayment':
                     case 'LOAN_REPAYMENT':
                         result = await api.postTransaction({ ...transaction.data, type: 'LOAN_REPAYMENT' });
+                        break;
+                    case 'meeting_session':
+                        result = await api.createMeeting(transaction.data);
+                        break;
+                    case 'post_meeting':
+                        result = await api.postMeeting(transaction.meetingId, transaction.data);
                         break;
                     default:
                         // Try standard transaction post if type matches MTE expectations
@@ -461,6 +472,55 @@ class OfflineManager {
         }
 
         return await this.syncPendingTransactions();
+    }
+
+    /**
+     * Save meeting draft
+     */
+    async saveDraftSession(groupId, data) {
+        if (!this.db) return;
+        const tx = this.db.transaction(['draftSessions'], 'readwrite');
+        const store = tx.objectStore('draftSessions');
+
+        return new Promise((resolve, reject) => {
+            const request = store.put({
+                groupId,
+                data,
+                updatedAt: new Date().toISOString()
+            });
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Get meeting draft
+     */
+    async getDraftSession(groupId) {
+        if (!this.db) return null;
+        const tx = this.db.transaction(['draftSessions'], 'readonly');
+        const store = tx.objectStore('draftSessions');
+
+        return new Promise((resolve, reject) => {
+            const request = store.get(groupId);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Clear meeting draft
+     */
+    async clearDraftSession(groupId) {
+        if (!this.db) return;
+        const tx = this.db.transaction(['draftSessions'], 'readwrite');
+        const store = tx.objectStore('draftSessions');
+
+        return new Promise((resolve, reject) => {
+            const request = store.delete(groupId);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
     }
 }
 

@@ -1,71 +1,71 @@
 services:
-  ukombozi-db:
+  ukombozini-db:
     image: postgres:15-alpine
-    container_name: ukombozi-db
+    container_name: ukombozini-db
     environment:
-      POSTGRES_USER: ${DB_USER:-ukombozi_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ukombozi_pass}
-      POSTGRES_DB: ${DB_NAME:-ukombozi_tbms}
+      POSTGRES_USER: ${DB_USER:-ukombozini_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ukombozini_pass}
+      POSTGRES_DB: ${DB_NAME:-ukombozini_tbms}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - ukombozi-net
+      - ukombozini-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ukombozi_user} -d ${DB_NAME:-ukombozi_tbms}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ukombozini_user} -d ${DB_NAME:-ukombozini_tbms}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
-  ukombozi-backend:
+  ukombozini-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ukombozi-backend
+    container_name: ukombozini-backend
     depends_on:
-      ukombozi-db:
+      ukombozini-db:
         condition: service_healthy
-      ukombozi-redis:
+      ukombozini-redis:
         condition: service_started
     environment:
-      - DATABASE_URL=postgres://${DB_USER:-ukombozi_user}:${DB_PASSWORD:-ukombozi_pass}@ukombozi-db:5432/${DB_NAME:-ukombozi_tbms}
-      - REDIS_URL=redis://ukombozi-redis:6379
-      - JWT_SECRET=${JWT_SECRET:-ukombozi-secret-key-2026}
+      - DATABASE_URL=postgres://${DB_USER:-ukombozini_user}:${DB_PASSWORD:-ukombozini_pass}@ukombozini-db:5432/${DB_NAME:-ukombozini_tbms}
+      - REDIS_URL=redis://ukombozini-redis:6379
+      - JWT_SECRET=${JWT_SECRET:-ukombozini-secret-key-2026}
       - NODE_ENV=production
       - PORT=5000
     ports:
       - "5000:5000"
     networks:
-      - ukombozi-net
+      - ukombozini-net
     restart: unless-stopped
 
-  ukombozi-redis:
+  ukombozini-redis:
     image: redis:alpine
-    container_name: ukombozi-redis
+    container_name: ukombozini-redis
     ports:
       - "6379:6379"
     networks:
-      - ukombozi-net
+      - ukombozini-net
     restart: unless-stopped
 
-  ukombozi-frontend:
+  ukombozini-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: ukombozi-frontend
+    container_name: ukombozini-frontend
     depends_on:
-      - ukombozi-backend
+      - ukombozini-backend
     ports:
       - "3000:3000"
     networks:
-      - ukombozi-net
+      - ukombozini-net
     restart: unless-stopped
 
 networks:
-  ukombozi-net:
+  ukombozini-net:
     driver: bridge
 
 volumes:

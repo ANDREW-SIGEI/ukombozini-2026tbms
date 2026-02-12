@@ -1,5 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./ukombozi.sqlite');
+const db = new sqlite3.Database('./ukombozini.sqlite');
 
 db.serialize(() => {
     db.get("SELECT * FROM loans LIMIT 1", (err, row) => {

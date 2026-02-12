@@ -5,7 +5,7 @@ const axios = require('axios');
 const SMS_CONFIG = {
     username: process.env.AT_USERNAME || 'sandbox',
     apiKey: process.env.AT_API_KEY || '',
-    from: process.env.AT_SENDER_ID || 'UKOMBOZI',
+    from: process.env.AT_SENDER_ID || 'UKOMBOZINI',
     baseUrl: 'https://api.africastalking.com/version1'
 };
 

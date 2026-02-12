@@ -1,5 +1,5 @@
 /**
- * UKOMBOZI Repayment Schedule Generator
+ * UKOMBOZINI Repayment Schedule Generator
  * Calculates monthly installments based on standardized loan product terms.
  */
 export const generateRepaymentSchedule = (amount, duration, monthlyInstallment, startDate = new Date()) => {
@@ -8,7 +8,7 @@ export const generateRepaymentSchedule = (amount, duration, monthlyInstallment, 
 
     // We use the matrix-driven terms
     const principalPerMonth = amount / duration;
-    // Note: Interest in UKOMBOZI matrix is usually flat or pre-calculated
+    // Note: Interest in UKOMBOZINI matrix is usually flat or pre-calculated
     // For the schedule, we'll use the matrix values provided
 
     for (let i = 1; i <= duration; i++) {

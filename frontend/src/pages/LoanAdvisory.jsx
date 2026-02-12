@@ -6,6 +6,7 @@ import {
 import { FaShieldAlt, FaInfoCircle } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 /**
  * 1. Short Term Loans (STL) - Reducing Balance (3 Month Max)
@@ -85,6 +86,18 @@ const LoanAdvisory = () => {
             available: Math.max(0, ((savings + projectSavings) * 3) - guaranteed)
         };
     }, [selectedMember]);
+
+    // 🛡️ ELIGIBLE GUARANTORS (Filter by Group, Status, and Limit)
+    const eligibleGuarantors = useMemo(() => {
+        if (!selectedMember) return [];
+        return members.filter(m =>
+            m.id !== selectedMember.id && // Not the borrower
+            m.group_id === selectedMember.group_id && // Same group
+            m.status === 'active' && // Active status
+            (m.active_guarantees_count || 0) < 2 // Max 2 rule
+        );
+    }, [members, selectedMember]);
+
 
 
 
@@ -347,23 +360,16 @@ const LoanAdvisory = () => {
             {/* Member Selection & Eligibility */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                 <div className="flex flex-col md:flex-row items-center gap-6">
-                    <div className="w-full md:w-1/4">
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">1. Select Group</label>
-                        <select
-                            value={selectedGroupId}
-                            onChange={(e) => {
-                                setSelectedGroupId(e.target.value);
+                    <div className="w-full md:w-1/4 relative z-30">
+                        <SearchableGroupSelector
+                            label="1. Select Group"
+                            groups={groups.filter(g => g.status === 'active' && g.is_frozen === 0)}
+                            selectedGroupId={selectedGroupId}
+                            onSelect={(id) => {
+                                setSelectedGroupId(id);
                                 setSelectedMemberId('');
                             }}
-                            className="w-full bg-gray-50 border-2 border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-safaricom-green focus:border-safaricom-green block p-3 font-bold outline-none transition-all"
-                        >
-                            <option value="">-- Choose Group --</option>
-                            {groups
-                                .filter(g => g.status === 'active' && g.is_frozen === 0)
-                                .map(g => (
-                                    <option key={g.id} value={g.id}>{g.name}</option>
-                                ))}
-                        </select>
+                        />
                         {groups.length === 0 && (
                             <p className="text-[10px] text-red-600 font-bold mt-1 uppercase tracking-tighter">❌ No groups found - create one in Group Management</p>
                         )}
@@ -505,8 +511,8 @@ const LoanAdvisory = () => {
                                         className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
                                     >
                                         <option value="">-- Select Guarantor 1 --</option>
-                                        {members.filter(m => m.id !== parseInt(selectedMemberId)).map(m => (
-                                            <option key={m.id} value={m.id}>{m.name}</option>
+                                        {eligibleGuarantors.filter(m => m.id !== parseInt(guarantor2Id)).map(m => (
+                                            <option key={m.id} value={m.id}>{m.name} (Guarantees: {m.active_guarantees_count || 0}/2)</option>
                                         ))}
                                     </select>
                                     {coverage?.gap > 5000 && (
@@ -516,8 +522,8 @@ const LoanAdvisory = () => {
                                             className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
                                         >
                                             <option value="">-- Select Guarantor 2 --</option>
-                                            {members.filter(m => m.id !== parseInt(selectedMemberId) && m.id !== parseInt(guarantor1Id)).map(m => (
-                                                <option key={m.id} value={m.id}>{m.name}</option>
+                                            {eligibleGuarantors.filter(m => m.id !== parseInt(guarantor1Id)).map(m => (
+                                                <option key={m.id} value={m.id}>{m.name} (Guarantees: {m.active_guarantees_count || 0}/2)</option>
                                             ))}
                                         </select>
                                     )}
@@ -566,8 +572,8 @@ const LoanAdvisory = () => {
                                     className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
                                 >
                                     <option value="">-- Select Guarantor 1 --</option>
-                                    {members.filter(m => m.id !== parseInt(selectedMemberId)).map(m => (
-                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    {eligibleGuarantors.filter(m => m.id !== parseInt(guarantor2Id)).map(m => (
+                                        <option key={m.id} value={m.id}>{m.name} (Guarantees: {m.active_guarantees_count || 0}/2)</option>
                                     ))}
                                 </select>
                                 <select
@@ -576,8 +582,8 @@ const LoanAdvisory = () => {
                                     className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold"
                                 >
                                     <option value="">-- Select Guarantor 2 --</option>
-                                    {members.filter(m => m.id !== parseInt(selectedMemberId) && m.id !== parseInt(guarantor1Id)).map(m => (
-                                        <option key={m.id} value={m.id}>{m.name}</option>
+                                    {eligibleGuarantors.filter(m => m.id !== parseInt(guarantor1Id)).map(m => (
+                                        <option key={m.id} value={m.id}>{m.name} (Guarantees: {m.active_guarantees_count || 0}/2)</option>
                                     ))}
                                 </select>
                             </div>

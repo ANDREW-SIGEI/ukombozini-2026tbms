@@ -10,7 +10,7 @@ if (process.env.DATABASE_URL) {
     // 📁 Local Development (SQLite)
     console.log('--- 📁 LOCAL SQLITE STACK DETECTED ---');
     const sqlite3 = require('sqlite3').verbose();
-    const dbPath = path.resolve(__dirname, 'ukombozi.sqlite');
+    const dbPath = path.resolve(__dirname, 'ukombozini.sqlite');
 
     db = new sqlite3.Database(dbPath, (err) => {
         if (err) {
@@ -29,7 +29,9 @@ if (process.env.DATABASE_URL) {
         const sqliteSql = sql.replace(/\$\d+/g, '?');
 
         return new Promise((resolve, reject) => {
-            const isSelect = sqliteSql.trim().toUpperCase().startsWith('SELECT');
+            const isSelect = sqliteSql.trim().toUpperCase().startsWith('SELECT') ||
+                sqliteSql.trim().toUpperCase().startsWith('PRAGMA') ||
+                sqliteSql.trim().toUpperCase().startsWith('EXPLAIN');
             if (isSelect) {
                 db.all(sqliteSql, params, (err, rows) => {
                     if (err) reject(err);

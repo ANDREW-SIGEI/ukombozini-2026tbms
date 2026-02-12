@@ -18,6 +18,7 @@ import { toast } from 'react-toastify';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import LoanAdvisoryPanel from '../components/LoanAdvisoryPanel';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 const LoanApprovals = () => {
     const { user, isAuditor } = useAuth();
@@ -354,23 +355,13 @@ const LoanApprovals = () => {
                             <button onClick={() => setShowCreateModal(false)}><FaCircleXmark className="text-gray-400 hover:text-red-500 text-xl" /></button>
                         </div>
                         <form onSubmit={handleCreateSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">Select Group <span className="text-red-500">*</span></label>
-                                <select
-                                    className="w-full p-3 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-safaricom-green outline-none font-bold"
-                                    value={formData.groupId}
-                                    onChange={e => {
-                                        setFormData({ ...formData, groupId: e.target.value, memberId: '' });
-                                    }}
-                                    required
-                                >
-                                    <option value="">-- Choose Group --</option>
-                                    {groups
-                                        .filter(g => g.status === 'active' && g.is_frozen === 0)
-                                        .map(g => (
-                                            <option key={g.id} value={g.id}>{g.name}</option>
-                                        ))}
-                                </select>
+                            <div className="relative z-20">
+                                <SearchableGroupSelector
+                                    label="Select Group *"
+                                    groups={groups.filter(g => g.status === 'active' && g.is_frozen === 0)}
+                                    selectedGroupId={formData.groupId}
+                                    onSelect={(id) => setFormData({ ...formData, groupId: id, memberId: '' })}
+                                />
                             </div>
 
                             <div>

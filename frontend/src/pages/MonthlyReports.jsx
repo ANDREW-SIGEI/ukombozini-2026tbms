@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import { FaFileInvoice, FaArrowRight, FaLock, FaCalendarAlt, FaFilter, FaSearch } from 'react-icons/fa';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 const MonthlyReports = () => {
     const { user, isAuditor } = useAuth();
@@ -78,16 +79,13 @@ const MonthlyReports = () => {
 
                 {/* FILTERS */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap gap-4 items-end mb-8">
-                    <div className="flex-1 min-w-[200px]">
-                        <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Group Entity</label>
-                        <select
-                            className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none"
-                            value={selectedGroup}
-                            onChange={(e) => setSelectedGroup(e.target.value)}
-                        >
-                            <option value="">All Group Entities</option>
-                            {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                        </select>
+                    <div className="flex-1 min-w-[300px] relative z-20">
+                        <SearchableGroupSelector
+                            groups={groups}
+                            selectedGroupId={selectedGroup}
+                            onSelect={(id) => setSelectedGroup(id)}
+                            label="Group Entity"
+                        />
                     </div>
                     <div className="w-48">
                         <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Month</label>

@@ -251,7 +251,7 @@ export default function DailyReports() {
             {/* Header */}
             <div className="flex justify-between items-start">
                 <div>
-                    <h1 className="text-2xl font-bold">Ukombozi TBMS</h1>
+                    <h1 className="text-2xl font-bold">UKOMBOZINI TBMS</h1>
                     <p className="text-gray-600">
                         Field Officer Portal • {new Date(reportDate).toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                     </p>

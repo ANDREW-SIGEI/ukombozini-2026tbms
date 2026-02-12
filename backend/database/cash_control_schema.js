@@ -33,10 +33,7 @@ async function initCashControl() {
             db.run(`CREATE TABLE IF NOT EXISTS cash_transactions (
                 id TEXT PRIMARY KEY, -- UUID
                 cash_session_id TEXT NOT NULL,
-                source TEXT CHECK(source IN (
-                    'CONTRIBUTION', 'LOAN_ISSUED', 'LOAN_REPAYMENT', 
-                    'WITHDRAWAL', 'EXPENSE', 'TOP_UP', 'FINE'
-                )),
+                source TEXT, -- MTE transaction_type or manual source
                 reference_id TEXT,
                 direction TEXT CHECK(direction IN ('IN','OUT')),
                 amount DECIMAL(12,2) NOT NULL,

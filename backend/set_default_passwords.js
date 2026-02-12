@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'ukombozi.sqlite');
+const dbPath = path.join(__dirname, 'ukombozini.sqlite');
 const db = new sqlite3.Database(dbPath);
 
 // Set default password for all users

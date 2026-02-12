@@ -31,7 +31,7 @@ const PdfService = {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(22);
         doc.setFont('helvetica', 'bold');
-        doc.text("UKOMBOZI", 15, 17);
+        doc.text("UKOMBOZINI", 15, 17);
         // doc.text("TBMS", 70, 17); // Optional suffix
 
         doc.setFontSize(10);
@@ -330,7 +330,7 @@ const PdfService = {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'italic');
         doc.text("This document serves as an official receipt of dividend payment credited to your savings account.", centerX, y, { align: 'center' });
-        doc.text("Authorized by Ukombozi Board of Directors.", centerX, y + 6, { align: 'center' });
+        doc.text("Authorized by UKOMBOZINI Board of Directors.", centerX, y + 6, { align: 'center' });
 
         addFooter();
         doc.save(`Dividend_Voucher_${allocation.name}.pdf`);

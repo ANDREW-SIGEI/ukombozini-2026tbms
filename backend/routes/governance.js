@@ -5,6 +5,7 @@ const { authenticateToken, isAdmin } = require('../middleware/auth');
 const { logAudit } = require('../utils/logger');
 const RiskService = require('../services/RiskService');
 const AuditService = require('../services/AuditService');
+const MTEEngine = require('../services/MTEEngine');
 
 /**
  * 🏛️ Governance & Risk API
@@ -46,6 +47,21 @@ router.get('/snapshot', authenticateToken, isAdmin, async (req, res) => {
     } catch (err) {
         console.error("Snapshot Error:", err);
         res.status(500).json({ error: "Failed to calculate historical snapshot" });
+    }
+});
+
+// GET /api/audit/trail/:memberId (Historical Transaction Trail)
+router.get('/trail/:memberId', authenticateToken, isAdmin, async (req, res) => {
+    const { memberId } = req.params;
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: "Date parameter is required (YYYY-MM-DD)" });
+
+    try {
+        const trail = await AuditService.getMemberTransactionTrail(memberId, date);
+        res.json(trail);
+    } catch (err) {
+        console.error("Audit Trail Error:", err);
+        res.status(500).json({ error: "Failed to retrieve transaction trail" });
     }
 });
 
@@ -192,15 +208,38 @@ router.get('/risk/dashboard', authenticateToken, isAdmin, async (req, res) => {
         });
 
         const stats = { total_savings: 0, total_loans: 0, total_liquidity: 0, system_at_risk: 0 };
-        heatmap.forEach(h => {
-            const metrics = JSON.parse(h.metrics_snapshot || '{}').stats || {};
-            stats.total_savings += (metrics.total_savings || 0);
-            stats.total_loans += (metrics.total_debt || 0);
-            if (h.score >= 70) stats.system_at_risk++;
-        });
-        stats.total_liquidity = stats.total_savings - stats.total_loans;
+        if (heatmap.length === 0) {
+            const fallbackStats = await RiskService.getGlobalRiskStats();
+            Object.assign(stats, fallbackStats);
+        } else {
+            heatmap.forEach(h => {
+                const metrics = JSON.parse(h.metrics_snapshot || '{}').stats || {};
+                stats.total_savings += (metrics.total_savings || 0);
+                stats.total_loans += (metrics.total_debt || 0);
+                if (h.score >= 70) stats.system_at_risk++;
+            });
+            stats.total_liquidity = stats.total_savings - stats.total_loans;
+        }
 
         res.json({ scores, alerts, heatmap, stats });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/risk/recalculate-all
+router.post('/risk/recalculate-all', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const groups = await new Promise((resolve) => {
+            db.all("SELECT id FROM groups", (err, rows) => resolve(rows || []));
+        });
+
+        for (const group of groups) {
+            await RiskService.evaluateGroupRisk(group.id);
+        }
+
+        logAudit("Global Risk Recalculation", "SECURITY", { count: groups.length }, req.user.id, req.user.name, req);
+        res.json({ success: true, message: `Recalculated risk for ${groups.length} groups` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -229,43 +268,19 @@ router.post('/admin/settings', authenticateToken, isAdmin, (req, res) => {
 router.get('/officials', authenticateToken, async (req, res) => {
     const query = `
         SELECT 
-            'Chairman' as role,
+            go.role,
             m.name as member_name,
             m.phone as member_phone,
             g.name as group_name,
             g.id as group_id,
-            g.created_at as term_start,
-            m.status as status,
+            go.term_start,
+            go.status,
             m.id as member_id,
-            'CHM-' || m.id as id
-        FROM groups g
-        JOIN members m ON g.chairperson_id = m.id
-        UNION
-        SELECT 
-            'Secretary' as role,
-            m.name as member_name,
-            m.phone as member_phone,
-            g.name as group_name,
-            g.id as group_id,
-            g.created_at as term_start,
-            m.status as status,
-            m.id as member_id,
-            'SEC-' || m.id as id
-        FROM groups g
-        JOIN members m ON g.secretary_id = m.id
-        UNION
-        SELECT 
-            'Treasurer' as role,
-            m.name as member_name,
-            m.phone as member_phone,
-            g.name as group_name,
-            g.id as group_id,
-            g.created_at as term_start,
-            m.status as status,
-            m.id as member_id,
-            'TRE-' || m.id as id
-        FROM groups g
-        JOIN members m ON g.treasurer_id = m.id
+            'OFF-' || go.id as id
+        FROM group_officials go
+        JOIN members m ON go.member_id = m.id
+        JOIN groups g ON go.group_id = g.id
+        WHERE go.status = 'active'
     `;
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -273,15 +288,107 @@ router.get('/officials', authenticateToken, async (req, res) => {
     });
 });
 
-// GET /api/risk/member/:id - Individual Member Risk Report
-router.get('/risk/member/:id', authenticateToken, async (req, res) => {
+// POST /api/governance/sessions/:id/attendance - Record attendance and auto-trigger penalties
+router.post('/sessions/:id/attendance', authenticateToken, async (req, res) => {
+    const sessionId = req.params.id;
+    const { memberId, status } = req.body; // status: 'PRESENT', 'ABSENT', 'LATE'
+    const officerId = req.user.id;
+
+    if (!memberId || !status) {
+        return res.status(400).json({ error: "Member ID and status are required" });
+    }
+
     try {
-        const report = await RiskService.evaluateMemberRisk(req.params.id);
-        res.json(report);
+        const client = await db.beginTransaction();
+
+        try {
+            // 1. Upsert attendance record
+            await client.query(`
+                INSERT INTO attendance (session_id, member_id, status)
+                VALUES (?, ?, ?)
+                ON CONFLICT(session_id, member_id) DO UPDATE SET 
+                    status = excluded.status,
+                    recorded_at = CURRENT_TIMESTAMP
+            `, [sessionId, memberId, status]);
+
+            let penaltyId = null;
+            let message = `Attendance recorded as ${status}`;
+
+            // 2. Trigger automated penalty if ABSENT or LATE
+            if (status === 'ABSENT' || status === 'LATE') {
+                // Fetch penalty amounts from settings or use defaults
+                const penaltySettingKey = status === 'ABSENT' ? 'PENALTY_ABSENCE' : 'PENALTY_LATE';
+                const settingsRow = await client.query(`SELECT value FROM system_settings WHERE key = ?`, [penaltySettingKey]);
+                const penaltyAmount = settingsRow.rows[0] ? parseFloat(settingsRow.rows[0].value) : (status === 'ABSENT' ? 200 : 50);
+
+                if (penaltyAmount > 0) {
+                    const txRef = `AUTO-PEN-${sessionId}-${memberId}-${Date.now()}`;
+                    await MTEEngine.runMTELogic(client, {
+                        memberId,
+                        sessionId,
+                        transaction_type: 'PENALTY',
+                        amount: penaltyAmount,
+                        description: `Automated Penalty: ${status} at Session #${sessionId}`,
+                        txRef
+                    }, officerId);
+
+                    message += `. Automated penalty of KES ${penaltyAmount} applied.`;
+                }
+            }
+
+            await db.commit(client);
+            res.json({ success: true, message });
+
+        } catch (innerErr) {
+            await db.rollback(client);
+            throw innerErr;
+        }
     } catch (err) {
-        console.error("Member Risk Error:", err);
+        console.error("Attendance Error:", err);
         res.status(500).json({ error: err.message });
     }
+});
+
+// GET /api/governance/sessions/:id/attendance - Get attendance for a session
+router.get('/sessions/:id/attendance', authenticateToken, (req, res) => {
+    const sessionId = req.params.id;
+    db.all(`SELECT * FROM attendance WHERE session_id = ?`, [sessionId], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+/**
+ * 📊 Loan & Interest Intelligence
+ */
+
+// GET /api/governance/loans/due-summary/:groupId
+router.get('/loans/due-summary/:groupId', authenticateToken, (req, res) => {
+    const { groupId } = req.params;
+
+    // This logic calculates expected interest and principal due for all active loans in a group
+    // based on the repayment_schedule table for the current month/period.
+    db.all(`
+        SELECT 
+            m.id as member_id,
+            m.name as member_name,
+            l.id as loan_id,
+            rs.expected_installment,
+            rs.expected_interest,
+            rs.expected_principal,
+            rs.status as schedule_status
+        FROM members m
+        JOIN loans l ON m.id = l.member_id
+        JOIN repayment_schedule rs ON l.id = rs.loan_id
+        WHERE m.group_id = ? 
+        AND l.status = 'active'
+        AND rs.status = 'pending'
+        AND rs.due_date <= date('now', '+30 days') -- Look ahead 30 days
+        ORDER BY rs.due_date ASC
+    `, [groupId], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
 });
 
 module.exports = router;

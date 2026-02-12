@@ -129,19 +129,35 @@ const init = async () => {
                                 stl_repayment ${DECIMAL} DEFAULT 0,
                                 ltl_repayment ${DECIMAL} DEFAULT 0,
                                 loan_interest ${DECIMAL} DEFAULT 0,
+                                loan_principal ${DECIMAL} DEFAULT 0,
                                 welfare ${DECIMAL} DEFAULT 0,
+                                project ${DECIMAL} DEFAULT 0,
                                 fines ${DECIMAL} DEFAULT 0,
                                 withdrawals ${DECIMAL} DEFAULT 0,
                                 loans_issued ${DECIMAL} DEFAULT 0,
                                 transaction_type TEXT,
                                 description TEXT,
+                                reference TEXT,
                                 uploaded INTEGER DEFAULT 0,
+                                group_id INTEGER,
+                                status TEXT DEFAULT 'COMPLETED',
+                                amount ${DECIMAL} DEFAULT 0,
+                                type TEXT,
+                                loan_id INTEGER,
                                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                                 FOREIGN KEY(sessionId) REFERENCES meeting_sessions(id),
                                 FOREIGN KEY(memberId) REFERENCES members(id)
                             )`);
 
+        // Schema evolution guards
+        try { await run(`ALTER TABLE transactions ADD COLUMN loan_principal ${DECIMAL} DEFAULT 0`); } catch (e) { }
+        try { await run(`ALTER TABLE transactions ADD COLUMN project ${DECIMAL} DEFAULT 0`); } catch (e) { }
+        try { await run(`ALTER TABLE transactions ADD COLUMN reference TEXT`); } catch (e) { }
+        try { await run(`ALTER TABLE transactions ADD COLUMN group_id INTEGER`); } catch (e) { }
         try { await run(`ALTER TABLE transactions ADD COLUMN status TEXT DEFAULT 'COMPLETED'`); } catch (e) { }
+        try { await run(`ALTER TABLE transactions ADD COLUMN amount ${DECIMAL} DEFAULT 0`); } catch (e) { }
+        try { await run(`ALTER TABLE transactions ADD COLUMN type TEXT`); } catch (e) { }
+        try { await run(`ALTER TABLE transactions ADD COLUMN loan_id INTEGER`); } catch (e) { }
 
         // 6. DIVIDEND TABLES
         await run(`CREATE TABLE IF NOT EXISTS dividend_runs(
@@ -231,6 +247,18 @@ const init = async () => {
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // Migration for existing repayment_schedule
+        const scheduleCols = [
+            'expected_principal', 'expected_interest', 'expected_shares',
+            'paid_amount', 'actual_payment', 'payment_date'
+        ];
+        for (const col of scheduleCols) {
+            try {
+                const type = (col === 'payment_date') ? 'TEXT' : DECIMAL;
+                await run(`ALTER TABLE repayment_schedule ADD COLUMN ${col} ${type}`);
+            } catch (e) { }
+        }
 
         // 7c. LOAN PAYMENTS - Tracks individual payment transactions
         await run(`CREATE TABLE IF NOT EXISTS loan_payments (

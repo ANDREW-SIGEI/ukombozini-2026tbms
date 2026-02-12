@@ -1,5 +1,5 @@
 /**
- * UKOMBOZI Institutional TBMS - Premium Login v2.2
+ * UKOMBOZINI Institutional TBMS - Premium Login v2.2
  * Redesigned: Jan 2026
  * Features: Login, Registration, Password Reset, Pass-Toggle
  */
@@ -106,7 +106,7 @@ const LoginPage = () => {
             <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gray-900 border-r border-gray-100">
                 <img
                     src="/login_backdrop_vibrant_kenya.png"
-                    alt="Ukombozi TBMS"
+                    alt="UKOMBOZINI TBMS"
                     className="absolute inset-0 w-full h-full object-cover opacity-80 shadow-2xl"
                 />
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent pointer-events-none" />
@@ -140,7 +140,7 @@ const LoginPage = () => {
                 <div className="max-w-md w-full mx-auto">
                     {/* Header for Mobile */}
                     <div className="lg:hidden mb-12 text-center">
-                        <h1 className="text-4xl font-black text-safaricom-green tracking-tight">UKOMBOZI</h1>
+                        <h1 className="text-4xl font-extrabold text-white tracking-tight">UKOMBOZINI<span className="text-blue-500">.</span></h1>
                         <p className="text-[10px] uppercase font-black tracking-[0.3em] text-gray-400 mt-2">Institutional Terminal</p>
                     </div>
 
@@ -163,7 +163,7 @@ const LoginPage = () => {
                                             value={email}
                                             onChange={(e) => setEmail(e.target.value)}
                                             className="w-full bg-white border-2 border-gray-100 rounded-3xl py-5 pl-14 pr-4 text-sm font-bold focus:border-safaricom-green focus:bg-white focus:ring-0 transition-all outline-none shadow-sm hover:border-gray-300"
-                                            placeholder="officer@ukombozi.co.ke"
+                                            placeholder="officer@ukombozini.co.ke"
                                             required
                                         />
                                     </div>
@@ -270,7 +270,7 @@ const LoginPage = () => {
                                             value={email}
                                             onChange={(e) => setEmail(e.target.value)}
                                             className="w-full bg-white border-2 border-gray-100 rounded-3xl py-5 pl-14 pr-4 text-sm font-bold focus:border-safaricom-green transition-all outline-none shadow-sm"
-                                            placeholder="officer@ukombozi.co.ke"
+                                            placeholder="officer@ukombozini.co.ke"
                                             required
                                         />
                                     </div>
@@ -378,7 +378,7 @@ const LoginPage = () => {
                     {/* Footer */}
                     <div className="mt-24 border-t border-gray-100 pt-10 text-center">
                         <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.4em] mb-4">
-                            &copy; 2026 UKOMBOZI TBMS &bull; SECURED TERMINAL &bull; V2.6-DIAGNOSTIC
+                            &copy; 2026 UKOMBOZINI TBMS &bull; SECURED TERMINAL &bull; V2.6-DIAGNOSTIC
                         </p>
                         <div className="flex justify-center items-center space-x-3">
                             <span className="flex h-2 w-2 relative">

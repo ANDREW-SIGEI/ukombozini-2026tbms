@@ -167,7 +167,7 @@ const reportService = {
                             size: 'A4',
                             info: {
                                 Title: `Member Statement - ${member.name}`,
-                                Author: 'UKOMBOZI TBMS',
+                                Author: 'UKOMBOZINI TBMS',
                             }
                         });
                         let buffers = [];
@@ -183,7 +183,7 @@ const reportService = {
                             doc.image(logoPath, 40, 35, { width: 180 });
                         }
 
-                        doc.fillColor('#666666').fontSize(8).font('Helvetica-Bold').text('INSTITUTIONAL FINANCIAL SERVICES | UKOMBOZI TBMS', 40, 85);
+                        doc.fillColor('#666666').fontSize(8).font('Helvetica-Bold').text('INSTITUTIONAL FINANCIAL SERVICES | UKOMBOZINI TBMS', 40, 85);
                         doc.moveDown(3);
 
                         // --- STATEMENT INFO ---
@@ -350,7 +350,7 @@ const reportService = {
 
                     try {
                         const workbook = new ExcelJS.Workbook();
-                        workbook.creator = 'UKOMBOZI TBMS';
+                        workbook.creator = 'UKOMBOZINI TBMS';
 
                         // --- SHEET 1: TRANSACTIONS ---
                         const txSheet = workbook.addWorksheet('Transactions History');

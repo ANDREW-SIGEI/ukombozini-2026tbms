@@ -97,6 +97,67 @@ class AuditService {
             });
         });
     }
+
+    /**
+     * Retrieves the transaction trail for a specific member contributing to their snapshot balance.
+     * @param {number} memberId - The member ID.
+     * @param {string} auditDate - The date up to which transactions should be retrieved.
+     */
+    static async getMemberTransactionTrail(memberId, auditDate) {
+        return new Promise((resolve, reject) => {
+            const txQuery = `
+                SELECT 
+                    t.*, 
+                    COALESCE(s.date, date(t.created_at)) as tx_date,
+                    s.id as session_id
+                FROM transactions t
+                LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                WHERE t.memberId = ? AND COALESCE(s.date, date(t.created_at)) <= ?
+                ORDER BY tx_date DESC, t.id DESC
+            `;
+
+            const projectQuery = `
+                SELECT ps.*, date(ps.date) as tx_date
+                FROM project_savings ps
+                JOIN project_registrations pr ON ps.registration_id = pr.id
+                WHERE pr.member_id = ? AND date(ps.date) <= ?
+                ORDER BY tx_date DESC
+            `;
+
+            db.all(txQuery, [memberId, auditDate], (err, txs) => {
+                if (err) return reject(err);
+                db.all(projectQuery, [memberId, auditDate], (err, projects) => {
+                    if (err) return reject(err);
+
+                    // Normalize both sets into a single timeline
+                    const trail = [
+                        ...txs.map(t => ({
+                            id: t.id,
+                            type: t.transaction_type,
+                            date: t.tx_date,
+                            amount: t.amount,
+                            description: t.description,
+                            impact: {
+                                savings: (t.savings_amount || 0) - (t.withdrawals || 0),
+                                welfare: (t.welfare || 0),
+                                loans: (t.loans_issued || 0) - (t.stl_repayment || 0) - (t.ltl_repayment || 0)
+                            }
+                        })),
+                        ...projects.map(p => ({
+                            id: `PRJ-${p.id}`,
+                            type: 'PROJECT_SAVING',
+                            date: p.tx_date,
+                            amount: p.amount,
+                            description: 'Project Fund Contribution',
+                            impact: { savings: 0, welfare: 0, loans: 0, project: p.amount }
+                        }))
+                    ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                    resolve(trail);
+                });
+            });
+        });
+    }
 }
 
 module.exports = AuditService;

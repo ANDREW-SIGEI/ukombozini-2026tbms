@@ -467,6 +467,7 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
 
                             {/* Payment Method */}
                             <div>
+                                <h3 className="text-xl font-bold text-gray-800 uppercase tracking-tight">UKOMBOZINI <span className="text-blue-600">CAPITAL</span></h3>
                                 <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Payment Method *</label>
                                 <div className="flex gap-2">
                                     {['Physical Cash', 'Bank Deposit', 'Mobile Money'].map(m => (

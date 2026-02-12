@@ -23,21 +23,6 @@ const reportService = require('./services/reportService');
 const dividendRules = require('./services/dividendRules');
 const AllocationService = require('./services/AllocationService');
 const { TRANSACTION_MAP, runMTELogic } = require('./services/MTEEngine'); // [PHASE 24] Institutional Liquidity Guard
-// The following liquidity validation block is placed here as per user instruction,
-// but it is syntactically incorrect in this position.
-// It should ideally be within a transaction processing function/route.
-/*
-    if (['Withdrawal', 'LoanIssuance'].includes(transaction_type)) {
-        try {
-            await CashControlService.validateLiquidity(member.group_id, amount);
-        } catch (liquidityErr) {
-            return res.status(403).json({ 
-                error: liquidityErr.message, 
-                code: 'LIQUIDITY_BREACH' 
-            });
-        }
-    }
-*/
 
 const partnershipRoutes = require('./routes/partnership');
 const governanceRoutes = require('./routes/governance');
@@ -47,7 +32,7 @@ const receiptRoutes = require('./routes/receipts');
 const projectRoutes = require('./routes/projects');
 const reportRoutes = require('./routes/reports');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ukombozi-secret-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'ukombozini-secret-key-2026';
 
 // ==========================================
 // 🛡️ GLOBAL ERROR GUARDS
@@ -122,6 +107,53 @@ app.use('/api/reports/receipt', receiptRoutes); // Keep specific receipt route
 app.use('/api/reports', reportRoutes); // General reports (matches /loan-tracking)
 app.use('/api/projects', projectRoutes);
 app.use('/api/communication', communicationRoutes);
+// 📊 ALLOCATION MATRIX ROUTES (PHASE 12)
+app.get('/api/allocation/preview/:sessionId', authenticateToken, async (req, res) => {
+    try {
+        const preview = await AllocationService.previewAllocation(req.params.sessionId);
+        res.json(preview);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/allocation/commit/:sessionId', authenticateToken, async (req, res) => {
+    try {
+        const result = await AllocationService.commitAllocation(req.params.sessionId);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/allocation/rules/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const rules = await AllocationService.getGroupRules(req.params.groupId);
+        res.json(rules);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/allocation/rules', authenticateToken, async (req, res) => {
+    try {
+        const { groupId, rules } = req.body;
+        await AllocationService.updateGroupRules(groupId, rules);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/allocation/history', authenticateToken, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 50;
+        const history = await AllocationService.getAllocationHistory(limit);
+        res.json(history);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 /**
  * 🏛️ INSTITUTIONAL TREASURY & LIQUIDITY
@@ -521,11 +553,68 @@ app.get('/api/loans', authenticateToken, (req, res) => {
         params.push(memberId);
     }
 
-    query += ` ORDER BY l.disbursed_at DESC`;
+    query += ` ORDER BY l.issued_date DESC`;
 
     db.all(query, params, (err, loans) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(loans || []);
+    });
+});
+
+// GET /api/loans/:id/schedule - Get Repayment Schedule
+app.get('/api/loans/:id/schedule', authenticateToken, (req, res) => {
+    const { id } = req.params;
+
+    // 1. Get Loan Details
+    const query = `
+        SELECT l.*, m.name as member_name, g.meetingDay, g.name as group_name
+        FROM loans l
+        JOIN members m ON l.member_id = m.id
+        JOIN groups g ON m.group_id = g.id
+        WHERE l.id = ?
+    `;
+
+    db.get(query, [id], (err, loan) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!loan) return res.status(404).json({ error: "Loan not found" });
+
+        try {
+            const principal = parseFloat(loan.principal_amount);
+            const rate = parseFloat(loan.interest_rate) || 10; // e.g. 10 for 10%
+            const duration = parseInt(loan.duration_months) || 1;
+
+            // Interest Calculation (Standard Table Banking - Flat Rate)
+            const totalInterest = principal * (rate / 100);
+            const totalRepayable = principal + totalInterest;
+            const monthlyInstallment = totalRepayable / duration;
+
+            // Generate Schedule
+            const schedule = [];
+            let balance = totalRepayable;
+            const startDate = new Date(loan.created_at || Date.now());
+
+            for (let i = 1; i <= duration; i++) {
+                // Calculate next meeting date (Approximate +30 days for now)
+                const dueDate = new Date(startDate);
+                dueDate.setDate(startDate.getDate() + (i * 30));
+
+                schedule.push({
+                    period: i,
+                    date: dueDate.toISOString().split('T')[0],
+                    principal: (principal / duration),
+                    interest: (totalInterest / duration),
+                    total: monthlyInstallment,
+                    balance: Math.max(0, balance - monthlyInstallment)
+                });
+                balance -= monthlyInstallment;
+            }
+
+            res.json(schedule);
+
+        } catch (calcError) {
+            console.error("Loan Schedule Error:", calcError);
+            res.status(500).json({ error: "Failed to calculate loan schedule." });
+        }
     });
 });
 
@@ -658,7 +747,7 @@ app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (re
 
     // 🏛️ Get member context for Liquidity Guard
     const memberRow = await new Promise(res => db.get("SELECT group_id FROM members WHERE id = ?", [memberId], (e, r) => res(r)));
-    const groupId = memberRow?.group_id;
+    const groupId = memberRow?.group_id || req.body.groupId || 0;
 
     // 🛡️ INSTITUTIONAL LIQUIDITY GUARD (Withdrawals & Loans)
     if (groupId && ['WITHDRAWAL', 'LOAN_ISSUANCE'].includes(finalType)) {
@@ -726,11 +815,11 @@ app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (re
         // 📢 POST-PROCESSING: Audit & SMS
         logAudit(`${finalType}: KES ${grossVal}`, 'finance', { memberId, finalType });
 
-        const smsMsg = `UKOMBOZI: ${finalType.replace('_', ' ')} of KES ${grossVal.toLocaleString()} confirmed. Ref: ${txRef}`;
+        const smsMsg = `UKOMBOZINI: ${finalType.replace('_', ' ')} of KES ${grossVal.toLocaleString()} confirmed. Ref: ${txRef}`;
         await logAndSendSMS(memberId, smsMsg, finalType, txRef);
 
         if (groupId) {
-            const direction = ['WITHDRAWAL', 'LOAN_ISSUANCE'].includes(finalType) ? 'OUT' : 'IN';
+            const direction = ['WITHDRAWAL', 'LOAN_ISSUANCE', 'GROUP_LOAN_REPAYMENT', 'COMMITMENT_DEPOSIT'].includes(finalType) ? 'OUT' : 'IN';
             autoLogToCashControl(groupId, finalType, grossVal, direction, txRef, req.user?.id);
         }
 
@@ -1029,7 +1118,7 @@ app.post('/api/arrears/notify', authenticateToken, (req, res) => {
         for (const member of members) {
             const message = customMessage
                 ? customMessage.replace('{{name}}', member.name).replace('{{amount}}', member.arrears.toLocaleString()).replace('{{days}}', member.days_overdue)
-                : `🚨 UKOMBOZI URGENT: Dear ${member.name}, your loan payment of KES ${member.arrears.toLocaleString()} is ${member.days_overdue} days overdue.\n\nPlease make payment immediately to avoid penalties.\n\nContact: 0700-000-000`;
+                : `🚨 UKOMBOZINI URGENT: Dear ${member.name}, your loan payment of KES ${member.arrears.toLocaleString()} is ${member.days_overdue} days overdue.\n\nPlease make payment immediately to avoid penalties.\n\nContact: 0700-000-000`;
 
             try {
                 await logAndSendSMS(member.id, message, 'ARREARS_REMINDER');
@@ -1324,10 +1413,10 @@ app.delete('/api/admin/loan-products/:id', authenticateToken, isAdmin, (req, res
 
 // Backup Database
 app.get('/api/admin/backup', authenticateToken, isAdmin, (req, res) => {
-    const dbFile = path.join(__dirname, 'ukombozi.sqlite');
+    const dbFile = path.join(__dirname, 'ukombozini.sqlite');
     console.log('Backup request received. Checking file:', dbFile);
     if (fs.existsSync(dbFile)) {
-        res.download(dbFile, `ukombozi_backup_${new Date().toISOString().split('T')[0]}.sqlite`);
+        res.download(dbFile, `ukombozini_backup_${new Date().toISOString().split('T')[0]}.sqlite`);
     } else {
         console.error('Backup failed: File not found at', dbFile);
         res.status(404).json({ error: "Database file not found", path: dbFile });
@@ -1497,6 +1586,16 @@ app.post('/api/groups', authenticateToken, isAdmin, (req, res) => {
                                 }
 
                                 createdStaffIds[off.role] = this.lastID;
+                                const memberId = this.lastID;
+
+                                // Automated Welcome SMS for Official
+                                let welcomeMsg = `UKOMBOZINI: Welcome ${off.name}! You are registered as ${off.role} for your group. Your Member ID is ${memberId}. Growing together!`;
+                                welcomeMsg += getSeasonalGreeting();
+
+                                if (off.phone) {
+                                    logAndSendSMS(memberId, welcomeMsg, 'WELCOME', null, 'members');
+                                }
+
                                 pending--;
 
                                 if (pending === 0) {
@@ -1627,6 +1726,7 @@ app.get('/api/members', authenticateToken, (req, res) => {
 
     let query = `
         SELECT m.*, g.name as group_name,
+        (SELECT COUNT(*) FROM loans WHERE (guarantor1_id = m.id OR guarantor2_id = m.id) AND status = 'active') as active_guarantees_count,
         (SELECT COALESCE(SUM(principal_amount), 0) FROM loans WHERE (guarantor1_id = m.id OR guarantor2_id = m.id) AND status = 'active') as total_guaranteed_amount,
         (SELECT COALESCE(SUM(ps.amount), 0) FROM project_savings ps JOIN project_registrations pr ON ps.registration_id = pr.id WHERE pr.member_id = m.id) as project_savings_total,
         CASE 
@@ -1785,6 +1885,15 @@ app.post('/api/members', authenticateToken, checkFreeze('GROUP'), (req, res) => 
                     next_of_kin_phone: req.body.next_of_kin_phone || null,
                     next_of_kin_relationship: req.body.next_of_kin_relationship || null
                 });
+
+                // Automated Welcome SMS for Individual Registration
+                const memberId = this.lastID;
+                let welcomeMsg = `UKOMBOZINI: Welcome ${finalName}! You have been successfully registered. Your Member ID is ${memberId}. We look forward to growing together.`;
+                welcomeMsg += getSeasonalGreeting();
+
+                if (phone) {
+                    logAndSendSMS(memberId, welcomeMsg, 'WELCOME', null, 'members');
+                }
             }
         );
         stmt.finalize();
@@ -1978,11 +2087,15 @@ app.get('/api/sessions', (req, res) => {
 
 // Open a new Cash Session
 app.post('/api/cash-sessions/open', authenticateToken, checkFreeze('GROUP'), async (req, res) => {
-    const { groupId, date } = req.body;
+    const { groupId, date, meetingId } = req.body;
     const officerId = req.user.id || 1;
 
+    if (!groupId || !date) {
+        return res.status(400).json({ error: "Group ID and Date are required" });
+    }
+
     try {
-        const result = await CashControlService.openSession(groupId, officerId, date);
+        const result = await CashControlService.openSession(groupId, officerId, date, meetingId);
         res.json(result);
     } catch (err) {
         res.status(400).json({
@@ -2034,21 +2147,13 @@ app.get('/api/cash-sessions/:id/context', authenticateToken, async (req, res) =>
     }
 });
 
-// Open New Cash Session (Step 1)
-app.post('/api/cash-sessions/open', authenticateToken, checkFreeze('GROUP'), async (req, res) => {
-    const { groupId, date } = req.body;
-    const officerId = req.user.id;
-
-    if (!groupId || !date) {
-        return res.status(400).json({ error: "Group ID and Date are required" });
-    }
-
-    try {
-        const session = await CashControlService.openSession(groupId, officerId, date);
-        res.json(session);
-    } catch (err) {
-        res.status(400).json({ error: err.message });
-    }
+// Get list of recent cash sessions
+app.get('/api/cash-sessions', authenticateToken, async (req, res) => {
+    const limit = parseInt(req.query.limit) || 10;
+    db.all(`SELECT s.*, g.name as group_name FROM cash_sessions s JOIN groups g ON s.group_id = g.id ORDER BY opened_at DESC LIMIT ?`, [limit], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
 });
 
 // Verify and Lock Session (The 5-Step Flow)
@@ -2413,8 +2518,8 @@ const processTransactions = (reportId, groupId, date, transactions, res) => {
         INSERT INTO transactions (
             sessionId, memberId, transaction_type, description, 
             savings_amount, stl_repayment, ltl_repayment, loan_interest, 
-            loan_principal, welfare, project, fines, withdrawals, loans_issued, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
+            loan_principal, welfare, project, fines, withdrawals, loans_issued, group_id, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
     `);
 
     // We need a dummy session ID or link it to report.
@@ -2539,35 +2644,6 @@ app.get('/api/monthly-reports/:id', authenticateToken, (req, res) => {
 
 
 // ==========================================
-// 🛡️ CASH CONTROL AUTOMATION HELPERS
-// ==========================================
-
-const autoLogToCashControl = async (groupId, source, amount, direction, referenceId, userId) => {
-    try {
-        // Find if there is an OPEN cash session for today/this group
-        const date = new Date().toISOString().split('T')[0];
-        const session = await CashControlService.getInternal(
-            "SELECT id FROM cash_sessions WHERE group_id = ? AND status = 'OPEN' AND meeting_date = ?",
-            [groupId, date]
-        );
-
-        if (session) {
-            await CashControlService.logRecord({
-                sessionId: session.id,
-                source,
-                amount,
-                direction,
-                referenceId,
-                createdBy: userId || 1
-            });
-            console.log(`Auto-Log Success: ${source} -> Session ${session.id}`);
-        }
-    } catch (err) {
-        console.error("Auto-Log Failed:", err.message);
-    }
-};
-
-// ==========================================
 // UNIFIED TRANSACTION API
 // ==========================================
 
@@ -2584,23 +2660,37 @@ app.get('/api/sessions', authenticateToken, (req, res) => {
     `;
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
+
+        // Parse JSON columns
+        const processedRows = (rows || []).map(row => {
+            if (row.totals && typeof row.totals === 'string') {
+                try {
+                    row.totals = JSON.parse(row.totals);
+                } catch (e) {
+                    console.error('Error parsing session totals:', e);
+                }
+            }
+            return row;
+        });
+
+        res.json(processedRows);
     });
 });
 
 // Start Session (Create)
 app.post('/api/sessions', authenticateToken, checkFreeze('GROUP'), (req, res) => {
-    const { groupId, officerId, date, startTime, endTime, venue, agenda, meeting_type, expected_attendance } = req.body;
+    const { groupId, officerId, date, meetingDate, startTime, endTime, venue, agenda, meeting_type, expected_attendance } = req.body;
+    const finalDate = date || meetingDate;
 
     const stmt = db.prepare(`
         INSERT INTO meeting_sessions (
-            groupId, group_id, officerId, date, startTime, endTime, status,
+            groupId, officerId, date, startTime, endTime, status,
             venue, agenda, meeting_type, expected_attendance
-        ) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
     `);
 
     stmt.run(
-        groupId, groupId, officerId, date, startTime, endTime,
+        groupId, officerId, finalDate, startTime, endTime,
         venue || 'Usual Venue',
         agenda || '',
         meeting_type || 'Routine',
@@ -2676,39 +2766,34 @@ app.patch('/api/sessions/:id/close', authenticateToken, checkFreeze('GROUP'), (r
 // Post/Approve Session (Update to POSTED + Save Transactions)
 app.post('/api/sessions/:id/post', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const sessionId = req.params.id;
-    const { transactions, metadata } = req.body; // metadata contains ukomboziRepayment and groupId
+    const { transactions, metadata } = req.body; // metadata contains ukomboziniRepayment and groupId
 
-    // 1. Update Session Status
-    db.run("UPDATE meeting_sessions SET status = 'POSTED' WHERE id = ?", [sessionId], function (err) {
+    // 1. Update Session Status & Record Partnership Repayment
+    const uRepay = metadata?.ukomboziniRepayment || 0;
+    db.run("UPDATE meeting_sessions SET status = 'POSTED', ukombozini_repayment = ? WHERE id = ?", [uRepay, sessionId], function (err) {
         if (err) return res.status(500).json({ error: err.message });
 
         // 2. Insert Transactions
         if (transactions && transactions.length > 0) {
-            const placeholders = transactions.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+            const columns = [
+                'sessionId', 'memberId', 'memberName', 'attended',
+                'savings_amount', 'stl_repayment', 'ltl_repayment',
+                'loan_interest', 'loan_principal', 'welfare', 'project', 'fines', 'withdrawals',
+                'loans_issued', 'transaction_type', 'description', 'reference', 'group_id', 'status', 'amount', 'type', 'loan_id'
+            ];
+            const placeholders = transactions.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+            const query = `INSERT INTO transactions (${columns.join(', ')}) VALUES ${placeholders}`;
+
             const values = [];
-            transactions.forEach(t => {
+            transactions.forEach(tx => {
+                const amount = (tx.savings || 0) + (tx.stl_repayment || 0) + (tx.ltl_repayment || 0) + (tx.loan_interest || 0) + (tx.loan_principal || 0) + (tx.welfare || 0) + (tx.project || 0) + (tx.fines || 0);
                 values.push(
-                    sessionId,
-                    t.memberId,
-                    t.memberName,
-                    t.savings_amount || 0,
-                    t.stl_repayment || 0,
-                    t.ltl_repayment || 0,
-                    t.loan_interest || 0,
-                    t.welfare || 0,
-                    t.fines || 0,
-                    t.withdrawals || 0,
-                    t.loans_issued || 0,
-                    t.transaction_type || 'Meeting',
-                    1, // attended default
-                    metadata.groupId
+                    sessionId, tx.memberId, tx.memberName, tx.attended || 1,
+                    tx.savings || 0, tx.stl_repayment || 0, tx.ltl_repayment || 0,
+                    tx.loan_interest || 0, tx.loan_principal || 0, tx.welfare || 0, tx.project || 0, tx.fines || 0, tx.withdrawals || 0,
+                    tx.loans_issued || 0, 'Meeting', tx.description || 'Meeting Transaction', tx.reference || null, metadata.groupId, 'POSTED', amount, 'Meeting', tx.loan_id || null
                 );
             });
-
-            const query = `INSERT INTO transactions (
-                sessionId, memberId, memberName, 
-                savings_amount, stl_repayment, ltl_repayment, loan_interest, welfare, fines, withdrawals, loans_issued, transaction_type, attended, group_id
-            ) VALUES ${placeholders}`;
 
             db.run(query, values, (err) => {
                 if (err) {
@@ -2729,22 +2814,29 @@ app.post('/api/sessions/:id/post', authenticateToken, checkFreeze('GROUP'), (req
                     }
                 });
 
-                // 4. Record Partnership Repayment if present
-                if (metadata && metadata.ukomboziRepayment > 0) {
-                    const repayAmt = metadata.ukomboziRepayment;
-                    db.run(`INSERT INTO company_investments (group_id, amount, notes, type) 
-                            VALUES (?, ?, ?, 'REPAYMENT')`,
-                        [metadata.groupId, -repayAmt, `Session Repayment: SID-${sessionId}`],
-                        (err) => {
-                            if (err) console.error("Partnership Repayment Log Error:", err);
-                            logAudit(`Company Repayment: ${repayAmt}`, 'partnership', { groupId: metadata.groupId, sessionId, amount: repayAmt });
-                        }
-                    );
+                // 4. Record Partnership Repayment if present via MTE v2
+                if (uRepay > 0) {
+                    const txRef = `SID-RPY-${sessionId}`;
+                    const mteClient = { query: (sql, params) => db.queryStandalone(sql, params) };
+
+                    runMTELogic(mteClient, {
+                        memberId: 0,
+                        sessionId: sessionId,
+                        transaction_type: 'GROUP_LOAN_REPAYMENT',
+                        amount: uRepay,
+                        description: `Session Repayment: SID-${sessionId}`,
+                        txRef,
+                        groupId: metadata.groupId,
+                        loanType: 'STL' // Defaulting to STL for session-level repayment
+                    }, req.user?.id || 1).catch(err => console.error("MTE Partnership Repayment Error:", err));
                 }
 
                 // 5. Trigger Real-Time Risk Evaluation
                 if (metadata && metadata.groupId) {
                     RiskService.evaluateGroupRisk(metadata.groupId).catch(e => console.error("Post-Session Risk Error:", e));
+
+                    // 6. Finalize Allocation Snapshot (New Phase 12)
+                    AllocationService.commitAllocation(sessionId).catch(e => console.error("Allocation Commit Error:", e));
                 }
 
                 res.json({ success: true, status: 'POSTED', transactionCount: transactions.length });
@@ -2768,7 +2860,9 @@ app.get('/api/sessions/:id/summary', (req, res) => {
             COALESCE(SUM(welfare), 0) as total_welfare,
             COALESCE(SUM(fines), 0) as total_fines,
             COALESCE(SUM(withdrawals), 0) as total_withdrawals,
-            COALESCE(SUM(loans_issued), 0) as total_loans_issued
+            COALESCE(SUM(CASE WHEN transaction_type = 'LOAN_ISSUANCE' THEN amount ELSE 0 END), 0) as member_loans_issued,
+            COALESCE(SUM(CASE WHEN transaction_type = 'GROUP_LOAN' THEN amount ELSE 0 END), 0) as group_loans_received,
+            COALESCE(SUM(CASE WHEN transaction_type = 'GROUP_LOAN_REPAYMENT' THEN amount ELSE 0 END), 0) as group_repayments
         FROM transactions 
         WHERE sessionId = ?
     `;
@@ -2778,9 +2872,9 @@ app.get('/api/sessions/:id/summary', (req, res) => {
 
         const inflows = (row.total_savings || 0) + (row.total_stl_repayment || 0) +
             (row.total_ltl_repayment || 0) + (row.total_interest || 0) +
-            (row.total_welfare || 0) + (row.total_fines || 0);
+            (row.total_welfare || 0) + (row.total_fines || 0) + (row.group_loans_received || 0);
 
-        const outflows = (row.total_withdrawals || 0) + (row.total_loans_issued || 0);
+        const outflows = (row.total_withdrawals || 0) + (row.member_loans_issued || 0) + (row.group_repayments || 0);
 
         res.json({
             session_id: id,
@@ -3107,7 +3201,8 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
             cashFlow,
             loanStatuses,
             groupContributions,
-            companyInvestments
+            companyInvestments,
+            projectSavings
         ] = await Promise.all([
             getRow("SELECT COUNT(*) as count FROM members WHERE status = 'active'"),
             getRow("SELECT COUNT(*) as count FROM loans WHERE status = 'active'"),
@@ -3117,7 +3212,15 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
             getAll(`
                 SELECT 
                     strftime('%Y-%m', s.date) as month,
-                    SUM(t.savings_amount + t.stl_repayment + t.ltl_repayment + t.loan_interest + t.welfare + t.fines) as cash_in,
+                    SUM(
+                        COALESCE(t.savings_amount, 0) + 
+                        COALESCE(t.stl_repayment, 0) + 
+                        COALESCE(t.ltl_repayment, 0) + 
+                        COALESCE(t.loan_interest, 0) + 
+                        COALESCE(t.welfare, 0) + 
+                        COALESCE(t.fines, 0) +
+                        CASE WHEN t.type = 'ProjectSaving' THEN COALESCE(t.amount, 0) ELSE 0 END
+                    ) as cash_in,
                     SUM(t.withdrawals + t.loans_issued) as cash_out
                 FROM transactions t
                 JOIN meeting_sessions s ON t.sessionId = s.id
@@ -3127,7 +3230,8 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
             `),
             getAll("SELECT status, COUNT(*) as count FROM loans GROUP BY status"),
             getAll("SELECT g.name as group_name, SUM(m.current_savings) as total FROM members m JOIN groups g ON m.group_id = g.id GROUP BY g.id"),
-            getRow("SELECT SUM(amount) as total FROM company_investments WHERE type = 'TOPUP'")
+            getRow("SELECT SUM(amount) as total FROM company_investments WHERE type = 'TOPUP'"),
+            getRow("SELECT SUM(total_saved) as total FROM project_registrations")
         ]);
 
         const totalIn = cashFlow.reduce((acc, curr) => acc + (curr.cash_in || 0), 0);
@@ -3136,7 +3240,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         const stats = {
             totalMembers: memberCount?.count || 0,
             activeLoans: activeLoanCount?.count || 0,
-            totalContributions: totalSavings?.total || 0,
+            totalContributions: (totalSavings?.total || 0) + (projectSavings?.total || 0),
             pendingRepayments: overdueLoans?.count || 0,
             totalDividends: totalDividends?.total || 0,
             netCashFlow: totalIn - totalOut,
@@ -3144,8 +3248,9 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
             loanStatusData: loanStatuses,
             contributionBreakdown: groupContributions,
             liquidityMatrix: {
-                groupCapital: totalSavings?.total || 0,
-                companyTopUp: companyInvestments?.total || 0
+                groupCapital: (totalSavings?.total || 0) + (projectSavings?.total || 0),
+                companyTopUp: companyInvestments?.total || 0,
+                projectOnly: projectSavings?.total || 0
             }
         };
 
@@ -3464,7 +3569,7 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), async (req, res)
                     db.run("COMMIT");
                     logAudit(`Issue Loan: ${amount}`, 'transaction', { memberId, loanId, amount, loanType });
 
-                    const smsMsg = `UKOMBOZI: LOAN DISBURSED! KES ${Number(amount).toLocaleString()} (${loanType}). Due: ${dueDateStr}. Ref: ${loanId}.`;
+                    const smsMsg = `UKOMBOZINI: LOAN DISBURSED! KES ${Number(amount).toLocaleString()} (${loanType}). Due: ${dueDateStr}. Ref: ${loanId}.`;
                     await logAndSendSMS(memberId, smsMsg, 'LOAN_DISBURSED', loanId);
 
                     res.json({ id: loanId, status: 'active', message: 'Loan issued successfully', transaction_id: loanId });
@@ -3608,11 +3713,12 @@ app.post('/api/loans/repay'
                     db.run(`
                         INSERT INTO transactions (
                             sessionId, memberId, loan_principal, loan_interest, 
-                            transaction_type, description, attended, status
-                        ) VALUES (?, ?, ?, ?, 'LoanRepayment', ?, 1, 'POSTED')
+                            transaction_type, description, attended, group_id, status, amount, type
+                        ) VALUES (?, ?, ?, ?, 'LoanRepayment', ?, 1, ?, 'POSTED', ?, 'LoanRepayment')
                     `, [
                         sessionId, memberId, principalPortion, interestPortion,
-                        `Loan Repayment | Ref: ${paymentRef} | Loan ID: ${loanId}`
+                        `Loan Repayment | Ref: ${paymentRef} | Loan ID: ${loanId}`,
+                        groupId, repaymentAmount
                     ], async function (err) {
                         if (err) {
                             db.run("ROLLBACK");
@@ -3646,8 +3752,8 @@ app.post('/api/loans/repay'
 
                             // Send SMS notification
                             const smsMsg = isFullPayoff
-                                ? `UKOMBOZI: Congratulations! Your loan of KES ${loan.principal_amount.toLocaleString()} is FULLY PAID! Thank you for your commitment. Ref: ${paymentRef}`
-                                : `UKOMBOZI: Loan payment of KES ${repaymentAmount.toLocaleString()} received. Outstanding: KES ${newOutstanding.toFixed(0)}. Ref: ${paymentRef}.`;
+                                ? `UKOMBOZINI: Congratulations! Your loan of KES ${loan.principal_amount.toLocaleString()} is FULLY PAID! Thank you for your commitment. Ref: ${paymentRef}`
+                                : `UKOMBOZINI: Loan payment of KES ${repaymentAmount.toLocaleString()} received. Outstanding: KES ${newOutstanding.toFixed(0)}. Ref: ${paymentRef}.`;
 
                             await logAndSendSMS(memberId, smsMsg, isFullPayoff ? 'LOAN_CLEARED' : 'LOAN_REPAYMENT', transactionId);
 
@@ -4041,8 +4147,9 @@ app.get('/api/dividends/report', (req, res) => {
                 transaction_type, 
                 description, 
                 created_at,
-                uploaded
-            ) VALUES (?, ?, 'Dividend', ?, ?, 1)
+                uploaded,
+                group_id
+            ) VALUES (?, ?, 'Dividend', ?, ?, 1, ?)
         `);
  
         payouts.forEach(p => {
@@ -4050,7 +4157,8 @@ app.get('/api/dividends/report', (req, res) => {
                 p.member_id,
                 p.amount,
                 `Dividend Payout ${year} - ${(financials.rate * 100).toFixed(2)}%`,
-                new Date().toISOString()
+                new Date().toISOString(),
+                group_id
             );
  
             // Update Member Savings
@@ -4149,8 +4257,8 @@ app.post('/api/dividends/post', authenticateToken, isAdmin, (req, res) => {
             const insertTx = `
                 INSERT INTO transactions (
                     memberId, savings_amount, transaction_type, 
-                    description, uploaded, attended
-                ) VALUES (?, ?, 'DividendPayout', ?, 1, 1)
+                    description, uploaded, attended, group_id, amount, type, status
+                ) VALUES (?, ?, 'DividendPayout', ?, 1, 1, ?, ?, 'DividendPayout', 'POSTED')
             `;
 
             const updateMember = `UPDATE members SET current_savings = current_savings + ? WHERE id = ?`;
@@ -4171,7 +4279,8 @@ app.post('/api/dividends/post', authenticateToken, isAdmin, (req, res) => {
                     // B. Record Transaction (Ledger)
                     db.run(insertTx, [
                         alloc.memberId, alloc.grossDividend,
-                        `Dividend Payout ${runData.year}`
+                        `Dividend Payout ${runData.year}`,
+                        runData.group_id, alloc.grossDividend
                     ], (err) => {
                         if (err) { errorOccurred = true; return; }
 
@@ -4639,14 +4748,20 @@ app.get('/api/reports/financial/balance-sheet', authenticateToken, isAdmin, (req
     const query = `
         SELECT 
             -- Assets
-            (SELECT SUM(current_savings) FROM members) as total_cash_asset_proxy, -- Assuming fully cash backed for now
+            -- Cash Proxy handled in JS calculation derived from Liab + Equity
             (SELECT SUM(active_loan_balance) FROM members) as total_loans_portfolio,
             
             -- Liabilities (Member Deposits)
             (SELECT SUM(current_savings) FROM members) as total_member_savings,
+            (SELECT COALESCE(SUM(total_saved), 0) FROM project_registrations) as total_project_savings,
             
             -- Equity (Retained Earnings - Proxy)
-            (SELECT SUM(loan_interest + fines) FROM transactions) as retained_earnings
+            -- Includes Interest, Fines, and Project/Company Fees
+            (
+                SELECT SUM(loan_interest + fines) FROM transactions
+            ) + (
+                SELECT COALESCE(SUM(amount), 0) FROM company_revenue
+            ) as retained_earnings
     `;
 
     db.get(query, [], (err, row) => {
@@ -4656,13 +4771,14 @@ app.get('/api/reports/financial/balance-sheet', authenticateToken, isAdmin, (req
         const balanceSheet = {
             asOf: date,
             assets: {
-                cashAtHand: row.total_cash_asset_proxy || 0, // In reality, this should be tracked separately via cash_log
+                cashAtHand: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.retained_earnings || 0) - (row.total_loans_portfolio || 0),
                 loansPortfolio: row.total_loans_portfolio || 0,
-                totalAssets: (row.total_cash_asset_proxy || 0) + (row.total_loans_portfolio || 0)
+                totalAssets: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.retained_earnings || 0)
             },
             liabilities: {
                 memberSavings: row.total_member_savings || 0,
-                totalLiabilities: row.total_member_savings || 0
+                projectSavings: row.total_project_savings || 0,
+                totalLiabilities: (row.total_member_savings || 0) + (row.total_project_savings || 0)
             },
             equity: {
                 retainedEarnings: row.retained_earnings || 0,
@@ -4686,13 +4802,13 @@ app.get('/api/reports/financial/income-statement', authenticateToken, isAdmin, (
     const query = `
         SELECT 
             SUM(loan_interest) as interest_income,
-            SUM(fines) as fee_income,
+            SUM(fines) + (SELECT COALESCE(SUM(amount), 0) FROM company_revenue WHERE created_at BETWEEN ? AND ?) as fee_income,
             0 as expense_proxy -- Placeholder
         FROM transactions 
         WHERE created_at BETWEEN ? AND ?
     `;
 
-    db.get(query, [start, end], (err, row) => {
+    db.get(query, [start, end, start, end], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const incomeStatement = {
@@ -4720,6 +4836,7 @@ app.get('/api/reports/financial/daily-cash-flow', (req, res) => {
     const betterQuery = `
         SELECT 
             SUM(savings_amount) as savings_in,
+            SUM(CASE WHEN type='ProjectSaving' THEN amount ELSE 0 END) as project_savings_in,
             SUM(stl_repayment + ltl_repayment + loan_interest + fines) as loan_repayment_in,
             SUM(withdrawals) as withdrawals_out,
             SUM(loans_issued) as loans_out
@@ -4734,8 +4851,9 @@ app.get('/api/reports/financial/daily-cash-flow', (req, res) => {
             date,
             cashIn: {
                 savings: row.savings_in || 0,
+                projectSavings: row.project_savings_in || 0,
                 repayments: row.loan_repayment_in || 0,
-                total: (row.savings_in || 0) + (row.loan_repayment_in || 0)
+                total: (row.savings_in || 0) + (row.loan_repayment_in || 0) + (row.project_savings_in || 0)
             },
             cashOut: {
                 withdrawals: row.withdrawals_out || 0,
@@ -4852,9 +4970,9 @@ app.post('/api/partnership/apply-offset', authenticateToken, isAdmin, (req, res)
             // Credit Member's Loan
             const txnDate = new Date().toISOString();
             db.run(`INSERT INTO transactions 
-                (session_id, member_id, transaction_type, amount, loan_interest, loan_principal, stl_repayment, ltl_repayment, date, created_at)
-                VALUES (?, ?, 'COMMITMENT_OFFSET', ?, 0, ?, ?, ?, ?, ?)`,
-                ['SYSTEM-OFFSET', memberId, amount, amount, amount, amount, txnDate, txnDate], // Simplified: treating as generic repayment
+                (sessionId, memberId, transaction_type, amount, loan_interest, loan_principal, stl_repayment, ltl_repayment, type, group_id, created_at, status)
+                VALUES (?, ?, 'COMMITMENT_OFFSET', ?, 0, ?, ?, ?, 'COMMITMENT_OFFSET', ?, ?, 'POSTED')`,
+                ['SYSTEM-OFFSET', memberId, amount, amount, 0, 0, groupId, txnDate],
                 (err) => {
                     if (err) return res.status(500).json({ error: "Failed to post loan credit" });
 
@@ -5019,198 +5137,210 @@ app.post('/api/projects/register', authenticateToken, checkFreeze('GROUP'), (req
     db.serialize(() => {
         db.run("BEGIN TRANSACTION");
 
-        // 1. Check if already registered
-        db.get("SELECT id FROM project_registrations WHERE member_id = ? AND project_type = ? AND year = ?", [member_id, upperProjectType, currentYear], (err, row) => {
-            if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-            if (row) { db.run("ROLLBACK"); return res.status(400).json({ error: 'Member already registered for this project this year' }); }
+        // 1. Get Member Context (Group ID)
+        db.get("SELECT group_id FROM members WHERE id = ?", [member_id], (err, mRow) => {
+            if (err || !mRow) { db.run("ROLLBACK"); return res.status(404).json({ error: 'Member not found' }); }
+            const groupId = mRow.group_id;
 
-            // 2. Record Registration
-            const regStmt = db.prepare("INSERT INTO project_registrations (member_id, project_type, year) VALUES (?, ?, ?)");
-            regStmt.run(member_id, upperProjectType, currentYear, function (err) {
+            // 2. Check if already registered
+            db.get("SELECT id FROM project_registrations WHERE member_id = ? AND project_type = ? AND year = ?", [member_id, upperProjectType, currentYear], (err, row) => {
                 if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-                const regId = this.lastID;
+                if (row) { db.run("ROLLBACK"); return res.status(400).json({ error: 'Member already registered for this project this year' }); }
 
-                // 3. Record Company Revenue (The fee)
-                const fee_desc = `Fee for ${upperProjectType} project registration`;
-                const revStmt = db.prepare("INSERT INTO company_revenue (source, amount, member_id, description) VALUES (?, ?, ?, ?)");
-                revStmt.run('PROJECT_REGISTRATION_FEE', 200, member_id, fee_desc, (err) => {
+                // 2. Record Registration
+                const regStmt = db.prepare("INSERT INTO project_registrations (member_id, project_type, year) VALUES (?, ?, ?)");
+                regStmt.run(member_id, upperProjectType, currentYear, function (err) {
                     if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+                    const regId = this.lastID;
 
-                    // 4. Record as Table CASH OUT
-                    const transStmt = db.prepare("INSERT INTO transactions (memberId, transaction_type, description, withdrawals, status) VALUES (?, 'OUT', ?, 200, 'PENDING')");
-                    transStmt.run(member_id, fee_desc, async function (err) {
+                    // 3. Record Company Revenue (The fee)
+                    const fee_desc = `Fee for ${upperProjectType} project registration`;
+                    const revStmt = db.prepare("INSERT INTO company_revenue (source, amount, member_id, description) VALUES (?, ?, ?, ?)");
+                    revStmt.run('PROJECT_REGISTRATION_FEE', 200, member_id, fee_desc, (err) => {
                         if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-                        const transId = this.lastID;
-                        db.run("COMMIT");
 
-                        logAndSendSMS(member_id, `Project Reg: ${upperProjectType} confirmed. Fee 200.`, 'FINANCIAL', transId);
-                        res.json({ success: true, registration_id: regId, message: "Project registration successful" });
+                        // 4. Record as Table CASH OUT
+                        const transStmt = db.prepare("INSERT INTO transactions (memberId, withdrawals, transaction_type, description, amount, type, group_id, status) VALUES (?, 200, 'OUT', ?, 200, 'ProjectRegistrationFee', ?, 'POSTED')");
+                        transStmt.run(member_id, fee_desc, groupId, async function (err) {
+                            if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+                            const transId = this.lastID;
+                            db.run("COMMIT");
+
+                            logAndSendSMS(member_id, `Project Reg: ${upperProjectType} confirmed. Fee 200.`, 'FINANCIAL', transId);
+                            res.json({ success: true, registration_id: regId, message: "Project registration successful" });
+                        });
+                        transStmt.finalize();
                     });
-                    transStmt.finalize();
+                    revStmt.finalize();
                 });
-                revStmt.finalize();
+                regStmt.finalize();
             });
-            regStmt.finalize();
         });
     });
-});
 
-/**
- * Post project savings
- * Window: Jan - August
- * Rule: Combined project savings <= daily table saving
- */
-app.post('/api/projects/save', authenticateToken, checkFreeze('GROUP'), (req, res) => {
-    const { registration_id, amount, date } = req.body;
-    const saveDate = date ? new Date(date) : new Date();
-    const saveMonth = saveDate.getMonth() + 1;
+    /**
+     * Post project savings
+     * Window: Jan - August
+     * Rule: Combined project savings <= daily table saving
+     */
+    app.post('/api/projects/save', authenticateToken, checkFreeze('GROUP'), (req, res) => {
+        const { registration_id, amount, date } = req.body;
+        const saveDate = date ? new Date(date) : new Date();
+        const saveMonth = saveDate.getMonth() + 1;
 
-    if (saveMonth > 8) {
-        return res.status(403).json({ error: 'Savings period closed (Jan-Aug only)' });
-    }
+        if (saveMonth > 8) {
+            return res.status(403).json({ error: 'Savings period closed (Jan-Aug only)' });
+        }
 
-    if (!registration_id || !amount) {
-        return res.status(400).json({ error: 'Registration ID and amount are required' });
-    }
+        if (!registration_id || !amount) {
+            return res.status(400).json({ error: 'Registration ID and amount are required' });
+        }
 
-    db.get("SELECT member_id, project_type FROM project_registrations WHERE id = ?", [registration_id], (err, reg) => {
-        if (err || !reg) return res.status(404).json({ error: 'Registration not found' });
+        db.get(`
+        SELECT pr.member_id, pr.project_type, m.group_id 
+        FROM project_registrations pr
+        JOIN members m ON pr.member_id = m.id
+        WHERE pr.id = ?
+    `, [registration_id], (err, reg) => {
+            if (err || !reg) return res.status(404).json({ error: 'Registration not found' });
 
-        const member_id = reg.member_id;
-        const formattedDate = saveDate.toISOString().split('T')[0];
+            const member_id = reg.member_id;
+            const formattedDate = saveDate.toISOString().split('T')[0];
 
-        // CHECK DAILY LIMIT: Combined project savings <= today's table savings
-        // First get today's savings for this member from the transactions table
-        // NOTE: Standard Table Savings are in savings_amount columns in transactions table
-        const savingsQuery = `
+            // CHECK DAILY LIMIT: Combined project savings <= today's table savings
+            // First get today's savings for this member from the transactions table
+            // NOTE: Standard Table Savings are in savings_amount columns in transactions table
+            const savingsQuery = `
             SELECT COALESCE(SUM(savings_amount), 0) as total_savings 
             FROM transactions 
             WHERE memberId = ? AND date(created_at) = date(?)
         `;
 
-        db.get(savingsQuery, [member_id, formattedDate], (err, sRow) => {
-            if (err) return res.status(500).json({ error: err.message });
+            db.get(savingsQuery, [member_id, formattedDate], (err, sRow) => {
+                if (err) return res.status(500).json({ error: err.message });
 
-            const todayTableSavings = sRow.total_savings;
+                const todayTableSavings = sRow.total_savings;
 
-            // Get existing project savings for today
-            const proQuery = `
+                // Get existing project savings for today
+                const proQuery = `
                 SELECT COALESCE(SUM(ps.amount), 0) as total_pro 
                 FROM project_savings ps
                 JOIN project_registrations pr ON ps.registration_id = pr.id
                 WHERE pr.member_id = ? AND date(ps.date) = date(?)
             `;
 
-            db.get(proQuery, [member_id, formattedDate], (err, pRow) => {
-                if (err) return res.status(500).json({ error: err.message });
-
-                const todayExistingProjectSavings = pRow.total_pro;
-                const newTotal = todayExistingProjectSavings + amount;
-
-                if (newTotal > todayTableSavings) {
-                    return res.status(400).json({
-                        error: `Limit exceeded. Total project savings (${newTotal}) cannot exceed daily table savings (${todayTableSavings}).`
-                    });
-                }
-
-                // CHECK CUMULATIVE LIMIT: Max 2000 per project
-                db.get("SELECT COALESCE(SUM(amount), 0) as total_saved FROM project_savings WHERE registration_id = ?", [registration_id], (err, cRow) => {
+                db.get(proQuery, [member_id, formattedDate], (err, pRow) => {
                     if (err) return res.status(500).json({ error: err.message });
-                    const cumulativeSaved = cRow.total_saved;
-                    if (cumulativeSaved + amount > 2000) {
+
+                    const todayExistingProjectSavings = pRow.total_pro;
+                    const newTotal = todayExistingProjectSavings + amount;
+
+                    if (newTotal > todayTableSavings) {
                         return res.status(400).json({
-                            error: `Project limit reached. Cumulative savings cannot exceed KES 2,000 per project. Current: KES ${cumulativeSaved}.`
+                            error: `Limit exceeded. Total project savings (${newTotal}) cannot exceed daily table savings (${todayTableSavings}).`
                         });
                     }
 
-                    // Proceed with save
-                    db.serialize(() => {
-                        db.run("BEGIN TRANSACTION");
-
-                        const stmt = db.prepare("INSERT INTO project_savings (registration_id, amount, date) VALUES (?, ?, ?)");
-                        stmt.run(registration_id, amount, formattedDate, function (err) {
-                            if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-                            const psId = this.lastID;
-
-                            // Create Ledger Transaction for accountability
-                            const txStmt = db.prepare("INSERT INTO transactions (memberId, savings_amount, description, transaction_type, status) VALUES (?, ?, ?, 'ProjectSaving', 'PENDING')");
-                            txStmt.run(member_id, amount, `Project Savings: ${reg.project_type}`, async function (txErr) {
-                                if (txErr) { db.run("ROLLBACK"); return res.status(500).json({ error: txErr.message }); }
-                                const transId = this.lastID;
-
-                                db.run("COMMIT");
-                                logAudit(`Project Savings`, 'member', { member_id, amount, project: reg.project_type });
-
-                                const smsMsg = `UKOMBOZI: Project Savings for ${reg.project_type} of KES ${amount} confirmed. Ref: ${transId}.`;
-                                await logAndSendSMS(member_id, smsMsg, 'FINANCIAL', transId);
-
-                                res.json({ success: true, id: psId, transaction_id: transId });
+                    // CHECK CUMULATIVE LIMIT: Max 2000 per project
+                    db.get("SELECT COALESCE(SUM(amount), 0) as total_saved FROM project_savings WHERE registration_id = ?", [registration_id], (err, cRow) => {
+                        if (err) return res.status(500).json({ error: err.message });
+                        const cumulativeSaved = cRow.total_saved;
+                        if (cumulativeSaved + amount > 2000) {
+                            return res.status(400).json({
+                                error: `Project limit reached. Cumulative savings cannot exceed KES 2,000 per project. Current: KES ${cumulativeSaved}.`
                             });
-                            txStmt.finalize();
+                        }
+
+                        // Proceed with save
+                        db.serialize(() => {
+                            db.run("BEGIN TRANSACTION");
+
+                            const stmt = db.prepare("INSERT INTO project_savings (registration_id, amount, date) VALUES (?, ?, ?)");
+                            stmt.run(registration_id, amount, formattedDate, function (err) {
+                                if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+                                const psId = this.lastID;
+
+                                // Create Ledger Transaction for accountability
+                                const ps_desc = `Project Savings: ${reg.project_type}`;
+                                // FIX: 'project' column is DECIMAL. Store amount there, NOT the project name string.
+                                // FIX: 'savings_amount' should be 0 to distinguish from Table Savings.
+                                const txStmt = db.prepare("INSERT INTO transactions (memberId, project, savings_amount, transaction_type, description, amount, type, group_id, status) VALUES (?, ?, 0, 'ProjectSaving', ?, ?, 'ProjectSaving', ?, 'POSTED')");
+                                txStmt.run(member_id, amount, ps_desc, amount, reg.group_id, async function (txErr) {
+                                    if (txErr) { db.run("ROLLBACK"); return res.status(500).json({ error: txErr.message }); }
+                                    const transId = this.lastID;
+
+                                    db.run("COMMIT");
+                                    logAudit(`Project Savings`, 'member', { member_id, amount, project: reg.project_type });
+
+                                    const smsMsg = `UKOMBOZINI: Project Savings for ${reg.project_type} of KES ${amount} confirmed. Ref: ${transId}.`;
+                                    await logAndSendSMS(member_id, smsMsg, 'FINANCIAL', transId);
+
+                                    res.json({ success: true, id: psId, transaction_id: transId });
+                                });
+                                txStmt.finalize();
+                            });
+                            stmt.finalize();
                         });
-                        stmt.finalize();
                     });
                 });
             });
         });
     });
-});
 
-// Withdraw from Education/Agriculture Projects
-app.post('/api/projects/withdraw', authenticateToken, checkFreeze('GROUP'), (req, res) => {
-    const { registrationId, amount, date, reason } = req.body;
-    const withdrawAmount = parseFloat(amount);
+    // Withdraw from Education/Agriculture Projects
+    app.post('/api/projects/withdraw', authenticateToken, checkFreeze('GROUP'), (req, res) => {
+        const { registrationId, amount, date, reason } = req.body;
+        const withdrawAmount = parseFloat(amount);
 
-    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
-        return res.status(400).json({ error: 'Invalid withdrawal amount' });
-    }
+        if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+            return res.status(400).json({ error: 'Invalid withdrawal amount' });
+        }
 
-    db.get(`
+        db.get(`
         SELECT pr.id, pr.total_saved, pr.project_type, m.id as member_id, m.name as member_name
         FROM project_registrations pr
         JOIN members m ON pr.member_id = m.id
         WHERE pr.id = ?
     `, [registrationId], (err, record) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!record) return res.status(404).json({ error: 'Project registration not found' });
+            if (err) return res.status(500).json({ error: err.message });
+            if (!record) return res.status(404).json({ error: 'Project registration not found' });
 
-        if (record.total_saved < withdrawAmount) {
-            return res.status(400).json({ error: `Insufficient project funds. Available: KES ${record.total_saved.toLocaleString()}` });
-        }
+            if (record.total_saved < withdrawAmount) {
+                return res.status(400).json({ error: `Insufficient project funds. Available: KES ${record.total_saved.toLocaleString()}` });
+            }
 
-        db.serialize(() => {
-            db.run("BEGIN TRANSACTION");
+            db.serialize(() => {
+                db.run("BEGIN TRANSACTION");
 
-            // 1. Update Project Balance
-            db.run(`UPDATE project_registrations SET total_saved = total_saved - ? WHERE id = ?`, [withdrawAmount, registrationId], (err) => {
-                if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-
-                // 2. Log withdrawal in project_savings (as negative record)
-                db.run(`INSERT INTO project_savings (registration_id, amount, date) VALUES (?, ?, ?)`,
-                    [registrationId, -withdrawAmount, date || new Date().toISOString()]);
-
-                // 3. Log in Main Ledger (MTE Integration)
-                const txRef = `PRJ-WTH-${record.id}-${Date.now()}`;
-                db.run(`
-                    INSERT INTO transactions (
-                        transaction_type, amount, memberId, description, reference, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, 'COMPLETED', ?)
-                `, [
-                    `PROJECT_WITHDRAWAL_${record.project_type}`,
-                    withdrawAmount,
-                    record.member_id,
-                    `Withdrawal from ${record.project_type}: ${reason || 'Personal Use'}`,
-                    txRef,
-                    date || new Date().toISOString()
-                ], (err) => {
+                // 1. Update Project Balance
+                db.run(`UPDATE project_registrations SET total_saved = total_saved - ? WHERE id = ?`, [withdrawAmount, registrationId], (err) => {
                     if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
 
-                    db.run("COMMIT");
-                    res.json({
-                        success: true,
-                        message: `Withdrew KES ${withdrawAmount.toLocaleString()} from ${record.project_type} successfully.`,
-                        reference: txRef
-                    });
+                    // 2. Log withdrawal in project_savings (as negative record)
+                    db.run(`INSERT INTO project_savings (registration_id, amount, date) VALUES (?, ?, ?)`,
+                        [registrationId, -withdrawAmount, date || new Date().toISOString()], (err) => {
+                            if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+
+                            // 3. Log in Main Ledger (MTE Integration)
+                            const txRef = `PRJ-WTH-${record.id}-${Date.now()}`;
+                            // FIX: 'project' column is DECIMAL. Do not pass string. Pass 0 or relevant numeric.
+                            // We use 'withdrawals' column to track the money leaving.
+                            db.run(
+                                `INSERT INTO transactions (project, transaction_type, withdrawals, memberId, description, reference, status, amount, type, group_id, created_at) 
+                                VALUES (0, 'ProjectWithdrawal', ?, ?, ?, ?, 'POSTED', ?, 'ProjectWithdrawal', ?, ?)`,
+                                [withdrawAmount, record.member_id, `Withdrawal from ${record.project_type}: ${reason || 'Personal Use'}`, txRef, withdrawAmount, record.group_id, date || new Date().toISOString()],
+                                (err) => {
+                                    if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+
+                                    db.run("COMMIT");
+                                    res.json({
+                                        success: true,
+                                        message: `Withdrew KES ${withdrawAmount.toLocaleString()} from ${record.project_type} successfully.`,
+                                        reference: txRef
+                                    });
+                                }
+                            );
+                        });
                 });
             });
         });
@@ -5251,10 +5381,12 @@ app.post('/api/projects/payout', authenticateToken, isAdmin, checkFreeze('GROUP'
             // 1. Record Transaction (Payout as Withdrawal/Cash Out)
             const stmt = db.prepare(`
                 INSERT INTO transactions (
-                    memberId, transaction_type, description, withdrawals, status
-                ) VALUES (?, 'PROJECT_PAYOUT', ?, ?, 'PENDING')
+                    memberId, project, transaction_type, description, withdrawals, status, amount, type, group_id
+                ) VALUES (?, 0, 'PROJECT_PAYOUT', ?, ?, 'POSTED', ?, 'ProjectPayout', ?)
             `);
-            stmt.run(details.member_id, `${details.project_type} Payout (Principal: ${details.total_principal})`, payoutAmount, async function (err) {
+            const pay_desc = `${details.project_type} Payout (Principal: ${details.total_principal})`;
+            // Removed details.project_type from params to align with 0 value for project column
+            stmt.run(details.member_id, pay_desc, payoutAmount, payoutAmount, details.group_id, async function (err) {
                 if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
                 const transId = this.lastID;
 
@@ -5269,7 +5401,7 @@ app.post('/api/projects/payout', authenticateToken, isAdmin, checkFreeze('GROUP'
                     db.run("COMMIT");
                     logAudit(`Project Payout: ${details.project_type}`, 'finance', { member_id: details.member_id, amount: payoutAmount });
 
-                    const smsMsg = `UKOMBOZI: ${details.project_type} Payout Received KES ${payoutAmount.toLocaleString()}. Principal: ${details.total_principal}. Thank you!`;
+                    const smsMsg = `UKOMBOZINI: ${details.project_type} Payout Received KES ${payoutAmount.toLocaleString()}. Principal: ${details.total_principal}. Thank you!`;
                     await logAndSendSMS(details.member_id, smsMsg, 'PROJECT_PAYOUT', transId);
 
                     res.json({ success: true, payoutAmount, principal: details.total_principal, interest: interestCost, transaction_id: transId });
@@ -5623,7 +5755,7 @@ const ExcelJS = require('exceljs');
 const fsSync = require('fs');
 
 // Company branding constants
-const COMPANY_NAME = 'UKOMBOZI TABLE BANKING';
+const COMPANY_NAME = 'UKOMBOZINI TABLE BANKING';
 const COMPANY_TAGLINE = 'Empowering Communities Through Financial Inclusion';
 const COMPANY_ADDRESS = 'P.O Box 123, Nairobi, Kenya';
 const COMPANY_PHONE = '+254 700 000 000';
@@ -6768,7 +6900,7 @@ app.get('/api/dividend-runs/:id/pdf', authenticateToken, (req, res) => {
                 doc.fontSize(7).font('Helvetica').fillColor('#999')
                     .text(`Generated: ${new Date().toLocaleString('en-GB')}`, 50, y)
                     .text(`Page ${pageNum} of ${totalPages}`, 480, y)
-                    .text('UKOMBOZI TBMS', 250, y);
+                    .text('UKOMBOZINI TBMS', 250, y);
                 doc.strokeColor('#ddd').lineWidth(1)
                     .moveTo(50, y - 5).lineTo(545, y - 5).stroke();
             };
@@ -7376,10 +7508,8 @@ app.get('/api/reconciliation/dashboard', authenticateToken, (req, res) => {
 
 // Start Server
 const HOST = '0.0.0.0'; // Open to all interfaces for connectivity reliability
-
 app.listen(PORT, HOST, () => {
-    console.log(`\n\x1b[32m[SERVER]\x1b[0m Ukombozi TBMS Backend Live`);
-    console.log(`\x1b[36m[URL]\x1b[0m http://${HOST}:${PORT}`);
-    console.log(`\x1b[33m[SECURITY]\x1b[0m Localhost Lockdown Active\n`);
+    console.log('\n\x1b[32m[SERVER]\x1b[0m UKOMBOZINI TBMS Backend Live');
+    console.log('\x1b[36m[URL]\x1b[0m http://' + HOST + ':' + PORT);
+    console.log('\x1b[33m[SECURITY]\x1b[0m Localhost Lockdown Active\n');
 });
-

@@ -20,8 +20,8 @@ const ExcelService = {
         const wb = XLSX.utils.book_new();
         wb.Props = {
             Title: title,
-            Subject: "Ukombozi TBMS Report",
-            Author: "Ukombozi System",
+            Subject: "UKOMBOZINI TBMS Report",
+            Author: "UKOMBOZINI System",
             CreatedDate: new Date()
         };
 
@@ -31,7 +31,7 @@ const ExcelService = {
 
         // --- BRAND HEADER SECTION ---
         // Row 1: System Name (Merged later)
-        wsData.push(["UKOMBOZI TABLE BANKING SYSTEM"]);
+        wsData.push(["UKOMBOZINI TABLE BANKING SYSTEM"]);
         // Row 2: Report Title (Merged later)
         wsData.push([title.toUpperCase()]);
         // Row 3: Generation Info

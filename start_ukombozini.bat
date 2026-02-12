@@ -1,6 +1,6 @@
 @echo off
 echo ==============================================
-echo       UKOMBOZI TBMS - SYSTEM LAUNCHER
+echo       UKOMBOZINI TBMS - SYSTEM LAUNCHER
 echo ==============================================
 echo.
 
@@ -22,7 +22,7 @@ echo [STEP 1] Stopping any existing instances...
 docker-compose down
 
 echo.
-echo [STEP 2] Building and Starting UKOMBOZI Stack...
+echo [STEP 2] Building and Starting UKOMBOZINI Stack...
 echo (This may take a few minutes for the first run)...
 docker-compose up --build -d
 

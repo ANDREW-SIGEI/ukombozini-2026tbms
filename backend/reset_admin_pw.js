@@ -1,6 +1,6 @@
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
-const db = new sqlite3.Database('ukombozi.sqlite');
+const db = new sqlite3.Database('ukombozini.sqlite');
 
 const email = 'andrewsigei684@gmail.com';
 const newPassword = 'Teddymark1';

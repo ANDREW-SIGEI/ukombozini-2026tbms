@@ -1,9 +1,32 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FaScaleBalanced, FaCircleCheck, FaTriangleExclamation, FaChartLine, FaUsers, FaArrowRight } from 'react-icons/fa6';
+import { FaScaleBalanced, FaCircleCheck, FaTriangleExclamation, FaChartLine, FaUsers, FaArrowRight, FaClock } from 'react-icons/fa6';
 import { useTransactions } from '../context/TransactionContext';
+import { api } from '../services/api';
+
 const Reconciliation = () => {
     const { sessions, groups } = useTransactions();
+    const [auditSnapshots, setAuditSnapshots] = useState({});
+
+    // Fetch snapshots for each group to check variance
+    useEffect(() => {
+        const fetchSnapshots = async () => {
+            const today = new Date().toISOString().split('T')[0];
+            const snapshots = {};
+            for (const group of groups) {
+                try {
+                    const data = await api.getAuditSnapshot(today, group.id);
+                    // Sum up the balances for the group
+                    const groupTotal = data.reduce((sum, member) => sum + member.historical_savings + member.historical_project + member.historical_loan_balance, 0);
+                    snapshots[group.id] = groupTotal;
+                } catch (err) {
+                    console.error(`Snapshot failed for group ${group.id}`, err);
+                }
+            }
+            setAuditSnapshots(snapshots);
+        };
+        if (groups.length > 0) fetchSnapshots();
+    }, [groups]);
 
     // 1. DATA AGGREGATION ENGINE (Director Level)
     const systemOverview = useMemo(() => {
@@ -11,21 +34,25 @@ const Reconciliation = () => {
         let totalSessionsPosted = 0;
         let criticalFlags = 0;
 
-        // Map groups to their latest status
         const groupStatusMap = groups.map(group => {
-            // Find latest session for this group
             const groupSessions = sessions.filter(s => s.groupId === group.id || s.group_id === group.id);
-            const latestSession = groupSessions[0]; // Assuming sessions are sorted DESC by date in context
+            const latestSession = groupSessions[0];
+
+            const lastPostDate = latestSession ? new Date(latestSession.date || latestSession.created_at) : null;
+            const isStale = lastPostDate ? (new Date() - lastPostDate) > (7 * 24 * 60 * 60 * 1000) : true;
 
             if (latestSession) {
                 totalCashCollected += (latestSession.totals?.total_cash_in || latestSession.total_contributions || 0);
-                totalSessionsPosted++;
-
-                // CHECK FOR SYSTEM STOPPERS (Negative Balances)
-                const bal = latestSession.closingBalance || latestSession.closing_balance || 0;
-                if (bal < 0) {
-                    criticalFlags++;
+                if (latestSession.status === 'POSTED') {
+                    totalSessionsPosted++;
                 }
+
+                const bal = latestSession.closingBalance || latestSession.closing_balance || 0;
+                if (bal < 0) criticalFlags++;
+
+                // Variance check: Compare session closing balance with reconstructed ledger
+                const snapshotBalance = auditSnapshots[group.id];
+                const hasVariance = snapshotBalance !== undefined && Math.abs(snapshotBalance - bal) > 1;
 
                 return {
                     ...group,
@@ -33,7 +60,10 @@ const Reconciliation = () => {
                     lastUpdate: latestSession.date || latestSession.created_at,
                     cashIn: latestSession.totals?.total_cash_in || latestSession.total_contributions || 0,
                     closingBalance: bal,
-                    hasError: bal < 0
+                    hasError: bal < 0,
+                    isStale: isStale,
+                    hasVariance: hasVariance,
+                    varianceAmount: snapshotBalance ? (snapshotBalance - bal) : 0
                 };
             }
 
@@ -43,7 +73,9 @@ const Reconciliation = () => {
                 lastUpdate: '-',
                 cashIn: 0,
                 closingBalance: group.openingBalance || 0,
-                hasError: false
+                hasError: false,
+                isStale: true,
+                hasVariance: false
             };
         });
 
@@ -53,21 +85,23 @@ const Reconciliation = () => {
             criticalFlags,
             groupRows: groupStatusMap
         };
-    }, [sessions, groups]);
+    }, [sessions, groups, auditSnapshots]);
 
     return (
         <div className="space-y-8 max-w-7xl mx-auto pb-20 p-6">
-            {/* HERADER SECTION */}
+            {/* HEADER SECTION */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
                 <div>
                     <h2 className="text-3xl font-black text-gray-900 flex items-center gap-3">
-                        <FaScaleBalanced className="text-safaricom-green" />
+                        <FaScaleBalanced className="text-blue-600" />
                         Director Reconciliation Board
                     </h2>
                     <p className="text-gray-500 font-medium mt-1">System-Wide Financial Health • {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
                 </div>
-                <div className="mt-4 md:mt-0 px-6 py-2 bg-gray-900 text-white rounded-full font-bold text-sm tracking-wide shadow-lg">
-                    LIVE SYSTEM DATA
+                <div className="mt-4 md:mt-0 flex gap-2">
+                    <div className="px-6 py-2 bg-gray-900 text-white rounded-full font-bold text-sm tracking-wide shadow-lg uppercase">
+                        Ledger Integrity: Active
+                    </div>
                 </div>
             </div>
 
@@ -111,7 +145,7 @@ const Reconciliation = () => {
             {/* MAIN TABLE */}
             <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
                 <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-                    <h3 className="font-bold text-gray-800 text-lg">Group Performance - Monthly View</h3>
+                    <h3 className="font-bold text-gray-800 text-lg">Group Performance - Integrity View</h3>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -120,8 +154,7 @@ const Reconciliation = () => {
                             <tr>
                                 <th className="px-6 py-4">Group Name</th>
                                 <th className="px-6 py-4">Status</th>
-                                <th className="px-6 py-4">Last Posted</th>
-                                <th className="px-6 py-4 text-right">Cash In</th>
+                                <th className="px-6 py-4">Audit Status</th>
                                 <th className="px-6 py-4 text-right">Closing Position</th>
                                 <th className="px-6 py-4 text-center">Action</th>
                             </tr>
@@ -134,30 +167,40 @@ const Reconciliation = () => {
                                         <div className="text-xs text-gray-400 font-normal">{group.location}</div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <span className={`px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${group.status === 'POSTED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                                            }`}>
-                                            {group.status === 'POSTED' && <FaCircleCheck size={10} />}
-                                            {group.status}
-                                        </span>
+                                        <div className="flex flex-col gap-1">
+                                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 w-fit ${group.status === 'POSTED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                {group.status === 'POSTED' && <FaCircleCheck size={10} />}
+                                                {group.status}
+                                            </span>
+                                            {group.isStale && (
+                                                <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-bold inline-flex items-center gap-1 w-fit">
+                                                    <FaClock size={10} /> STALE POSTING
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
-                                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">
-                                        {group.lastUpdate}
-                                    </td>
-                                    <td className="px-6 py-4 text-right font-bold text-gray-700 font-mono">
-                                        KES {group.cashIn.toLocaleString()}
+                                    <td className="px-6 py-4">
+                                        {group.hasVariance ? (
+                                            <div className="flex flex-col">
+                                                <span className="text-red-600 text-xs font-bold flex items-center gap-1">
+                                                    <FaTriangleExclamation /> LEDGER VARIANCE
+                                                </span>
+                                                <span className="text-[10px] text-gray-400 italic">Reconstruction Gap: KES {group.varianceAmount.toLocaleString()}</span>
+                                            </div>
+                                        ) : (
+                                            <span className="text-green-600 text-xs font-bold flex items-center gap-1">
+                                                <FaCircleCheck /> VERIFIED
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className={`font-bold font-mono ${group.hasError ? 'text-red-600' : 'text-gray-900'}`}>
                                             KES {group.closingBalance.toLocaleString()}
                                         </div>
-                                        {group.hasError && (
-                                            <div className="text-xs text-red-500 font-bold mt-1 flex items-center justify-end gap-1">
-                                                <FaTriangleExclamation /> Negative Balance
-                                            </div>
-                                        )}
+                                        <div className="text-[10px] text-gray-400">As of {group.lastUpdate}</div>
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        <Link to={`/groups/${group.id}/ledger`} className="text-safaricom-green hover:text-black font-bold text-sm flex items-center justify-center gap-1 group">
+                                        <Link to={`/groups/${group.id}/ledger`} className="text-blue-600 hover:text-black font-bold text-sm flex items-center justify-center gap-1 group">
                                             Audit <FaArrowRight className="group-hover:translate-x-1 transition-transform" />
                                         </Link>
                                     </td>
@@ -172,10 +215,11 @@ const Reconciliation = () => {
             <div className="bg-blue-50 border border-blue-100 p-6 rounded-2xl flex gap-4 items-start">
                 <FaCircleCheck className="text-blue-600 mt-1 flex-shrink-0" size={20} />
                 <div>
-                    <h4 className="font-bold text-blue-900 text-sm">System Integrity Check Passed</h4>
+                    <h4 className="font-bold text-blue-900 text-sm">Automated Reconciliation Active</h4>
                     <p className="text-xs text-blue-700 mt-1 opacity-80 max-w-2xl">
-                        The aggregation engine is active. All "Posted" groups are strictly reconciled against their individual meeting reports.
-                        Balances displayed here are mathematically derived from locked sessions.
+                        The integrity engine compares current closing balances with a reconstructed ledger of all transactions.
+                        <strong> Stale Posting</strong> indicates groups with no activity in over 7 days.
+                        <strong> Ledger Variance</strong> highlights discrepancies between reports and transaction logs.
                     </p>
                 </div>
             </div>

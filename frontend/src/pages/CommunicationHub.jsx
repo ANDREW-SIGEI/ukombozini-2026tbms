@@ -24,9 +24,17 @@ const CommunicationHub = () => {
     const [memberSearch, setMemberSearch] = useState('');
 
     const TEMPLATES = [
-        { name: 'Meeting Reminder', text: 'Jambo! This is a reminder for our upcoming meeting on [DATE] at [TIME]. Please attend. - UKOMBOZI' },
-        { name: 'Repayment Alert', text: 'Dear Member, your loan repayment of KES [AMOUNT] is due. Please clear to keep your limit high. - UKOMBOZI' },
-        { name: 'General Update', text: 'Important Notice: [MESSAGE] - UKOMBOZI Management' }
+        { name: 'Meeting Reminder', text: 'Jambo [NAME]! Reminder for our next meeting on [NEXT_MEETING]. Your current Sav: KES [SAVINGS]. Please attend. - UKOMBOZINI' },
+        { name: 'Financial Snapshot', text: 'Hello [NAME], your standing: Sav: KES [SAVINGS] | Projects: [PROJECT_BAL] | Loan: [LOAN_BAL]. Next Meeting: [NEXT_MEETING]. - UKOMBOZINI' },
+        { name: 'Repayment Alert', text: 'Dear [NAME], loan balance of KES [LOAN_BAL] is active. Please ensure timely repayment before [NEXT_MEETING] to maintain your score. - UKOMBOZINI' }
+    ];
+
+    const VARIABLES = [
+        { name: 'Name', tag: '[NAME]' },
+        { name: 'Savings', tag: '[SAVINGS]' },
+        { name: 'Projects', tag: '[PROJECT_BAL]' },
+        { name: 'Loan Bal', tag: '[LOAN_BAL]' },
+        { name: 'Next Meeting', tag: '[NEXT_MEETING]' }
     ];
 
     useEffect(() => {
@@ -78,7 +86,8 @@ const CommunicationHub = () => {
                 target: targetType,
                 targetIds: targetIds,
                 message,
-                method
+                method,
+                variables: true // Flag for backend to perform injection
             });
             if (res.success) {
                 toast.success(res.message);
@@ -316,7 +325,7 @@ const CommunicationHub = () => {
                                     <div className="text-2xl font-black text-safaricom-green">
                                         {targetType === 'GROUPS' ? selectedGroups.length : (targetType === 'MEMBERS' ? selectedMembers.length : selectedRoles.length)}
                                     </div>
-                                    <div className="text-[8px] font-bold text-gray-500 uppercase">Selected</div>
+                                    <h1 className="text-xl font-bold text-gray-800">UKOMBOZINI <span className="text-blue-600">HUB</span></h1>
                                 </div>
                                 <div>
                                     <div className="text-2xl font-black text-blue-400">{method}</div>
@@ -344,6 +353,22 @@ const CommunicationHub = () => {
                                         + {t.name}
                                     </button>
                                 ))}
+                            </div>
+
+                            {/* Dynamic Variables Selector */}
+                            <div className="mb-6">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Insert Dynamic Variable</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {VARIABLES.map(v => (
+                                        <button
+                                            key={v.tag}
+                                            onClick={() => setMessage(prev => prev + v.tag)}
+                                            className="px-3 py-1.5 bg-blue-50 text-[10px] font-black text-blue-600 rounded-xl border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
+                                        >
+                                            {v.name} {v.tag}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <div className="flex gap-4 mb-6">
@@ -464,8 +489,9 @@ const CommunicationHub = () => {
                         )}
                     </div>
                 </div>
-            )}
-        </div>
+            )
+            }
+        </div >
     );
 };
 

@@ -20,18 +20,35 @@ const RiskCommandCenter = () => {
 
     const fetchData = async () => {
         setLoading(true);
+        setAuditLogs([]);
         try {
             const data = await api.getRiskDashboard();
-            setRiskData(data); // { heatmap, alerts, scores }
+            setRiskData(data || { heatmap: [], stats: {} });
 
             const gov = await api.getGovernanceStatus();
             if (gov) setGovernance(gov);
 
             const logs = await api.getAuditLogs();
-            if (logs) setAuditLogs(logs);
+            if (logs) setAuditLogs(logs || []);
         } catch (error) {
             console.error(error);
             toast.error("Failed to fetch risk data.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRecalculate = async () => {
+        if (!window.confirm("This will trigger a system-wide risk re-evaluation for all groups. Proceed?")) return;
+        setLoading(true);
+        try {
+            const res = await api.recalculateRiskScores();
+            if (res.success) {
+                toast.success(res.message);
+                fetchData();
+            }
+        } catch (error) {
+            toast.error("Recalculation failed.");
         } finally {
             setLoading(false);
         }
@@ -65,8 +82,8 @@ const RiskCommandCenter = () => {
     };
 
     // Altitude Meter Component (Liquidity)
-    const AltitudeMeter = ({ liquidity, totalSavings }) => {
-        const percentage = Math.max(0, Math.min(100, (liquidity / totalSavings) * 100));
+    const AltitudeMeter = ({ liquidity = 0, totalSavings = 0 }) => {
+        const percentage = totalSavings > 0 ? Math.max(0, Math.min(100, (liquidity / totalSavings) * 100)) : 0;
         const color = percentage > 40 ? 'text-emerald-500' : percentage > 15 ? 'text-amber-500' : 'text-red-500';
 
         return (
@@ -86,8 +103,8 @@ const RiskCommandCenter = () => {
                 </div>
                 <div className="mt-6 text-center">
                     <h3 className="text-gray-500 font-bold uppercase text-xs tracking-widest mb-1">System Liquidity</h3>
-                    <p className="text-2xl font-black text-gray-800">KES {liquidity?.toLocaleString()}</p>
-                    <p className="text-[10px] font-bold text-gray-400 mt-1">OF KES {totalSavings?.toLocaleString()} TOTAL SAVINGS</p>
+                    <p className="text-2xl font-black text-gray-800">KES {(liquidity || 0).toLocaleString()}</p>
+                    <p className="text-[10px] font-bold text-gray-400 mt-1">OF KES {(totalSavings || 0).toLocaleString()} TOTAL SAVINGS</p>
                 </div>
             </div>
         );
@@ -119,12 +136,21 @@ const RiskCommandCenter = () => {
                         </p>
                     </div>
                 </div>
-                <button
-                    onClick={() => handleFreeze('SYSTEM', 0, governance.system_lockdown ? 'UNFREEZE' : 'FREEZE', 'ENTIRE SYSTEM')}
-                    className={`px-6 py-3 rounded-xl font-black uppercase tracking-widest text-sm transition-all flex items-center gap-2 shadow-xl ${governance.system_lockdown ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-red-500 text-white hover:bg-red-400 border border-red-400'}`}
-                >
-                    {governance.system_lockdown ? <><FaLockOpen /> Lift Lockdown</> : <><FaLock /> Emergency Freeze</>}
-                </button>
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={handleRecalculate}
+                        disabled={loading}
+                        className="bg-white/10 hover:bg-white/20 text-white px-4 py-3 rounded-xl font-bold transition-all flex items-center gap-2 border border-white/20"
+                    >
+                        <FaSync className={loading ? 'animate-spin' : ''} /> Recalculate
+                    </button>
+                    <button
+                        onClick={() => handleFreeze('SYSTEM', 0, governance.system_lockdown ? 'UNFREEZE' : 'FREEZE', 'ENTIRE SYSTEM')}
+                        className={`px-6 py-3 rounded-xl font-black uppercase tracking-widest text-sm transition-all flex items-center gap-2 shadow-xl ${governance.system_lockdown ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-red-500 text-white hover:bg-red-400 border border-red-400'}`}
+                    >
+                        {governance.system_lockdown ? <><FaLockOpen /> Lift Lockdown</> : <><FaLock /> Emergency Freeze</>}
+                    </button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -137,7 +163,7 @@ const RiskCommandCenter = () => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Total Active Loans</h3>
-                                <p className="text-3xl font-black text-gray-800">KES {riskData?.stats?.total_loans?.toLocaleString()}</p>
+                                <p className="text-3xl font-black text-gray-800">KES {(riskData?.stats?.total_loans || 0).toLocaleString()}</p>
                             </div>
                             <div className="p-3 bg-blue-50 text-blue-500 rounded-2xl">
                                 <FaChartLine size={24} />

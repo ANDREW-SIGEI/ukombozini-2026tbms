@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DB_FILE = 'ukombozi.sqlite';
+const DB_FILE = 'ukombozini.sqlite';
 const BACKUP_DIR = 'backups';
 
 if (!fs.existsSync(BACKUP_DIR)) {

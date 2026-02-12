@@ -1,7 +1,7 @@
 const db = require('../db');
 
 /**
- * UKOMBOZI Allocation Service
+ * UKOMBOZINI Allocation Service
  * Manages the "Table Banking" share distribution logic.
  */
 const AllocationService = {
@@ -47,7 +47,12 @@ const AllocationService = {
                 if (err) return reject(err);
                 const cashIn = row.cash_in || 0;
                 const cashOut = row.cash_out || 0;
+
+                // SURPLUS = Total Cash In - Total Cash Out
+                // Partnership repayments are now ledger entries (CREDIT to Group Cash), 
+                // so they are naturally subtracted via cashOut.
                 const surplus = cashIn - cashOut;
+
                 resolve({ cashIn, cashOut, surplus });
             });
         });
@@ -82,7 +87,7 @@ const AllocationService = {
 
         return {
             sessionId,
-            groupId: session.group_id,
+            groupId: session.groupId,
             cashIn,
             cashOut,
             surplus,
@@ -122,8 +127,8 @@ const AllocationService = {
             const sql = `
                 SELECT 
                     s.*, 
-                    g.group_name,
-                    m.session_number
+                    g.name as group_name,
+                    m.date as session_date
                 FROM group_share_snapshots s
                 JOIN groups g ON s.group_id = g.id
                 JOIN meeting_sessions m ON s.session_id = m.id

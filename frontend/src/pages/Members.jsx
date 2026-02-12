@@ -12,6 +12,7 @@ import { api } from '../services/api';
 import { useTransactions } from '../context/TransactionContext';
 import { useAuth } from '../context/AuthContext';
 import SmartTransactionPanel from '../components/SmartTransactionPanel';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 import offlineManager from '../services/OfflineManager';
 
 const RELATIONSHIP_OPTIONS = [
@@ -517,16 +518,16 @@ const Members = () => {
                         </div>
 
                         {/* Group Filter */}
-                        <select
-                            value={selectedGroup}
-                            onChange={(e) => setSelectedGroup(e.target.value)}
-                            className="bg-gray-50 border-2 border-gray-100 rounded-xl px-4 py-3 font-bold text-gray-600 focus:outline-none focus:border-safaricom-green/50 min-w-[200px]"
-                        >
-                            <option value="">All Groups</option>
-                            {groups.map(group => (
-                                <option key={group.id} value={group.id}>{group.group_name}</option>
-                            ))}
-                        </select>
+                        <div className="w-full md:w-auto min-w-[200px]">
+                            <SearchableGroupSelector
+                                groups={groups}
+                                selectedGroupId={selectedGroup}
+                                onSelect={(id) => setSelectedGroup(id)}
+                                placeholder="All Groups"
+                                showLabel={false}
+                                className="!py-3"
+                            />
+                        </div>
                     </div>
 
                     {/* Intelligent Buttons */}
@@ -762,19 +763,13 @@ const Members = () => {
                                                 required
                                             />
                                         </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group *</label>
-                                            <select
-                                                value={newMember.groupId}
-                                                onChange={(e) => setNewMember({ ...newMember, groupId: e.target.value })}
-                                                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-safaricom-green/50 font-bold"
-                                                required
-                                            >
-                                                <option value="">Select Group</option>
-                                                {groups.map(group => (
-                                                    <option key={group.id} value={group.id}>{group.group_name}</option>
-                                                ))}
-                                            </select>
+                                        <div className="relative z-10">
+                                            <SearchableGroupSelector
+                                                label="Group *"
+                                                groups={groups}
+                                                selectedGroupId={newMember.groupId}
+                                                onSelect={(id) => setNewMember({ ...newMember, groupId: id })}
+                                            />
                                         </div>
 
                                         <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
@@ -986,18 +981,13 @@ const Members = () => {
                                             required
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group</label>
-                                        <select
-                                            value={editFormData.groupId}
-                                            onChange={(e) => setEditFormData({ ...editFormData, groupId: e.target.value })}
-                                            className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-blue-500 font-bold"
-                                            required
-                                        >
-                                            {groups.map(group => (
-                                                <option key={group.id} value={group.id}>{group.group_name}</option>
-                                            ))}
-                                        </select>
+                                    <div className="relative z-10">
+                                        <SearchableGroupSelector
+                                            label="Group"
+                                            groups={groups}
+                                            selectedGroupId={editFormData.groupId}
+                                            onSelect={(id) => setEditFormData({ ...editFormData, groupId: id })}
+                                        />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Status</label>

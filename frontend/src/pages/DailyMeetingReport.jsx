@@ -11,6 +11,8 @@ import {
     FaFileInvoice
 } from 'react-icons/fa';
 import SearchableGroupSelector from '../components/SearchableGroupSelector';
+import offlineManager from '../services/OfflineManager';
+import OfflineIndicator from '../components/OfflineIndicator';
 
 /**
  * Daily Meeting Report Component
@@ -50,7 +52,7 @@ const TransactionInput = ({ value, onChange, disabled, memberId, field, rowIndex
             step="0.01"
             value={value === 0 ? '' : value} // Show empty for 0 to make typing easier
             onChange={(e) => onChange(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onFocus={(e) => e.target.select()}
             disabled={disabled}
             data-row={rowIndex}
             data-col={colIndex}
@@ -87,7 +89,7 @@ const DailyMeetingReport = () => {
 
     // Partnership State
     const [partnershipExposure, setPartnershipExposure] = useState(null);
-    const [ukomboziRepayment, setUkomboziRepayment] = useState(0);
+    const [ukomboziniRepayment, setUkomboziniRepayment] = useState(0);
 
     // Access Transaction Context
     const {
@@ -147,6 +149,9 @@ const DailyMeetingReport = () => {
 
     // Member transactions state - ONE ROW PER MEMBER
     const [memberTransactions, setMemberTransactions] = useState([]);
+    const [memberDues, setMemberDues] = useState({}); // { memberId: { principal: 0, interest: 0 } }
+    const [hasRecoverableDraft, setHasRecoverableDraft] = useState(false);
+    const [draftData, setDraftData] = useState(null);
 
     // Cash out tracking (for loans disbursed)
     const [cashOut, setCashOut] = useState(0);
@@ -156,6 +161,13 @@ const DailyMeetingReport = () => {
         const fetchMembers = async () => {
             if (selectedGroup) {
                 try {
+                    // Check for local draft first
+                    const existingDraft = await offlineManager.getDraftSession(selectedGroup.id);
+                    if (existingDraft && !sessionId) {
+                        setDraftData(existingDraft.data);
+                        setHasRecoverableDraft(true);
+                    }
+
                     const groupMembers = await api.getMembersByGroup(selectedGroup.id);
                     const groupOpeningBalance = selectedGroup.openingBalance || 0;
 
@@ -170,11 +182,11 @@ const DailyMeetingReport = () => {
                         stl_bf: member.stl_bf || 0,
                         savings_bf: member.savings_bf || 0,
                         savings_amount: 0,
+                        welfare: 0,
                         stl_repayment: 0,
                         ltl_repayment: 0,
                         loan_interest: 0,
                         loan_principal: 0,
-                        welfare: 0,
                         project: 0,
                         fines: 0,
                     }));
@@ -182,6 +194,21 @@ const DailyMeetingReport = () => {
                     setMemberTransactions(initialTransactions);
                     setOpeningBalance(groupOpeningBalance);
                     setClosingBalance(groupOpeningBalance);
+
+                    // Fetch Loan Dues Summary
+                    try {
+                        const duesSummary = await api.getLoansDueSummary(selectedGroup.id);
+                        const duesMap = {};
+                        duesSummary.forEach(d => {
+                            duesMap[d.member_id] = {
+                                principal: d.principal_due,
+                                interest: d.interest_due
+                            };
+                        });
+                        setMemberDues(duesMap);
+                    } catch (dueDateErr) {
+                        console.error("Error fetching dues:", dueDateErr);
+                    }
 
                     // Fetch Partnership Exposure
                     const exposure = await api.getPartnershipExposure(selectedGroup.id);
@@ -209,16 +236,16 @@ const DailyMeetingReport = () => {
             if (transaction.attended) totals.total_present += 1;
             totals.total_savings += parseFloat(transaction.savings_amount || 0);
             totals.total_stl += parseFloat(transaction.stl_repayment || 0) +
-                parseFloat(transaction.loan_interest || 0) +
-                parseFloat(transaction.loan_principal || 0);
+                parseFloat(transaction.loan_interest || 0);
             totals.total_ltl += parseFloat(transaction.ltl_repayment || 0);
             totals.total_welfare += parseFloat(transaction.welfare || 0);
             totals.total_fines += parseFloat(transaction.fines || 0);
+
+            // Cash In only includes collections, NOT disbursements
             totals.total_cash_in += parseFloat(transaction.savings_amount || 0) +
                 parseFloat(transaction.stl_repayment || 0) +
                 parseFloat(transaction.ltl_repayment || 0) +
                 parseFloat(transaction.loan_interest || 0) +
-                parseFloat(transaction.loan_principal || 0) +
                 parseFloat(transaction.welfare || 0) +
                 parseFloat(transaction.project || 0) +
                 parseFloat(transaction.fines || 0);
@@ -234,11 +261,35 @@ const DailyMeetingReport = () => {
         });
     }, [memberTransactions]);
 
-    // Calculate closing balance (opening + cash in - cash out - partnership repayment)
+    // Real-time Table Balance (Liquid Cash in the room)
+    const tableBalance = useMemo(() => {
+        return openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment;
+    }, [openingBalance, systemTotals.total_cash_in, cashOut, ukomboziniRepayment]);
+
+    // Auto-save logic (every 60 seconds if in draft)
     useEffect(() => {
-        const calculatedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment;
-        setClosingBalance(calculatedClosing);
-    }, [openingBalance, systemTotals.total_cash_in, cashOut, ukomboziRepayment]);
+        if (sessionStatus !== 'draft' || !selectedGroup || memberTransactions.length === 0) return;
+
+        const timer = setInterval(() => {
+            const dataToSave = {
+                memberTransactions,
+                openingBalance,
+                cashOut,
+                meetingType,
+                meetingNotes,
+                ukomboziniRepayment
+            };
+            offlineManager.saveDraftSession(selectedGroup.id, dataToSave);
+            console.log("💾 Auto-saved meeting draft for", selectedGroup.name);
+        }, 60000);
+
+        return () => clearInterval(timer);
+    }, [sessionStatus, selectedGroup, memberTransactions, openingBalance, cashOut, meetingType, meetingNotes, ukomboziniRepayment]);
+
+    // Calculate closing balance (same as table balance)
+    useEffect(() => {
+        setClosingBalance(tableBalance);
+    }, [tableBalance]);
 
     // Get balance alert
     const balanceAlert = useMemo(() => {
@@ -280,20 +331,22 @@ const DailyMeetingReport = () => {
             return;
         }
 
-        // If updating loan principal, validate disbursement
-        if (field === 'loan_principal' && numValue > 0) {
-            const availableCash = openingBalance + systemTotals.total_cash_in;
-            const validation = validateDisbursement(numValue, availableCash);
-            if (!validation.allowed) {
-                toast.error(validation.reason);
+        // If updating loan principal, validate vs available liquid cash
+        if (field === 'loan_principal') {
+            const member = memberTransactions.find(t => t.memberId === memberId);
+            const oldLoanPrincipal = member?.loan_principal || 0;
+            const diff = numValue - oldLoanPrincipal;
+
+            // Available cash (BEFORE this specific change)
+            const availableCash = tableBalance;
+
+            if (diff > availableCash) {
+                toast.error(`Insufficient Table Balance! Available: KES ${availableCash.toLocaleString()}`);
                 return;
             }
+
             // Update cash out
-            setCashOut(prev => {
-                const member = memberTransactions.find(t => t.memberId === memberId);
-                const oldLoanPrincipal = member?.loan_principal || 0;
-                return prev - oldLoanPrincipal + numValue;
-            });
+            setCashOut(prev => prev + diff);
         }
 
         setMemberTransactions(prev => prev.map(t => {
@@ -378,10 +431,48 @@ const DailyMeetingReport = () => {
     };
 
     // Save draft
-    const handleSaveDraft = () => {
-        // In production: Save to IndexedDB for offline support
-        toast.success('Draft saved locally');
-        // TODO: Save to IndexedDB
+    const handleSaveDraft = async () => {
+        if (!selectedGroup) return;
+
+        const dataToSave = {
+            memberTransactions,
+            openingBalance,
+            cashOut,
+            meetingType,
+            meetingNotes,
+            ukomboziniRepayment
+        };
+
+        try {
+            await offlineManager.saveDraftSession(selectedGroup.id, dataToSave);
+            toast.success('Draft saved securely to local storage');
+        } catch (err) {
+            console.error("Draft save failed:", err);
+            toast.error('Failed to save draft locally');
+        }
+    };
+
+    const handleRecoverDraft = () => {
+        if (draftData) {
+            setMemberTransactions(draftData.memberTransactions);
+            setOpeningBalance(draftData.openingBalance);
+            setCashOut(draftData.cashOut);
+            setMeetingType(draftData.meetingType);
+            setMeetingNotes(draftData.meetingNotes);
+            setUkomboziniRepayment(draftData.ukomboziniRepayment);
+            setHasRecoverableDraft(false);
+            setDraftData(null);
+            toast.success('Meeting data recovered from local storage');
+        }
+    };
+
+    const handleDiscardDraft = () => {
+        if (selectedGroup) {
+            offlineManager.clearDraftSession(selectedGroup.id);
+            setHasRecoverableDraft(false);
+            setDraftData(null);
+            toast.info('Local draft discarded');
+        }
     };
 
     // Start Meeting (was handleOpenSession)
@@ -426,7 +517,36 @@ const DailyMeetingReport = () => {
 
         // Submit to Context as PENDING_APPROVAL
         const balances = { opening: openingBalance, closing: closingBalance };
-        closeSession(systemTotals, memberTransactions, balances);
+
+        // If offline, queue for sync
+        if (!navigator.onLine) {
+            const offlinePayload = {
+                type: 'post_meeting',
+                meetingId: sessionId || `offline-${Date.now()}`,
+                data: {
+                    groupId: selectedGroup.id,
+                    groupName: selectedGroup.name,
+                    date: meetingDate,
+                    officerId: user?.id,
+                    totals: systemTotals,
+                    transactions: memberTransactions,
+                    balances,
+                    ukomboziniRepayment,
+                    meetingNotes,
+                    meetingType
+                }
+            };
+
+            offlineManager.saveOfflineTransaction(offlinePayload);
+            setSessionStatus('POSTED'); // Optimistic update
+            offlineManager.clearDraftSession(selectedGroup.id);
+            return;
+        }
+
+        const success = closeSession(systemTotals, memberTransactions, balances);
+        if (success) {
+            offlineManager.clearDraftSession(selectedGroup.id);
+        }
     };
 
     // Request supervisor approval
@@ -476,7 +596,7 @@ const DailyMeetingReport = () => {
             return;
         }
 
-        const calculatedExpectedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment;
+        const calculatedExpectedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment;
         const calculatedVariance = closingBalance - calculatedExpectedClosing;
 
         // Validate using cash report enforcement
@@ -497,7 +617,7 @@ const DailyMeetingReport = () => {
             return;
         }
 
-        const expectedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziRepayment;
+        const expectedClosing = openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment;
         const currentVariance = closingBalance - expectedClosing;
 
         // Submit to Transaction Context (Simulated Backend)
@@ -514,7 +634,7 @@ const DailyMeetingReport = () => {
             variance: currentVariance,
             meetingType,
             meetingNotes, // Add notes
-            ukomboziRepayment // Add Partnership Repayment
+            ukomboziniRepayment // Add Partnership Repayment
         };
 
         const success = postSession(sessionMetadata, memberTransactions);
@@ -544,7 +664,7 @@ const DailyMeetingReport = () => {
             totals: systemTotals,
             openingBalance,
             closingBalance,
-            ukomboziRepayment
+            ukomboziniRepayment
         };
 
         const success = postSession(sessionMetadata, memberTransactions);
@@ -807,11 +927,11 @@ const DailyMeetingReport = () => {
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase bg-gray-100 border-r border-gray-200">STL BF</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase bg-gray-100 border-r border-gray-200">Savings BF</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Savings</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Welfare</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">STL Repay</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">LTL Repay</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Interest</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Principal</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Welfare</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Project</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Fines</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase bg-green-50">Total Paid</th>
@@ -820,10 +940,24 @@ const DailyMeetingReport = () => {
                             </thead>
                             <tbody>
                                 {(() => {
-                                    const filtered = memberTransactions.filter(t => t.memberName.toLowerCase().includes(memberSearchTerm.toLowerCase()));
+                                    const filtered = memberTransactions.filter(t => (t.memberName || '').toLowerCase().includes(memberSearchTerm.toLowerCase()));
+
+                                    if (filtered.length === 0) {
+                                        return (
+                                            <tr>
+                                                <td colSpan="13" className="px-6 py-12 text-center text-gray-400">
+                                                    <div className="flex flex-col items-center justify-center">
+                                                        <FaSearch className="text-3xl mb-3 opacity-20" />
+                                                        <p className="font-bold text-sm uppercase tracking-widest">No members found matching "{memberSearchTerm}"</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    }
+
                                     return filtered.map((transaction, index) => {
                                         const memberTotal = calculateMemberTotal(transaction);
-                                        const cols = ['savings_amount', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'welfare', 'project', 'fines'];
+                                        const cols = ['savings_amount', 'welfare', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'project', 'fines'];
                                         const isPresent = transaction.attended;
 
                                         return (
@@ -856,21 +990,43 @@ const DailyMeetingReport = () => {
                                                     {transaction.savings_bf.toLocaleString()}
                                                 </td>
 
-                                                {cols.map((col, colIndex) => (
-                                                    <td key={col} className="px-2 py-2">
-                                                        <TransactionInput
-                                                            value={transaction[col]}
-                                                            onChange={(v) => updateMemberTransaction(transaction.memberId, col, v)}
-                                                            disabled={sessionStatus !== 'draft'}
-                                                            memberId={transaction.memberId}
-                                                            field={col}
-                                                            rowIndex={index}
-                                                            colIndex={colIndex}
-                                                            totalRows={filtered.length}
-                                                            totalCols={cols.length}
-                                                        />
-                                                    </td>
-                                                ))}
+                                                {cols.map((col, colIndex) => {
+                                                    const dueInfo = memberDues[transaction.memberId];
+                                                    const hasDue = (col === 'loan_interest' && dueInfo?.interest > 0) ||
+                                                        (col === 'stl_repayment' && dueInfo?.principal > 0);
+
+                                                    // Real-time limit for disbursements
+                                                    const maxAllowed = col === 'loan_principal'
+                                                        ? (tableBalance + transaction.loan_principal)
+                                                        : null;
+
+                                                    return (
+                                                        <td key={col} className="px-2 py-2 relative group">
+                                                            <TransactionInput
+                                                                value={transaction[col]}
+                                                                onChange={(v) => updateMemberTransaction(transaction.memberId, col, v)}
+                                                                disabled={sessionStatus !== 'draft'}
+                                                                memberId={transaction.memberId}
+                                                                field={col}
+                                                                rowIndex={index}
+                                                                colIndex={colIndex}
+                                                                totalRows={filtered.length}
+                                                                totalCols={cols.length}
+                                                            />
+                                                            {hasDue && (
+                                                                <div
+                                                                    className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full border border-white"
+                                                                    title={`Expected: KES ${col === 'loan_interest' ? dueInfo.interest : dueInfo.principal}`}
+                                                                ></div>
+                                                            )}
+                                                            {maxAllowed !== null && sessionStatus === 'draft' && (
+                                                                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[8px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">
+                                                                    Max: KES {maxAllowed.toLocaleString()}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    );
+                                                })}
 
                                                 <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50">
                                                     KES {memberTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -919,9 +1075,9 @@ const DailyMeetingReport = () => {
                                 <div className="text-xs opacity-90">Total Fines</div>
                                 <div className="font-bold text-lg">KES {systemTotals.total_fines.toLocaleString()}</div>
                             </div>
-                            <div className="md:col-span-1">
-                                <div className="text-xs opacity-90">Total Cash In</div>
-                                <div className="font-bold text-xl">KES {systemTotals.total_cash_in.toLocaleString()}</div>
+                            <div className="md:col-span-1 border-l border-white/20 pl-4">
+                                <div className="text-xs font-black uppercase tracking-widest text-yellow-300">Liquid Table Cash</div>
+                                <div className="font-black text-2xl">KES {tableBalance.toLocaleString()}</div>
                             </div>
                         </div>
                         <div className="mt-4 pt-4 border-t border-white/20">
@@ -951,17 +1107,17 @@ const DailyMeetingReport = () => {
                                 {partnershipExposure?.portfolio?.totalTopUp > 0 && (
                                     <div className="mt-4 p-3 bg-white/10 rounded-lg border border-white/20">
                                         <div className="flex justify-between items-center mb-2">
-                                            <span className="text-xs font-bold uppercase">Ukombozi Repayment</span>
+                                            <span className="text-xs font-bold uppercase">UKOMBOZINI Repayment</span>
                                             <span className="text-xs bg-yellow-400 text-blue-900 px-2 py-0.5 rounded font-black">TOP-UP ACTIVE</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="text-lg font-bold">KES</span>
                                             <input
                                                 type="number"
-                                                value={ukomboziRepayment || ''}
+                                                value={ukomboziniRepayment || ''}
                                                 onChange={(e) => {
                                                     const val = parseFloat(e.target.value) || 0;
-                                                    setUkomboziRepayment(val);
+                                                    setUkomboziniRepayment(val);
                                                 }}
                                                 className="bg-white/20 border border-white/30 rounded px-2 py-1 w-full text-xl font-bold outline-none focus:bg-white/30"
                                                 placeholder="0.00"
@@ -985,34 +1141,74 @@ const DailyMeetingReport = () => {
             {sessionId && (sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
                 <>
                     {/* Cash Verification (Required) */}
+                    {/* Cash Verification (Required) */}
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
-                        <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                            <FaUserShield className="text-blue-600" /> Cash Verification (Required)
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="p-4 bg-gray-50 rounded-lg">
-                                <label className="block text-sm font-bold text-gray-600 mb-2">Expected Cash in Hand</label>
-                                <div className="text-3xl font-black text-gray-800">
-                                    KES {(openingBalance + systemTotals.total_cash_in).toLocaleString()}
+                        <div className="flex justify-between items-center mb-6">
+                            <h4 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
+                                <FaUserShield className="text-blue-600" /> Financial Proofing & Verification
+                            </h4>
+                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-black uppercase tracking-widest">Step 2 of 2</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Breakdown Column */}
+                            <div className="space-y-3">
+                                <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                    <span className="text-gray-500 font-bold">Opening Balance</span>
+                                    <span className="font-mono font-bold">KES {openingBalance.toLocaleString()}</span>
                                 </div>
-                                <p className="text-xs text-gray-500 mt-1">Opening ({openingBalance.toLocaleString()}) + Collected ({systemTotals.total_cash_in.toLocaleString()})</p>
+                                <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                    <span className="text-gray-500 font-bold text-safaricom-green">Total Collections (+)</span>
+                                    <span className="font-mono font-bold text-safaricom-green">KES {systemTotals.total_cash_in.toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                    <span className="text-gray-500 font-bold text-red-600">Total Disbursements (-)</span>
+                                    <span className="font-mono font-bold text-red-600">KES {cashOut.toLocaleString()}</span>
+                                </div>
+                                {ukomboziniRepayment > 0 && (
+                                    <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                        <span className="text-gray-500 font-bold text-blue-600">UKOMBOZINI Topup Repay</span>
+                                        <span className="font-mono font-bold text-blue-600">KES {ukomboziniRepayment.toLocaleString()}</span>
+                                    </div>
+                                )}
                             </div>
-                            <div className="p-4 bg-white border-2 border-green-100 rounded-lg">
-                                <label className="block text-sm font-bold text-gray-600 mb-2">Actual Cash Counted *</label>
-                                <input
-                                    type="number"
-                                    value={actualCashEnd}
-                                    onChange={(e) => setActualCashEnd(e.target.value)}
-                                    className={`w-full px-4 py-3 text-2xl font-bold border-2 rounded-xl outline-none transition-colors ${actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in))
-                                        ? 'border-red-300 bg-red-50 text-red-700'
-                                        : 'border-green-200 focus:border-green-500 text-green-800'
-                                        }`}
-                                    placeholder="0.00"
-                                />
-                                {actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in)) && (
-                                    <p className="text-red-600 font-bold text-sm mt-2 flex items-center gap-2">
-                                        <FaExclamationTriangle /> Variance: KES {(parseFloat(actualCashEnd) - (openingBalance + systemTotals.total_cash_in)).toLocaleString()}
-                                    </p>
+
+                            {/* Result Column */}
+                            <div className="p-4 bg-gray-50 rounded-2xl flex flex-col justify-center items-center text-center border border-gray-100">
+                                <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Expected Cash Bag Weight</label>
+                                <div className="text-3xl font-black text-gray-800 font-mono italic">
+                                    KES {(openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment).toLocaleString()}
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">This amount must match the physical cash counted in the group's safe bag.</p>
+                            </div>
+
+                            {/* Input Column */}
+                            <div className={`p-5 rounded-2xl border-2 transition-all ${actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment))
+                                ? 'border-red-500 bg-red-50/50'
+                                : 'border-safaricom-green/30 bg-white'
+                                }`}>
+                                <label className="block text-xs font-black text-gray-600 uppercase mb-3 tracking-widest flex items-center gap-1">
+                                    <FaCalculator className="text-[10px]" /> Physical Cash Counted *
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-gray-400">KES</span>
+                                    <input
+                                        type="number"
+                                        value={actualCashEnd}
+                                        onChange={(e) => setActualCashEnd(e.target.value)}
+                                        className="w-full pl-12 pr-4 py-3 text-2xl font-black rounded-xl outline-none bg-transparent"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+
+                                {actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment)) && (
+                                    <div className="mt-4 p-3 bg-red-600 rounded-lg text-white animate-pulse">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <FaExclamationTriangle className="text-sm" />
+                                            <span className="font-black text-xs uppercase tracking-tighter">Variance Detected</span>
+                                        </div>
+                                        <p className="font-bold text-lg">KES {(parseFloat(actualCashEnd) - (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment)).toLocaleString()}</p>
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -1037,7 +1233,7 @@ const DailyMeetingReport = () => {
                                 onClick={handleCloseMeeting}
                                 disabled={
                                     !actualCashEnd ||
-                                    (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in) && !approvalReason) ||
+                                    (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment) && !approvalReason) ||
                                     closingBalance < 0
                                 }
                                 className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-safaricom-green text-white font-bold rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-900/20"
@@ -1102,6 +1298,37 @@ const DailyMeetingReport = () => {
                     </p>
                 </div>
             )}
+
+            {/* Recover Draft Dialog */}
+            {hasRecoverableDraft && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300">
+                        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-6 mx-auto">
+                            <FaCalculator className="text-amber-600 text-2xl" />
+                        </div>
+                        <h3 className="text-xl font-black text-center text-slate-900 mb-2">Recover Local Draft?</h3>
+                        <p className="text-sm text-slate-500 text-center mb-8">
+                            We found an unsaved meeting draft for <b>{selectedGroup?.name}</b> in your local vault. Would you like to restore it?
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <button
+                                onClick={handleDiscardDraft}
+                                className="py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                                Discard
+                            </button>
+                            <button
+                                onClick={handleRecoverDraft}
+                                className="py-4 bg-safaricom-green text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-green-900/20 hover:scale-105 active:scale-95 transition-all"
+                            >
+                                Recover Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <OfflineIndicator />
         </div>
     );
 };

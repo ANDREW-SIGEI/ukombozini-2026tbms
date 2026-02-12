@@ -4,7 +4,7 @@ import offlineManager from './OfflineManager';
 
 
 /**
- * UKOMBOZI Table Banking System - API Service
+ * UKOMBOZINI Table Banking System - API Service
  * Decoupled from Supabase, now using Local Node.js / SQLite backend.
  */
 
@@ -20,34 +20,69 @@ export const axiosInstance = axios.create({
 // Helper to normalize group data
 const normalizeGroup = (group) => {
     if (!group) return null;
+    const name = group.group_name || group.name;
+    const meetingDay = group.meeting_day || group.meetingDay;
+    const freq = group.meeting_frequency || group.meetingFrequency;
+    const regDate = group.registration_date || group.registrationDate;
     return {
         ...group,
-        group_name: group.group_name || group.name,
-        meeting_day: group.meeting_day || group.meetingDay,
-        meeting_frequency: group.meeting_frequency || group.meetingFrequency,
-        registration_date: group.registration_date || group.registrationDate
+        name: name,
+        group_name: name,
+        groupName: name,
+        meetingDay: meetingDay,
+        meeting_day: meetingDay,
+        meetingFrequency: freq,
+        meeting_frequency: freq,
+        registrationDate: regDate,
+        registration_date: regDate
     };
 };
 
 // Helper to normalize member data
 const normalizeMember = (member) => {
     if (!member) return null;
+    const name = member.name || member.full_name || member.fullName;
+    const phone = member.phone || member.phone_number || member.phoneNumber;
     return {
         ...member,
-        name: member.name || member.full_name,
-        phone: member.phone || member.phone_number
+        name: name,
+        full_name: name,
+        fullName: name,
+        phone: phone,
+        phoneNumber: phone,
+        phone_number: phone
+    };
+};
+
+// Helper to normalize meeting data
+const normalizeMeeting = (meeting) => {
+    if (!meeting) return null;
+    const gId = meeting.group_id || meeting.groupId;
+    const oId = meeting.officer_id || meeting.officerId;
+    const gName = meeting.group_name || meeting.groupName;
+    const oName = meeting.officer_name || meeting.officerName;
+    return {
+        ...meeting,
+        group_id: gId,
+        groupId: gId,
+        officer_id: oId,
+        officerId: oId,
+        group_name: gName,
+        groupName: gName,
+        officer_name: oName,
+        officerName: oName
     };
 };
 
 const CACHE_KEYS = {
-    MEMBERS: 'ukombozi_members_cache',
-    GROUPS: 'ukombozi_groups_cache',
-    LOAN_PRODUCTS: 'ukombozi_loan_products_cache'
+    MEMBERS: 'ukombozini_members_cache',
+    GROUPS: 'ukombozini_groups_cache',
+    LOAN_PRODUCTS: 'ukombozini_loan_products_cache'
 };
 
 // Add Token Interceptor
 axiosInstance.interceptors.request.use((config) => {
-    const token = localStorage.getItem('ukombozi_token');
+    const token = localStorage.getItem('ukombozini_token');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
@@ -103,9 +138,54 @@ export const api = {
     // PHASE 2: AUDIT & GOVERNANCE
     // ========================================
 
+    async getAttendance(sessionId) {
+        try {
+            const response = await axiosInstance.get(`/governance/sessions/${sessionId}/attendance`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async recordAttendance(sessionId, memberId, status) {
+        try {
+            const response = await axiosInstance.post(`/governance/sessions/${sessionId}/attendance`, { memberId, status });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getLoansDueSummary(groupId) {
+        try {
+            const response = await axiosInstance.get(`/governance/loans/due-summary/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async resendSMSReceipt(data) {
+        try {
+            const response = await axiosInstance.post('/communication/resend-receipt', data);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
     async getAuditSnapshot(date, groupId = null) {
         try {
             const response = await axiosInstance.get('/audit/snapshot', { params: { date, groupId } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getAuditTrail(memberId, date) {
+        try {
+            const response = await axiosInstance.get(`/audit/trail/${memberId}`, { params: { date } });
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -549,6 +629,14 @@ export const api = {
             return { scores: [], alerts: [], heatmap: [] };
         }
     },
+    async recalculateRiskScores() {
+        try {
+            const response = await axiosInstance.post('/risk/recalculate-all');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
     async requestReversal(transactionId, reason) {
         try {
             const response = await axiosInstance.post('/reversals/request', { transaction_id: transactionId, reason });
@@ -700,51 +788,6 @@ export const api = {
     // ALLOCATION MATRIX API (TABLE BANKING)
     // ========================================
 
-    async getAllocationPreview(sessionId) {
-        try {
-            const response = await axiosInstance.get(`/allocation/preview/${sessionId}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async commitAllocation(sessionId) {
-        try {
-            const response = await axiosInstance.post(`/allocation/commit/${sessionId}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async getAllocationRules(groupId) {
-        try {
-            const response = await axiosInstance.get(`/allocation/rules/${groupId}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async updateAllocationRules(data) {
-        try {
-            const response = await axiosInstance.post(`/allocation/rules`, data);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async getAllocationHistory(limit = 50) {
-        try {
-            const response = await axiosInstance.get(`/allocation/history`, { params: { limit } });
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
     // ========================================
     // AUTHENTICATION
     // ========================================
@@ -753,7 +796,7 @@ export const api = {
         try {
             const response = await axiosInstance.post('/auth/login', { email, password });
             if (response.data.token) {
-                localStorage.setItem('ukombozi_token', response.data.token);
+                localStorage.setItem('ukombozini_token', response.data.token);
             }
             return response.data;
         } catch (error) {
@@ -775,7 +818,7 @@ export const api = {
     },
 
     logout() {
-        localStorage.removeItem('ukombozi_token');
+        localStorage.removeItem('ukombozini_token');
     },
 
     // ========================================
@@ -1043,7 +1086,7 @@ export const api = {
     async getMeetingSessions() {
         try {
             const response = await axiosInstance.get('/sessions');
-            return response.data;
+            return (response.data || []).map(normalizeMeeting);
         } catch (error) {
             console.error('getMeetingSessions error:', error);
             return [];
@@ -1058,6 +1101,15 @@ export const api = {
             const response = await axiosInstance.post('/sessions', meetingData);
             return response.data;
         } catch (error) {
+            // Check for Network Error
+            if (!error.response && error.request) {
+                console.warn('⚡ Network Error detected. Saving meeting session offline...');
+                const offlineId = await offlineManager.saveOfflineTransaction({
+                    type: 'meeting_session',
+                    data: meetingData
+                });
+                return { success: true, offline: true, offlineId, ...meetingData };
+            }
             handleApiError(error);
         }
     },
@@ -1088,6 +1140,16 @@ export const api = {
             const response = await axiosInstance.post(`/sessions/${meetingId}/post`, postData);
             return response.data;
         } catch (error) {
+            // Check for Network Error
+            if (!error.response && error.request) {
+                console.warn('⚡ Network Error detected. Saving post-session payload offline...');
+                const offlineId = await offlineManager.saveOfflineTransaction({
+                    type: 'post_meeting',
+                    meetingId: meetingId,
+                    data: postData
+                });
+                return { success: true, offline: true, offlineId };
+            }
             handleApiError(error);
         }
     },
@@ -1160,16 +1222,6 @@ export const api = {
     // ========================================
     // ADMIN & SYSTEM MANAGEMENT
     // ========================================
-
-    async getAuditLogs(limit = 50, offset = 0) {
-        try {
-            const response = await axiosInstance.get(`/admin/audit-logs?limit=${limit}&offset=${offset}`);
-            return response.data;
-        } catch (error) {
-            console.error('getAuditLogs error:', error);
-            return [];
-        }
-    },
 
     async getAdminSettings() {
         try {
@@ -2149,20 +2201,6 @@ export const api = {
         }
     },
 
-    async getAllocationHistory() {
-        try {
-            const response = await axiosInstance.get('/partnership/institutional-logs');
-            const data = Array.isArray(response.data) ? response.data : [];
-            return data.map(group => ({
-                ...group,
-                group_name: group.group_name || group.name // Minimal normalization for log rows
-            }));
-        } catch (error) {
-            handleApiError(error);
-            return [];
-        }
-    },
-
     async getPartnershipStats() {
         try {
             const response = await axiosInstance.get('/partnership/stats');
@@ -2181,15 +2219,6 @@ export const api = {
     async getMatrixStatus(groupId) {
         try {
             const response = await axiosInstance.get(`/partnership/matrix-status/${groupId}`);
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
-
-    async getGroupExposure(groupId) {
-        try {
-            const response = await axiosInstance.get(`/partnership/exposure/${groupId}`);
             return response.data;
         } catch (error) {
             handleApiError(error);
@@ -2313,14 +2342,6 @@ export const api = {
     },
 
     // Reversal Management
-    async getReversalRequests() {
-        try {
-            const response = await axiosInstance.get('/reversals/requests');
-            return response.data;
-        } catch (error) {
-            handleApiError(error);
-        }
-    },
     async approveReversal(requestId) {
         try {
             const response = await axiosInstance.post('/reversals/approve', { request_id: requestId });
@@ -2338,10 +2359,118 @@ export const api = {
         }
     },
 
-    // Audit Logs
     async getAuditLogs(params) {
         try {
             const response = await axiosInstance.get('/governance/audit-logs', { params });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    downloadReceiptPDF(transactionId) {
+        const token = localStorage.getItem('ukombozi_token');
+        const url = `${API_URL}/reports/receipt/${transactionId}`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', `Receipt_${transactionId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('Receipt Download error:', err));
+    },
+
+    downloadMemberStatementPDF(memberId, startDate = '', endDate = '') {
+        const token = localStorage.getItem('ukombozi_token');
+        const url = `${API_URL}/reports/member/${memberId}?startDate=${startDate}&endDate=${endDate}`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', `Statement_${memberId}_${Date.now()}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('Statement Download error:', err));
+    },
+
+    downloadMemberStatementExcel(memberId, startDate = '', endDate = '') {
+        const token = localStorage.getItem('ukombozi_token');
+        const url = `${API_URL}/reports/member/${memberId}/excel?startDate=${startDate}&endDate=${endDate}`;
+
+        fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.blob()).then(blob => {
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', `Statement_${memberId}_${Date.now()}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        }).catch(err => console.error('Excel Download error:', err));
+    },
+
+    // ALLOCATION SERVICE (PHASE 12)
+    async getAllocationPreview(sessionId) {
+        try {
+            const response = await axiosInstance.get(`/allocation/preview/${sessionId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async commitAllocation(sessionId) {
+        try {
+            const response = await axiosInstance.post(`/allocation/commit/${sessionId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getAllocationRules(groupId) {
+        try {
+            const response = await axiosInstance.get(`/allocation/rules/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async updateAllocationRules(groupId, rules) {
+        try {
+            const response = await axiosInstance.post(`/allocation/rules`, { groupId, rules });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getAllocationHistory(limit = 50) {
+        try {
+            const response = await axiosInstance.get(`/allocation/history`, { params: { limit } });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getGroupExposure(groupId) {
+        try {
+            const response = await axiosInstance.get(`/partnership/exposure/${groupId}`);
             return response.data;
         } catch (error) {
             handleApiError(error);

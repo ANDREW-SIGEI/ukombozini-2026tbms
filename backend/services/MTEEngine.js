@@ -1,5 +1,9 @@
+const CashControlService = require('./CashControlService');
+const { logAndSendSMS } = require('../utils/logger');
+const { calculateNextMeeting, getSeasonalGreeting } = require('../utils/dates');
+
 /**
- * UKOMBOZI Member Transaction Engine (MTE) v2
+ * UKOMBOZINI Member Transaction Engine (MTE) v2
  * Institutional-grade financial core.
  */
 
@@ -153,6 +157,14 @@ const TRANSACTION_MAP = {
             { type: 'SYSTEM', account: 'LOAN_RECEIVABLE', direction: 'DEBIT' }
         ]
     },
+    'GROUP_LOAN_REPAYMENT': {
+        memberField: 'risk_score', memberDelta: 0, riskDelta: -5,
+        entries: [
+            { type: 'GROUP', account: 'CASH', direction: 'CREDIT' },
+            { type: 'GROUP', account: 'LOAN_PAYABLE', direction: 'DEBIT' },
+            { type: 'SYSTEM', account: 'LOAN_RECEIVABLE', direction: 'CREDIT' }
+        ]
+    },
     'GROUP_CAPITAL': {
         memberField: 'risk_score', memberDelta: 0, riskDelta: -5,
         entries: [
@@ -198,6 +210,12 @@ async function runMTELogic(client, params, officerId) {
     } else {
         // Systemic transaction - groupId should be provided or default to 0
         if (!groupId) groupId = 0;
+    }
+
+    // 2.5 Institutional Liquidity Guard
+    if (groupId > 0 && ['WITHDRAWAL', 'LOAN_ISSUANCE', 'GROUP_LOAN'].includes(txKey)) {
+        // Use CashControlService to validate that the physical cash bag has enough
+        await CashControlService.validateLiquidity(groupId, grossVal);
     }
 
     // 3. Update Member Balance & Risk (SKIP for Systemic)
@@ -259,6 +277,31 @@ async function runMTELogic(client, params, officerId) {
                 VALUES (?, ?, ?)
                 ON CONFLICT (account_name) DO UPDATE SET balance = account_balances.balance + ?, last_updated = CURRENT_TIMESTAMP
             `), [accountFullName, entry.type, balanceDelta, balanceDelta]);
+
+            // [PHASE 18] AUTO-LOG TO CASH CONTROL (Reconciliation)
+            // If the account is Group Cash, we mirror it to the reconciliation ledger
+            if (entry.type === 'GROUP' && entry.account === 'CASH') {
+                try {
+                    // Resolve the cash_session_id from the meeting session
+                    const cashSession = await client.query(convertSql(`
+                        SELECT id FROM cash_sessions WHERE meeting_id = ? OR (group_id = ? AND status = 'OPEN') LIMIT 1
+                    `), [sessionId, groupId]);
+
+                    if (cashSession.rows.length > 0) {
+                        const csid = cashSession.rows[0].id;
+                        await CashControlService.logRecord({
+                            sessionId: csid,
+                            source: txKey,
+                            referenceId: txRef,
+                            amount: entryVal,
+                            direction: entry.direction === 'DEBIT' ? 'IN' : 'OUT',
+                            createdBy: officerId
+                        });
+                    }
+                } catch (ccErr) {
+                    console.error("Auto-Log Reconciliation Error:", ccErr.message);
+                }
+            }
         }
     }
 
@@ -274,7 +317,8 @@ async function runMTELogic(client, params, officerId) {
         'LOAN_ISSUANCE': 'loans_issued',
         'GROUP_LOAN': 'loans_issued',
         'GROUP_CAPITAL': 'deposits',
-        'GROUP_PRODUCT_ALLOCATION': 'loans_issued'
+        'GROUP_PRODUCT_ALLOCATION': 'loans_issued',
+        'GROUP_LOAN_REPAYMENT': 'stl_repayment'
     };
     const legacyField = legacyMap[txKey] || 'deposits';
 
@@ -294,6 +338,91 @@ async function runMTELogic(client, params, officerId) {
         memberId, memberId, sessionId || null, groupId, txKey, typeAlias,
         memberAmount, params.loanId || null, memberAmount, description || ''
     ]);
+
+    // 6. Automated Repayment Schedule Updates
+    if (['LOAN_REPAYMENT', 'INTEREST_PAYMENT'].includes(txKey)) {
+        // Logic: Find the oldest pending installment for this member/loan and update it
+        // If loanId is not provided, find the active loan for the member
+        let targetLoanId = params.loanId;
+        if (!targetLoanId && memberId !== 0) {
+            const loanRes = await client.query(convertSql(`SELECT id FROM loans WHERE member_id = ? AND status IN ('active', 'DISBURSED') LIMIT 1`), [memberId]);
+            if (loanRes.rows.length > 0) targetLoanId = loanRes.rows[0].id;
+        }
+
+        if (targetLoanId) {
+            const updateField = txKey === 'LOAN_REPAYMENT' ? 'actual_principal_paid' : 'actual_interest_paid';
+            // Find oldest pending installment
+            const scheduleRes = await client.query(convertSql(`
+                SELECT id FROM repayment_schedule 
+                WHERE loan_id = ? AND status = 'pending' 
+                ORDER BY installment_number ASC LIMIT 1
+            `), [targetLoanId]);
+
+            if (scheduleRes.rows.length > 0) {
+                const scheduleId = scheduleRes.rows[0].id;
+                // Update amount and check if fully paid
+                await client.query(convertSql(`
+                    UPDATE repayment_schedule 
+                    SET paid_amount = paid_amount + ?,
+                        status = CASE 
+                            WHEN (paid_amount + ?) >= expected_installment THEN 'paid' 
+                            ELSE 'pending' 
+                        END,
+                        payment_date = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `), [grossVal, grossVal, scheduleId]);
+            }
+        }
+    }
+
+    // 7. Automated SMS Receipting
+    if (memberId !== 0 && ['SAVINGS', 'LOAN_REPAYMENT', 'INTEREST_PAYMENT', 'PENALTY_PAYMENT', 'EDUCATION', 'AGRICULTURE', 'WITHDRAWAL', 'LOAN_ISSUANCE'].includes(txKey)) {
+        try {
+            // Re-fetch member and group details for the receipt (current balance, next meeting, etc.)
+            const memberInfo = await client.query(convertSql(`
+                SELECT m.name, m.current_savings, m.education_savings, m.agriculture_savings, 
+                       m.active_loan_balance, m.penalties, g.meetingDay 
+                FROM members m
+                JOIN groups g ON m.group_id = g.id
+                WHERE m.id = ?
+            `), [memberId]);
+
+            if (memberInfo.rows.length > 0) {
+                const member = memberInfo.rows[0];
+                let receiptMsg = "";
+                const amountStr = Math.abs(grossVal).toLocaleString();
+                const nextMeeting = calculateNextMeeting(member.meetingDay);
+
+                // Financial Matrix Construction
+                const matrix = `MATRIX: Sav: ${member.current_savings.toLocaleString()} | Edu: ${member.education_savings.toLocaleString()} | Agri: ${member.agriculture_savings.toLocaleString()} | Loan: ${member.active_loan_balance.toLocaleString()}. Next: ${nextMeeting}`;
+
+                switch (txKey) {
+                    case 'SAVINGS':
+                        receiptMsg = `UKOMBOZINI: Received KES ${amountStr} for SAVINGS. ${matrix}. Ref: ${txRef}`;
+                        break;
+                    case 'LOAN_REPAYMENT':
+                    case 'INTEREST_PAYMENT':
+                        receiptMsg = `UKOMBOZINI: Received KES ${amountStr} for LOAN. ${matrix}. Ref: ${txRef}`;
+                        break;
+                    case 'WITHDRAWAL':
+                        receiptMsg = `UKOMBOZINI: ${amountStr} withdrawn. ${matrix}. Ref: ${txRef}`;
+                        break;
+                    case 'LOAN_ISSUANCE':
+                        receiptMsg = `UKOMBOZINI: Loan of ${amountStr} issued. ${matrix}. Ref: ${txRef}`;
+                        break;
+                    default:
+                        receiptMsg = `UKOMBOZINI: Confirmed! KES ${amountStr} for ${transaction_type}. ${matrix}. Ref: ${txRef}`;
+                }
+
+                if (receiptMsg) {
+                    receiptMsg += getSeasonalGreeting();
+                    logAndSendSMS(memberId, receiptMsg, 'RECEIPT', txRef, 'members');
+                }
+            }
+        } catch (smsErr) {
+            console.error("MTE SMS Receipt Error:", smsErr.message);
+        }
+    }
 }
 
 module.exports = {

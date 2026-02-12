@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'ukombozi.sqlite');
+const dbPath = path.join(__dirname, 'ukombozini.sqlite');
 const migrationPath = path.join(__dirname, 'migrations', 'contribution_schema.sql');
 
 const db = new sqlite3.Database(dbPath, (err) => {

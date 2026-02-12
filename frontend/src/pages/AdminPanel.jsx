@@ -737,7 +737,7 @@ const AdminPanel = () => {
                     {activeTab === 'groups' && (
                         <div className="space-y-6">
                             <div className="flex justify-between items-center">
-                                <h3 className="text-xl font-black text-gray-800">Groups Management</h3>
+                                <h1 className="text-2xl font-bold text-white tracking-tight">UKOMBOZINI <span className="text-gray-400 font-normal">ADMIN</span></h1>
                                 <button
                                     onClick={() => setShowGroupModal(true)}
                                     className="flex items-center gap-2 bg-safaricom-green text-white px-4 py-2 rounded-xl font-bold hover:bg-green-700 transition-colors"

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaUsers, FaChartLine, FaBell, FaDownload } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 const ContributionCompliance = () => {
     const [selectedMonth, setSelectedMonth] = useState('2026-01');
@@ -111,17 +112,13 @@ const ContributionCompliance = () => {
                     </select>
                 </div>
                 <div className="flex-1">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group</label>
-                    <select
-                        value={selectedGroup}
-                        onChange={(e) => setSelectedGroup(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-safaricom-green/20 outline-none"
-                    >
-                        <option value="all">All Groups</option>
-                        {groups.map(group => (
-                            <option key={group.id} value={group.id}>{group.group_name}</option>
-                        ))}
-                    </select>
+                    <SearchableGroupSelector
+                        groups={groups}
+                        selectedGroupId={selectedGroup === 'all' ? '' : selectedGroup}
+                        onSelect={(id) => setSelectedGroup(id || 'all')}
+                        label="Group Entity"
+                        placeholder="All Groups"
+                    />
                 </div>
             </div>
 

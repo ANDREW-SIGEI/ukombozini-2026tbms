@@ -3,9 +3,11 @@ import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaHandHoldingUsd, 
 import api from '../services/api';
 import NotificationService from '../services/NotificationService';
 import { toast } from 'react-toastify';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 const LoanRepaymentTracking = () => {
     const [loans, setLoans] = useState([]);
+    const [groups, setGroups] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState('2026-01');
     const [selectedGroup, setSelectedGroup] = useState('all');
@@ -13,8 +15,18 @@ const LoanRepaymentTracking = () => {
 
     // Fetch Loans on Mount or Month Change
     useEffect(() => {
+        loadGroups();
         loadData();
     }, [selectedMonth]);
+
+    const loadGroups = async () => {
+        try {
+            const data = await api.getGroups();
+            setGroups(data || []);
+        } catch (error) {
+            console.error("Failed to load groups", error);
+        }
+    };
 
     const loadData = async () => {
         setIsLoading(true);
@@ -135,16 +147,13 @@ const LoanRepaymentTracking = () => {
                     </select>
                 </div>
                 <div className="flex-1">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Group</label>
-                    <select
-                        value={selectedGroup}
-                        onChange={(e) => setSelectedGroup(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-safaricom-green/20 outline-none"
-                    >
-                        <option value="all">All Groups</option>
-                        <option value="1">Ukombozi Group A</option>
-                        <option value="2">Ukombozi Group B</option>
-                    </select>
+                    <SearchableGroupSelector
+                        groups={groups}
+                        selectedGroupId={selectedGroup === 'all' ? '' : selectedGroup}
+                        onSelect={(id) => setSelectedGroup(id || 'all')}
+                        label="Group"
+                        placeholder="All Groups"
+                    />
                 </div>
                 <div className="flex-1">
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Loan Type</label>

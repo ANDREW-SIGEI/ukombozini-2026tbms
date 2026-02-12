@@ -408,7 +408,7 @@ const GroupsManagement = () => {
                                 label="Group Name *"
                                 value={newGroup.group_name}
                                 onChange={(e) => setNewGroup({ ...newGroup, group_name: e.target.value })}
-                                placeholder="e.g., Ukombozi Group A"
+                                placeholder="e.g., UKOMBOZINI Group A"
                                 required
                             />
                             <div className="grid grid-cols-2 gap-4">

@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 const CashControlModule = () => {
     const { user } = useAuth();
@@ -412,21 +413,25 @@ const CashControlModule = () => {
             )}
 
             {/* SELECTORS */}
-            <div className="selectors">
-                <select
-                    value={selectedGroup?.id || ''}
-                    onChange={(e) => setSelectedGroup(groups.find(g => g.id === parseInt(e.target.value)))}
+            <div className="selectors relative z-[100]">
+                <SearchableGroupSelector
+                    groups={groups}
+                    selectedGroupId={selectedGroup?.id}
                     disabled={isProcessing || isLocked}
-                >
-                    <option value="">Select Group Entity</option>
-                    {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                </select>
-                <input
-                    type="date"
-                    value={meetingDate}
-                    onChange={(e) => setMeetingDate(e.target.value)}
-                    disabled={isProcessing || isLocked || isAuditor}
+                    onSelect={(id) => setSelectedGroup(groups.find(g => g.id === id))}
+                    label="Select Group Entity"
                 />
+                <h1 className="text-xl font-bold text-white">UKOMBOZINI <span className="text-blue-400">FINANCE</span></h1>
+                <div className="flex flex-col">
+                    <label className="text-[10px] font-black uppercase text-gray-400 mb-1 ml-2">Meeting Date</label>
+                    <input
+                        type="date"
+                        className="p-2 border rounded-xl font-bold"
+                        value={meetingDate}
+                        onChange={(e) => setMeetingDate(e.target.value)}
+                        disabled={isProcessing || isLocked || isAuditor}
+                    />
+                </div>
             </div>
 
             {!session && selectedGroup && (

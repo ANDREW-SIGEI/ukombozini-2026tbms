@@ -1,7 +1,7 @@
 module.exports = {
     apps: [
         {
-            name: 'ukombozi-backend',
+            name: 'ukombozini-backend',
             script: 'server.js',
             cwd: './backend',
             instances: 1,
@@ -14,7 +14,7 @@ module.exports = {
             }
         },
         {
-            name: 'ukombozi-frontend',
+            name: 'ukombozini-frontend',
             script: 'npm',
             args: 'start',
             cwd: './frontend',

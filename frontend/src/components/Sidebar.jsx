@@ -100,6 +100,7 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                             {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
                         </div>
                         <div className="flex-1 min-w-0">
+                            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">UKOMBOZINI</h1>
                             <p className="text-sm font-bold truncate group-hover:text-white transition-colors">{user?.name || 'User'}</p>
                             <p className="text-[10px] text-white/60 truncate uppercase tracking-wider">{user?.role || 'Guest'}</p>
                         </div>

@@ -1,5 +1,5 @@
 /**
- * UKOMBOZI Institutional - MatrixService
+ * UKOMBOZINI Institutional - MatrixService
  * Logic for calculating and enforcing partnership tiers.
  */
 

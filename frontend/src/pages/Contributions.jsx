@@ -51,12 +51,6 @@ const Contributions = () => {
         fetchData();
     }, []);
 
-    useEffect(() => {
-        if (selectedGroupId) {
-            // No need to fetch active meeting individually anymore, we pick from the list
-        }
-    }, [selectedGroupId]);
-
     const fetchData = async () => {
         setLoading(true);
         try {
@@ -69,13 +63,14 @@ const Contributions = () => {
             setGroups(groupsData || []);
             setMembers(membersData || []);
 
-            // Only show ACTIVE sessions for the professional flow
-            const openSessions = (sessionsData || []).filter(s => s.status === 'ACTIVE');
+            // Include ACTIVE and OPEN sessions
+            const openSessions = (sessionsData || []).filter(s =>
+                s.status === 'ACTIVE' || s.status === 'OPEN' || s.status === 'open' || s.status === 'active'
+            );
             setActiveMeetings(openSessions);
         } catch (error) {
             console.error("Fetch failed, exploring local cache:", error);
 
-            // Try cache fallbacks
             try {
                 const [cachedGroups, cachedMembers] = await Promise.all([
                     offlineManager.getCachedGroups(),
@@ -97,13 +92,12 @@ const Contributions = () => {
         }
     };
 
-
     const filteredMeetings = useMemo(() => {
         return activeMeetings.filter(meeting => {
             const group = groups.find(g => g.id === meeting.groupId);
-            const groupName = group?.name || group?.group_name || 'Unknown Group';
+            const groupName = group?.groupName || group?.name || 'Unknown Group';
             return groupName.toLowerCase().includes(groupSearchTerm.toLowerCase()) ||
-                meeting.session_number.toLowerCase().includes(groupSearchTerm.toLowerCase());
+                (meeting.session_number || '').toLowerCase().includes(groupSearchTerm.toLowerCase());
         });
     }, [activeMeetings, groups, groupSearchTerm]);
 
@@ -133,6 +127,15 @@ const Contributions = () => {
         setSelectedMember(member);
         setShowModal(true);
     };
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+                <div className="w-16 h-16 border-4 border-safaricom-green border-t-transparent rounded-full animate-spin mb-4" />
+                <p className="text-gray-400 font-bold uppercase text-[10px]">Synchronizing Ledger...</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -169,7 +172,7 @@ const Contributions = () => {
                 </div>
             </div>
 
-            {/* 2. Active Meeting Selection (REPLACES Group Selection) */}
+            {/* 2. Selection / Table */}
             {!selectedMeetingId ? (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
                     {/* Session Search Bar */}
@@ -206,12 +209,12 @@ const Contributions = () => {
                                             </span>
                                         </div>
 
-                                        <h3 className="text-xl font-black text-gray-800 mb-1">{group?.name || 'Unknown Group'}</h3>
+                                        <h3 className="text-xl font-black text-gray-800 mb-1">{group?.groupName || group?.name || 'Unknown Group'}</h3>
                                         <p className="text-xs text-gray-500 mb-2 font-bold uppercase tracking-tight">
                                             Session: {meeting.session_number}
                                         </p>
                                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
-                                            📅 {new Date(meeting.meeting_date).toLocaleDateString()}
+                                            📅 {new Date(meeting.date || meeting.meeting_date || meeting.meetingDate).toLocaleDateString()}
                                         </p>
 
                                         <button className="w-full mt-6 py-3 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-green-200 group-hover:from-green-600 group-hover:to-green-700 transition-all">
@@ -220,6 +223,22 @@ const Contributions = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    ) : activeMeetings.length > 0 ? (
+                        <div className="py-20 text-center space-y-6 bg-white rounded-3xl border-2 border-gray-50 shadow-sm max-w-2xl mx-auto animate-in fade-in zoom-in-95">
+                            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto text-gray-300">
+                                <FaSearch size={32} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-gray-800">No matching sessions</h3>
+                                <p className="text-sm text-gray-500 max-w-xs mx-auto mt-2">No active meetings found for "{groupSearchTerm}".<br />Try searching for a different group name.</p>
+                            </div>
+                            <button
+                                onClick={() => setGroupSearchTerm('')}
+                                className="px-8 py-4 bg-safaricom-green text-white rounded-2xl font-black text-xs uppercase hover:bg-safaricom-dark transition-all shadow-xl active:scale-95"
+                            >
+                                Clear Search
+                            </button>
                         </div>
                     ) : (
                         <div className="py-20 text-center space-y-6 bg-white rounded-3xl border-2 border-gray-50 shadow-sm max-w-2xl mx-auto">
@@ -242,42 +261,22 @@ const Contributions = () => {
             ) : (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
                     {/* Meeting Status Banner */}
-                    {activeMeeting ? (
-                        <div className="bg-green-50 border border-green-100 p-6 rounded-3xl flex items-center justify-between text-green-800 shadow-sm">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-green-100 rounded-full text-green-600 animate-pulse">
-                                    <FaUnlock size={24} />
-                                </div>
-                                <div>
-                                    <p className="font-black text-sm uppercase tracking-wider">Active Meeting: {activeMeeting.session_number}</p>
-                                    <p className="text-sm opacity-80">
-                                        Date: {new Date(activeMeeting.meeting_date).toLocaleDateString()}
-                                    </p>
-                                </div>
+                    <div className="bg-green-50 border border-green-100 p-6 rounded-3xl flex items-center justify-between text-green-800 shadow-sm">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-green-100 rounded-full text-green-600 animate-pulse">
+                                <FaUnlock size={24} />
                             </div>
-                            <div className="px-4 py-1 bg-green-200 text-green-900 rounded-full text-xs font-black uppercase">
-                                Posting Enabled
+                            <div>
+                                <p className="font-black text-sm uppercase tracking-wider">Active Meeting: {activeMeeting.session_number}</p>
+                                <p className="text-sm opacity-80">
+                                    Date: {new Date(activeMeeting.date || activeMeeting.meeting_date || activeMeeting.meetingDate).toLocaleDateString()}
+                                </p>
                             </div>
                         </div>
-                    ) : (
-                        <div className="bg-red-50 border border-red-100 p-6 rounded-3xl flex items-center justify-between text-red-800 shadow-sm">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-red-100 rounded-full text-red-600">
-                                    <FaLock size={24} />
-                                </div>
-                                <div>
-                                    <p className="font-black text-sm uppercase tracking-wider">No Active Meeting</p>
-                                    <p className="text-sm opacity-80">Please open a meeting session first.</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => window.location.href = '/meetings'}
-                                className="px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-red-100 hover:bg-red-700 transition-all"
-                            >
-                                Open Session
-                            </button>
+                        <div className="px-4 py-1 bg-green-200 text-green-900 rounded-full text-xs font-black uppercase">
+                            Posting Enabled
                         </div>
-                    )}
+                    </div>
 
                     {/* Member Action Table */}
                     <div className="bg-white p-6 rounded-3xl shadow-xl shadow-gray-100/50 border border-gray-100">
@@ -360,7 +359,7 @@ const Contributions = () => {
                             setSelectedMember(null);
                         }}
                         selectedGroupId={parseInt(selectedGroupId)}
-                        selectedGroupName={selectedGroup?.name || selectedGroup?.group_name}
+                        selectedGroupName={selectedGroup?.groupName || selectedGroup?.name}
                         members={members}
                         member={selectedMember}
                         activeMeeting={activeMeeting}

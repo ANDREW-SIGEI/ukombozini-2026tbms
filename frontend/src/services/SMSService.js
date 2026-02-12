@@ -34,7 +34,7 @@ class SMSService {
      * Send contribution confirmation SMS
      */
     static async sendContributionSMS(member, amount, newBalance, meetingNumber, groupName) {
-        const message = `UKOMBOZI: KES ${amount.toLocaleString()} savings received on ${new Date().toLocaleDateString('en-GB')}. Balance: KES ${newBalance.toLocaleString()}. Meeting #${meetingNumber} - ${groupName}.`;
+        const message = `UKOMBOZINI: KES ${amount.toLocaleString()} savings received on ${new Date().toLocaleDateString('en-GB')}. Balance: KES ${newBalance.toLocaleString()}. Meeting #${meetingNumber} - ${groupName}.`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -43,7 +43,7 @@ class SMSService {
      * Send loan repayment confirmation SMS
      */
     static async sendLoanRepaymentSMS(member, amount, remainingBalance, meetingNumber) {
-        const message = `UKOMBOZI: KES ${amount.toLocaleString()} loan repayment received. Loan Balance: KES ${remainingBalance.toLocaleString()}. Meeting #${meetingNumber}. Thank you.`;
+        const message = `UKOMBOZINI: KES ${amount.toLocaleString()} loan repayment received. Loan Balance: KES ${remainingBalance.toLocaleString()}. Meeting #${meetingNumber}. Thank you.`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -52,7 +52,7 @@ class SMSService {
      * Send loan disbursement SMS
      */
     static async sendLoanDisbursementSMS(member, loanAmount, installment, months, totalRepayable) {
-        const message = `UKOMBOZI: Loan of KES ${loanAmount.toLocaleString()} disbursed. Installment: KES ${installment.toLocaleString()} for ${months} months. Total repayable: KES ${totalRepayable.toLocaleString()}. Thank you.`;
+        const message = `UKOMBOZINI: Loan of KES ${loanAmount.toLocaleString()} disbursed. Installment: KES ${installment.toLocaleString()} for ${months} months. Total repayable: KES ${totalRepayable.toLocaleString()}. Thank you.`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -61,7 +61,7 @@ class SMSService {
      * Send loan approval SMS
      */
     static async sendLoanApprovalSMS(member, amount, applicationNumber) {
-        const message = `UKOMBOZI: Your loan application for KES ${amount.toLocaleString()} has been APPROVED. Visit your group meeting for disbursement. App #${applicationNumber}.`;
+        const message = `UKOMBOZINI: Your loan application for KES ${amount.toLocaleString()} has been APPROVED. Visit your group meeting for disbursement. App #${applicationNumber}.`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -70,7 +70,7 @@ class SMSService {
      * Send loan rejection SMS
      */
     static async sendLoanRejectionSMS(member, amount, applicationNumber) {
-        const message = `UKOMBOZI: Your loan application #${applicationNumber} for KES ${amount.toLocaleString()} was not approved. Contact your group admin for details.`;
+        const message = `UKOMBOZINI: Your loan application #${applicationNumber} for KES ${amount.toLocaleString()} was not approved. Contact your group admin for details.`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -79,7 +79,7 @@ class SMSService {
      * Send arrears alert SMS
      */
     static async sendArrearsAlertSMS(member, arrearsAmount, officerPhone) {
-        const message = `UKOMBOZI: You have arrears of KES ${arrearsAmount.toLocaleString()}. Please clear in next meeting to avoid penalties. Contact: ${officerPhone}.`;
+        const message = `UKOMBOZINI: You have arrears of KES ${arrearsAmount.toLocaleString()}. Please clear in next meeting to avoid penalties. Contact: ${officerPhone}.`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -88,7 +88,7 @@ class SMSService {
      * Send meeting reminder SMS
      */
     static async sendMeetingReminderSMS(member, groupName, meetingDate, time, venue, expectedAmount) {
-        const message = `UKOMBOZI: ${groupName} meeting on ${meetingDate} at ${time}. Venue: ${venue}. Expected contribution: KES ${expectedAmount.toLocaleString()}. See you there!`;
+        const message = `UKOMBOZINI: ${groupName} meeting on ${meetingDate} at ${time}. Venue: ${venue}. Expected contribution: KES ${expectedAmount.toLocaleString()}. See you there!`;
 
         return await this.sendSMS(member.phone, message);
     }
@@ -97,7 +97,7 @@ class SMSService {
      * Send dividend posted SMS
      */
     static async sendDividendSMS(member, amount, newBalance) {
-        const message = `UKOMBOZI: Annual dividend of KES ${amount.toLocaleString()} posted to your account. New balance: KES ${newBalance.toLocaleString()}. Thank you for your membership.`;
+        const message = `UKOMBOZINI: Annual dividend of KES ${amount.toLocaleString()} posted to your account. New balance: KES ${newBalance.toLocaleString()}. Thank you for your membership.`;
 
         return await this.sendSMS(member.phone, message);
     }
