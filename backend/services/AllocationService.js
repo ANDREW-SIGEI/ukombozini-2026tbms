@@ -31,6 +31,31 @@ const AllocationService = {
     },
 
     /**
+     * Update Allocation Rules for a Group
+     */
+    async updateGroupRules(groupId, rules) {
+        return new Promise((resolve, reject) => {
+            const { stl_pct, ltl_pct, dividend_pct, refund_reserve_pct, edu_project_pct, agri_project_pct } = rules;
+            db.run(`
+                INSERT INTO group_allocation_rules (
+                    group_id, stl_pct, ltl_pct, dividend_pct, refund_reserve_pct, edu_project_pct, agri_project_pct
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(group_id) DO UPDATE SET
+                    stl_pct = excluded.stl_pct,
+                    ltl_pct = excluded.ltl_pct,
+                    dividend_pct = excluded.dividend_pct,
+                    refund_reserve_pct = excluded.refund_reserve_pct,
+                    edu_project_pct = excluded.edu_project_pct,
+                    agri_project_pct = excluded.agri_project_pct,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [groupId, stl_pct, ltl_pct, dividend_pct, refund_reserve_pct, edu_project_pct, agri_project_pct], function (err) {
+                if (err) return reject(err);
+                resolve({ success: true });
+            });
+        });
+    },
+
+    /**
      * Calculate Surplus for a Meeting Session
      * Formula: Cash In - Cash Out
      */
@@ -49,8 +74,6 @@ const AllocationService = {
                 const cashOut = row.cash_out || 0;
 
                 // SURPLUS = Total Cash In - Total Cash Out
-                // Partnership repayments are now ledger entries (CREDIT to Group Cash), 
-                // so they are naturally subtracted via cashOut.
                 const surplus = cashIn - cashOut;
 
                 resolve({ cashIn, cashOut, surplus });
@@ -61,7 +84,7 @@ const AllocationService = {
     /**
      * Generate Allocation Preview
      */
-    async getPreview(sessionId) {
+    async previewAllocation(sessionId) {
         const { cashIn, cashOut, surplus } = await this.calculateSessionSurplus(sessionId);
 
         // Get Group ID from Session
@@ -87,7 +110,7 @@ const AllocationService = {
 
         return {
             sessionId,
-            groupId: session.groupId,
+            groupId: session.group_id, // Fix consistency: group_id instead of groupId
             cashIn,
             cashOut,
             surplus,
@@ -100,7 +123,7 @@ const AllocationService = {
      * Commit Allocation to Table
      */
     async commitAllocation(sessionId) {
-        const preview = await this.getPreview(sessionId);
+        const preview = await this.previewAllocation(sessionId);
 
         return new Promise((resolve, reject) => {
             db.run(`

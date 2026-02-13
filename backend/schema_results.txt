@@ -1,6 +1,0 @@
---- 🔍 CHECKING FOR group_id COLUMN ---
-[MEMBERS] group_id: YES, member_id: NO, memberId: NO
-[TRANSACTIONS] group_id: NO, member_id: YES, memberId: YES
-[GROUPS] group_id: NO, member_id: NO, memberId: NO
-[MEETING_SESSIONS] group_id: NO, member_id: NO, memberId: NO
-[LOANS] group_id: YES, member_id: YES, memberId: NO

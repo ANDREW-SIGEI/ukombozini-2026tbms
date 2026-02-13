@@ -1,30 +1,29 @@
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
-const path = require('path');
+const db = new sqlite3.Database('ukombozini.sqlite');
 
-const dbPath = path.join(__dirname, 'ukombozini.sqlite');
-const db = new sqlite3.Database(dbPath);
+const email = 'andrewsigei684@gmail.com';
+const newPassword = 'password123'; // Temporary password for verification
 
-const newPassword = 'admin123';
-const targetEmail = 'andrewsigei684@gmail.com'; // correcting the email just in case
-
-bcrypt.hash(newPassword, 10, (err, hash) => {
-    if (err) {
-        console.error('Error hashing password:', err);
-        return;
-    }
-
-    // Update user with ID 1 (System Admin)
-    db.run(
-        `UPDATE officers SET password_hash = ?, email = ? WHERE id = 1`,
-        [hash, targetEmail],
-        function (err) {
+async function resetPassword() {
+    try {
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        db.run("UPDATE officers SET password_hash = ? WHERE email = ?", [hashedPassword, email], function (err) {
             if (err) {
-                console.error('Error updating password:', err);
+                console.error("Update Error:", err);
+                process.exit(1);
+            }
+            if (this.changes > 0) {
+                console.log(`SUCCESS: Password for ${email} reset to '${newPassword}'`);
             } else {
-                console.log(`Password reset for user ID 1. Email: ${targetEmail}, Password: ${newPassword}`);
+                console.log("USER_NOT_FOUND");
             }
             db.close();
-        }
-    );
-});
+        });
+    } catch (e) {
+        console.error("Hash Error:", e);
+        process.exit(1);
+    }
+}
+
+resetPassword();

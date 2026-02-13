@@ -1,119 +1,65 @@
 import React, { useState, useEffect } from 'react';
-import { FaWifi, FaCloudArrowUp, FaTriangleExclamation, FaCircleCheck } from 'react-icons/fa6';
 import offlineManager from '../services/OfflineManager';
+import { FaWifi, FaCloudUploadAlt, FaExclamationTriangle } from 'react-icons/fa';
 
 const OfflineIndicator = () => {
-    const [status, setStatus] = useState({
-        isOnline: navigator.onLine,
-        pendingCount: 0,
-        isSyncing: false
-    });
+    const [status, setStatus] = useState({ isOnline: navigator.onLine, pendingCount: 0 });
 
     useEffect(() => {
-        const updateStatus = async () => {
-            const syncStatus = await offlineManager.getSyncStatus();
-            setStatus(prev => ({
-                ...prev,
+        const checkStatus = async () => {
+            const pending = await offlineManager.getPendingTransactions();
+            setStatus({
                 isOnline: navigator.onLine,
-                pendingCount: syncStatus.pendingCount
-            }));
+                pendingCount: pending.length
+            });
         };
 
-        // Initial check
-        updateStatus();
+        checkStatus();
 
-        // Listen for online/offline events
-        const handleStatusChange = () => {
-            setStatus(prev => ({ ...prev, isOnline: navigator.onLine }));
-            if (navigator.onLine) {
-                // Trigger sync check when back online
-                updateStatus();
-            }
-        };
+        // Listen for events
+        const handleOnline = () => setStatus(prev => ({ ...prev, isOnline: true }));
+        const handleOffline = () => setStatus(prev => ({ ...prev, isOnline: false }));
 
-        window.addEventListener('online', handleStatusChange);
-        window.addEventListener('offline', handleStatusChange);
+        // Poll for pending count updates (simple way to keep in sync)
+        const interval = setInterval(checkStatus, 5000);
 
-        // Listen for sync notifications from OfflineManager
-        const handleNotification = (e) => {
-            const { message } = e.detail;
-            if (message.includes('Syncing')) {
-                setStatus(prev => ({ ...prev, isSyncing: true }));
-            } else if (message.includes('Synced') || message.includes('failed')) {
-                setStatus(prev => ({ ...prev, isSyncing: false }));
-                updateStatus();
-            }
-        };
-
-        window.addEventListener('offline-notification', handleNotification);
-
-        // Periodic check for pending count
-        const interval = setInterval(updateStatus, 10000);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
 
         return () => {
-            window.removeEventListener('online', handleStatusChange);
-            window.removeEventListener('offline', handleStatusChange);
-            window.removeEventListener('offline-notification', handleNotification);
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
             clearInterval(interval);
         };
     }, []);
 
-    // Don't show anything if online and no pending syncs
-    if (status.isOnline && status.pendingCount === 0 && !status.isSyncing) return null;
+    // Only show if offline OR pending items exist
+    if (status.isOnline && status.pendingCount === 0) return null;
 
     return (
-        <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-2 animate-in slide-in-from-bottom-10 duration-500">
-            {/* Sync Progress Toast */}
-            {status.isSyncing && (
-                <div className="bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700">
-                    <FaCloudArrowUp className="text-blue-400 animate-bounce" />
-                    <div className="text-[11px] font-black uppercase tracking-widest">
-                        Synchronizing Vault...
-                    </div>
-                </div>
-            )}
-
-            {/* Main Status Badge */}
-            <div className={`
-                flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border transition-all duration-300
-                ${status.isOnline
-                    ? 'bg-white border-slate-200 text-slate-800'
-                    : 'bg-amber-500 border-amber-600 text-white'
-                }
-            `}>
-                <div className="relative">
-                    <FaWifi className={`${status.isOnline ? 'text-green-500' : 'text-white'} text-lg`} />
-                    {!status.isOnline && (
-                        <div className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5">
-                            <FaTriangleExclamation className="text-[8px]" />
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex flex-col">
-                    <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 leading-none mb-1">
-                        Network Status
-                    </div>
-                    <div className="text-xs font-black flex items-center gap-2">
-                        {status.isOnline ? 'INSTITUTIONAL ONLINE' : 'OFFLINE MODE'}
-                    </div>
-                </div>
-
-                {status.pendingCount > 0 && (
-                    <div className={`
-                        ml-2 px-3 py-1 rounded-full text-[10px] font-black flex items-center gap-2
-                        ${status.isOnline ? 'bg-amber-100 text-amber-600' : 'bg-white/20 text-white'}
-                    `}>
-                        <FaCloudArrowUp className={status.isOnline ? 'animate-bounce' : ''} />
-                        {status.pendingCount} PENDING SYNC
-                    </div>
+        <div className={`fixed bottom-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 transition-all transform hover:scale-105 border-2 ${!status.isOnline
+                ? 'bg-red-50 border-red-200 text-red-700'
+                : 'bg-blue-50 border-blue-200 text-blue-700'
+            }`}>
+            <div className={`p-2 rounded-full ${!status.isOnline ? 'bg-red-100' : 'bg-blue-100'}`}>
+                {!status.isOnline ? (
+                    <FaExclamationTriangle className="animate-pulse" />
+                ) : (
+                    <FaCloudUploadAlt className="animate-bounce" />
                 )}
             </div>
 
-            {!status.isOnline && (
-                <p className="mr-2 text-[9px] font-black text-slate-400 uppercase tracking-widest bg-white/80 px-2 py-1 rounded">
-                    Field operations active • Local storage engaged
-                </p>
+            <div>
+                <div className="text-xs font-black uppercase tracking-wider">
+                    {!status.isOnline ? 'Offline Mode' : 'Syncing Data'}
+                </div>
+                <div className="text-[10px] font-bold opacity-80">
+                    {status.pendingCount} transaction{status.pendingCount !== 1 ? 's' : ''} pending
+                </div>
+            </div>
+
+            {status.isOnline && status.pendingCount > 0 && (
+                <div className="ml-2 w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
             )}
         </div>
     );

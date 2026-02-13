@@ -25,7 +25,7 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         const checkAuth = async () => {
-            const token = localStorage.getItem('ukombozi_token');
+            const token = localStorage.getItem('ukombozini_token');
             if (token) {
                 const userData = await api.getMe();
                 if (userData) {
@@ -34,7 +34,7 @@ export const AuthProvider = ({ children }) => {
                         permissions: PERMISSIONS[userData.role] || []
                     });
                 } else {
-                    localStorage.removeItem('ukombozi_token');
+                    localStorage.removeItem('ukombozini_token');
                 }
             }
             setLoading(false);

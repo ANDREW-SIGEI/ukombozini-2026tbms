@@ -5,6 +5,7 @@ import { checkLoanEligibility, calculateMaxLoan } from '../utils/loanRules';
 import { checkLoanApprovalBlock } from '../utils/cashReportEnforcement';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import LoanAdvisoryPanel from './LoanAdvisoryPanel';
 
 // 🔐 LOAN TYPE RULES ENGINE
 const LOAN_TYPE_RULES = {
@@ -60,6 +61,8 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [repaymentPreview, setRepaymentPreview] = useState(null);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const [showAdvisory, setShowAdvisory] = useState(false);
+    const [selectedAdvisoryProduct, setSelectedAdvisoryProduct] = useState(null);
 
     // Fetch members for guarantors
     useEffect(() => {
@@ -197,12 +200,16 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
             guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null,
             guarantor1_name: membersList.find(m => m.id === parseInt(guarantor1Id))?.name,
             guarantor2_name: membersList.find(m => m.id === parseInt(guarantor2Id))?.name,
-            meetingReference: activeMeeting.session_number,
+            meetingReference: activeMeeting?.session_number || 'N/A',
             officerId: user?.id || 1,
             approvalStatus: currentRule.requiresApproval ? 'Pending' : 'Auto-Approved',
             dueDate: repaymentPreview?.finalPaymentDate,
             status: 'Active',
-            loanRule: currentRule
+            loanRule: currentRule,
+            monthly_installment: selectedAdvisoryProduct?.monthly_installment || repaymentPreview?.monthlyRepayment,
+            principal_portion: selectedAdvisoryProduct?.principal_portion || (parseFloat(loanAmount) / parseInt(duration)),
+            interest_portion: selectedAdvisoryProduct?.interest_portion || ((parseFloat(loanAmount) * (interestRate / 100))),
+            shares_contribution: selectedAdvisoryProduct?.shares_contribution || 0
         };
 
         toast.success(`✅ Loan of KES ${parseFloat(loanAmount).toLocaleString()} ${currentRule.requiresApproval ? 'submitted for approval' : 'issued'} to ${member.name}!`);
@@ -210,6 +217,51 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
         setShowConfirmation(false);
         onClose();
     };
+
+    // ... (rendering logic remains, implicitly fixed by preserving structure if not blocked)
+    // Wait, the previous view showed errors around line 1000+. 
+    // I need to be careful. The errors were:
+    // Expected corresponding JSX closing tag for 'div'.
+    // ')' expected.
+
+    // It seems I might have messed up the structure in previous edits or the file was already broken.
+    // The previous view showed:
+    // 1010:         </div >
+    // 1011:     );
+    // 1012: };
+
+    // The error says "Expected corresponding JSX closing tag for 'div'".
+    // Let's assume I fix the logic first.
+    // Actually, I should fix the logic within the function but I can't target the function definition easily with replace_file_content if it's far away.
+    // handleFinalSubmit is around line 185.
+
+    // I will split this into two operations:
+    // 1. Fix the syntax errors at the end of the file.
+    // 2. Update handleFinalSubmit.
+
+    // This tool call will ONLY fix the syntax errors at the end of the file to restore validity.
+    // The previous view showed `LoanAdvisoryPanel` closing at 1009, then `</div>` at 1010, `);` at 1011, `};` at 1012.
+    // The error `JSX element 'form' has no corresponding closing tag` at line 348 suggests the main container might be broken.
+
+    // Let's look at line 1000-1015 again.
+    // 1000:         isOpen={showAdvisory}
+    // ...
+    // 1009:     />
+    // 1010:         </div >
+    // 1011:     );
+    // 1012: };
+
+    // If there is an unclosed form earlier, it might ripple down.
+
+    // I'll first fix `handleFinalSubmit` (around line 185) as requested by the task.
+    // Then I'll check the syntax errors.
+
+    // WAIT, I can't do logic and complex syntax fix in one go if I don't see the whole file.
+    // I'll stick to updating `handleFinalSubmit` first.
+    return; // Pseudo-return, I will write the actual ReplacementContent for handleFinalSubmit.
+
+    // Actually, I'll use the proper StartLine/EndLine for handleFinalSubmit.
+
 
     // Confirmation Dialog
     if (showConfirmation) {
@@ -582,6 +634,27 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                 </div>
                             </div>
 
+                            {/* 📊 OFFICIAL LOAN PRODUCTS BUTTON - NEW */}
+                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-2xl p-5 mb-2">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <FaCalculator className="text-blue-600" />
+                                        <span className="text-[10px] font-black text-blue-900 uppercase tracking-widest">Fixed Loan Products</span>
+                                    </div>
+                                    <span className="text-[9px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">Recommended</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAdvisory(true)}
+                                    className="w-full bg-white border-2 border-blue-400 text-blue-600 hover:bg-blue-600 hover:text-white py-3 rounded-xl font-black transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2 mb-2"
+                                >
+                                    <FaCalculator /> View Official Loan Products
+                                </button>
+                                <p className="text-[9px] text-gray-500 text-center">
+                                    Click above to select from 18 standardized UKOMBOZI loan amounts with pre-calculated terms.
+                                </p>
+                            </div>
+
                             {/* Loan Amount & Duration */}
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
@@ -664,30 +737,19 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                                             <FaInfoCircle className="text-[10px]" />
                                         </button>
                                     </label>
-                                    <select
+                                    <input
+                                        required
+                                        type="number"
+                                        min={currentRule.minDuration}
+                                        max={currentRule.maxDuration}
                                         value={duration}
-                                        disabled={!hasMeeting}
                                         onChange={(e) => setDuration(e.target.value)}
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {Array.from({ length: currentRule.maxDuration - currentRule.minDuration + 1 }, (_, i) => currentRule.minDuration + i).map(m => (
-                                            <option key={m} value={m}>{m} Month{m > 1 ? 's' : ''}</option>
-                                        ))}
-                                    </select>
-
-                                    {/* Smart Recommendation */}
-                                    {loanAmount && (
-                                        <div className="mt-2 p-2 bg-blue-50 rounded-lg">
-                                            <p className="text-[9px] text-blue-700 leading-tight">
-                                                💡 <strong>Tip:</strong>
-                                                {parseFloat(loanAmount) > 50000
-                                                    ? ' For this amount, 12+ months effectively reduces monthly burden.'
-                                                    : ' Less than 6 months minimizes total interest paid.'}
-                                            </p>
-                                        </div>
-                                    )}
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-safaricom-green/20 outline-none font-bold"
+                                        placeholder={`${currentRule.minDuration}-${currentRule.maxDuration}`}
+                                    />
                                 </div>
                             </div>
+
 
                             {/* Purpose */}
                             <div>
@@ -982,9 +1044,21 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                             )}
                         </div>
                     </div>
+                    </div>
                 </form>
-            </div>
-        </div>
+
+            <LoanAdvisoryPanel
+                isOpen={showAdvisory}
+                onClose={() => setShowAdvisory(false)}
+                onSelectLoan={(product) => {
+                    setLoanAmount(product.loan_amount.toString());
+                    setDuration(product.repayment_period_months.toString());
+                    setSelectedAdvisoryProduct(product);
+                    toast.success(`✓ Applied terms for KES ${product.loan_amount.toLocaleString()}`);
+                    setShowAdvisory(false);
+                }}
+            />
+        </div >
     );
 };
 

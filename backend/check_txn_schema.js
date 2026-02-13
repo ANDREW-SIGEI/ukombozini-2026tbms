@@ -1,10 +1,10 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const dbPath = path.resolve(__dirname, 'backend/ukombozini.sqlite');
+const dbPath = path.resolve(__dirname, 'ukombozini.sqlite');
 const db = new sqlite3.Database(dbPath);
 
-console.log("Checking loans table schema...");
-db.all("PRAGMA table_info(loans)", (err, rows) => {
+console.log("Checking transactions table schema...");
+db.all("PRAGMA table_info(transactions)", (err, rows) => {
     if (err) {
         console.error("Error:", err);
     } else {

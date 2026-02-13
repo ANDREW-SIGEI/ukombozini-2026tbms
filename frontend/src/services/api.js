@@ -12,6 +12,7 @@ const API_URL = 'http://127.0.0.1:5000/api';
 
 export const axiosInstance = axios.create({
     baseURL: API_URL,
+    timeout: 5000, // Fail fast (5s) to enable offline fallback
     headers: {
         'Content-Type': 'application/json'
     }
@@ -304,7 +305,7 @@ export const api = {
     },
 
     downloadMemberStatementPDF(memberId, startDate = null, endDate = null) {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         let url = `${API_URL}/statements/member/${memberId}/pdf`;
         const params = new URLSearchParams();
         if (startDate) params.append('startDate', startDate);
@@ -330,7 +331,7 @@ export const api = {
     },
 
     downloadMemberStatementExcel(memberId, startDate = null, endDate = null) {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         let url = `${API_URL}/statements/member/${memberId}/excel`;
         const params = new URLSearchParams();
         if (startDate) params.append('startDate', startDate);
@@ -368,7 +369,7 @@ export const api = {
     },
 
     downloadGroupStatementPDF(groupId, startDate = null, endDate = null) {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         let url = `${API_URL}/statements/group/${groupId}/pdf`;
         const params = new URLSearchParams();
         if (startDate) params.append('startDate', startDate);
@@ -390,7 +391,7 @@ export const api = {
     },
 
     downloadGroupStatementExcel(groupId, startDate = null, endDate = null) {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         let url = `${API_URL}/statements/group/${groupId}/excel`;
         const params = new URLSearchParams();
         if (startDate) params.append('startDate', startDate);
@@ -416,7 +417,7 @@ export const api = {
     // ========================================
 
     downloadDividendReportPDF(runId) {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         const url = `${API_URL}/dividend-runs/${runId}/pdf`;
 
         fetch(url, {
@@ -2102,10 +2103,11 @@ export const api = {
     async postTransaction(data) {
         try {
             // Unified MTE Payload
+            const detectedType = data.type || data.transaction_type || data.finalType || 'SAVINGS';
             const payload = {
                 memberId: data.memberId,
                 sessionId: data.sessionId || data.meetingId,
-                transaction_type: data.type || data.transaction_type || data.finalType,
+                transaction_type: detectedType,
                 amount: parseFloat(data.amount),
                 description: data.description || '',
                 officerId: data.officerId,
@@ -2120,12 +2122,13 @@ export const api = {
             // Check for Network Error
             if (!error.response && error.request) {
                 console.warn('⚡ Network Error detected. Saving transaction offline...');
+                const detectedType = data.type || data.transaction_type || data.finalType || 'SAVINGS';
                 const offlineId = await offlineManager.saveOfflineTransaction({
-                    type: data.type || data.finalType || 'contribution',
+                    type: detectedType,
                     data: {
                         memberId: data.memberId,
                         sessionId: data.sessionId || data.meetingId,
-                        transaction_type: data.type || data.finalType,
+                        transaction_type: detectedType,
                         amount: parseFloat(data.amount),
                         description: data.description || '',
                         officerId: data.officerId,
@@ -2369,7 +2372,7 @@ export const api = {
     },
 
     downloadReceiptPDF(transactionId) {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         const url = `${API_URL}/reports/receipt/${transactionId}`;
 
         fetch(url, {
@@ -2387,7 +2390,7 @@ export const api = {
     },
 
     downloadMemberStatementPDF(memberId, startDate = '', endDate = '') {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         const url = `${API_URL}/reports/member/${memberId}?startDate=${startDate}&endDate=${endDate}`;
 
         fetch(url, {
@@ -2405,7 +2408,7 @@ export const api = {
     },
 
     downloadMemberStatementExcel(memberId, startDate = '', endDate = '') {
-        const token = localStorage.getItem('ukombozi_token');
+        const token = localStorage.getItem('ukombozini_token');
         const url = `${API_URL}/reports/member/${memberId}/excel?startDate=${startDate}&endDate=${endDate}`;
 
         fetch(url, {
@@ -2471,6 +2474,34 @@ export const api = {
     async getGroupExposure(groupId) {
         try {
             const response = await axiosInstance.get(`/partnership/exposure/${groupId}`);
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    // SUPERVISOR APPROVAL WORKFLOW
+    async requestSupervisorApproval(sessionId, reason) {
+        try {
+            const response = await axiosInstance.post('/governance/approvals/request', { sessionId, reason });
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async getPendingApprovals() {
+        try {
+            const response = await axiosInstance.get('/governance/approvals/pending');
+            return response.data;
+        } catch (error) {
+            handleApiError(error);
+        }
+    },
+
+    async reviewSupervisorApproval(requestId, status, comments) {
+        try {
+            const response = await axiosInstance.post('/governance/approvals/review', { requestId, status, comments });
             return response.data;
         } catch (error) {
             handleApiError(error);

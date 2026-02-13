@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -7,12 +7,28 @@ import {
     FaScaleBalanced, FaGear, FaBell, FaCircleUser, FaCircleCheck,
     FaCommentSms, FaChartLine, FaClipboardList, FaArrowRightFromBracket,
     FaCalculator, FaLayerGroup, FaShieldHalved, FaPiggyBank, FaSackDollar, FaArrowRotateLeft,
-    FaBuildingColumns
+    FaBuildingColumns, FaChevronDown, FaChevronRight
 } from 'react-icons/fa6';
 
 const Sidebar = ({ isMobile, closeMobileMenu }) => {
     const location = useLocation();
     const { user, logout, isAuditor } = useAuth();
+
+    // Manage expanded/collapsed states
+    const [expandedSections, setExpandedSections] = useState({
+        "Overview": true,
+        "Operations": true,
+        "Financials": true,
+        "Analytics & Tools": false,
+        "System": false
+    });
+
+    const toggleSection = (title) => {
+        setExpandedSections(prev => ({
+            ...prev,
+            [title]: !prev[title]
+        }));
+    };
 
     const role = user?.role?.toLowerCase() || '';
     const isPowerUser = role === 'admin' || role === 'director' || role === 'auditor';
@@ -122,36 +138,48 @@ const Sidebar = ({ isMobile, closeMobileMenu }) => {
                 </div>
             )}
 
-            <nav className="flex-1 py-6 space-y-6">
+            <nav className="flex-1 py-6 space-y-2">
                 {sections.map((section, idx) => (
                     <div key={idx} className="px-4">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-3 px-3">
-                            {section.title}
-                        </h3>
-                        <div className="space-y-1">
-                            {section.items.map((item) => (
-                                <NavLink
-                                    key={item.path}
-                                    to={item.path}
-                                    onClick={handleClick}
-                                    className={({ isActive }) => `
-                                        flex items-center px-4 py-3 rounded-xl transition-all duration-200 group
-                                        ${isActive
-                                            ? 'bg-white text-safaricom-green shadow-lg shadow-black/10 font-bold transform scale-[1.02]'
-                                            : 'text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1'
-                                        }
-                                    `}
-                                >
-                                    <span className={`text-lg mr-3 transition-transform duration-300 ${location.pathname === item.path ? 'scale-110' : 'group-hover:scale-110'}`}>
-                                        {item.icon}
-                                    </span>
-                                    <span className="text-sm font-medium tracking-wide">{item.name}</span>
-                                    {location.pathname === item.path && (
-                                        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-safaricom-green"></div>
-                                    )}
-                                </NavLink>
-                            ))}
-                        </div>
+                        <button
+                            onClick={() => toggleSection(section.title)}
+                            className="w-full flex items-center justify-between py-2 px-3 group"
+                        >
+                            <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white/70 transition-colors">
+                                {section.title}
+                            </h3>
+                            {expandedSections[section.title] ?
+                                <FaChevronDown size={10} className="text-white/20 group-hover:text-white/50" /> :
+                                <FaChevronRight size={10} className="text-white/20 group-hover:text-white/50" />
+                            }
+                        </button>
+
+                        {expandedSections[section.title] && (
+                            <div className="mt-1 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                                {section.items.map((item) => (
+                                    <NavLink
+                                        key={item.path}
+                                        to={item.path}
+                                        onClick={handleClick}
+                                        className={({ isActive }) => `
+                                            flex items-center px-4 py-3 rounded-xl transition-all duration-200 group
+                                            ${isActive
+                                                ? 'bg-white text-safaricom-green shadow-lg shadow-black/10 font-bold transform scale-[1.02]'
+                                                : 'text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1'
+                                            }
+                                        `}
+                                    >
+                                        <span className={`text-lg mr-3 transition-transform duration-300 ${location.pathname === item.path ? 'scale-110' : 'group-hover:scale-110'}`}>
+                                            {item.icon}
+                                        </span>
+                                        <span className="text-sm font-medium tracking-wide">{item.name}</span>
+                                        {location.pathname === item.path && (
+                                            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-safaricom-green"></div>
+                                        )}
+                                    </NavLink>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ))}
             </nav>

@@ -17,8 +17,7 @@ class OfflineManager {
         this.db = null;
         this.syncQueue = [];
         this.isOnline = navigator.onLine;
-
-        this.init();
+        this.isSyncing = false; // Prevent overlapping syncs
     }
 
     /**
@@ -32,6 +31,13 @@ class OfflineManager {
         if (this.isOnline) {
             await this.syncPendingTransactions();
         }
+
+        // Periodic Sync Loop (Every 30 seconds)
+        setInterval(async () => {
+            if (this.isOnline && !this.isSyncing) {
+                await this.syncPendingTransactions();
+            }
+        }, 30000);
     }
 
     /**
@@ -167,6 +173,13 @@ class OfflineManager {
             return { success: false, reason: 'offline' };
         }
 
+        if (this.isSyncing) {
+            console.log('⏳ Sync already in progress...');
+            return { success: false, reason: 'syncing' };
+        }
+
+        this.isSyncing = true;
+
         const pending = await this.getPendingTransactions();
 
         if (pending.length === 0) {
@@ -189,19 +202,23 @@ class OfflineManager {
                 let result;
                 switch (transaction.type) {
                     case 'contribution':
-                        result = await api.postTransaction(transaction.data);
+                        result = await api.postTransaction({ ...transaction.data, type: 'SAVINGS' });
+                        break;
+                    case 'stl':
+                    case 'ltl':
+                        result = await api.issueLoan(transaction.data);
                         break;
                     case 'loan':
                     case 'LOAN_DISBURSEMENT':
-                        result = await api.postTransaction({ ...transaction.data, type: 'LOAN_DISBURSEMENT' });
+                        result = await api.postTransaction({ ...transaction.data, transaction_type: 'LOAN_DISBURSEMENT' });
                         break;
                     case 'withdrawal':
                     case 'WITHDRAWAL':
-                        result = await api.postTransaction({ ...transaction.data, type: 'WITHDRAWAL' });
+                        result = await api.postTransaction({ ...transaction.data, transaction_type: 'WITHDRAWAL' });
                         break;
                     case 'repayment':
                     case 'LOAN_REPAYMENT':
-                        result = await api.postTransaction({ ...transaction.data, type: 'LOAN_REPAYMENT' });
+                        result = await api.postTransaction({ ...transaction.data, transaction_type: 'LOAN_REPAYMENT' });
                         break;
                     case 'meeting_session':
                         result = await api.createMeeting(transaction.data);
@@ -220,12 +237,15 @@ class OfflineManager {
                 synced++;
                 console.log('✅ Synced:', transaction);
 
+
             } catch (error) {
                 console.error('❌ Sync failed for transaction:', transaction, error);
                 await this.incrementAttempts(transaction.localId);
                 failed++;
             }
         }
+
+        this.isSyncing = false;
 
         const message = `Synced ${synced} transactions${failed > 0 ? `, ${failed} failed` : ''}`;
         this.showNotification(message, failed > 0 ? 'warning' : 'success');
@@ -427,6 +447,18 @@ class OfflineManager {
             lastSync: pending.length > 0 ?
                 pending[pending.length - 1].timestamp : null
         };
+    }
+
+    /**
+     * Sync pending transactions with the server
+     */
+    // Duplicate syncPendingTransactions removed.
+    // The correct version is defined earlier (around line 172) handling various transaction types.
+
+    updateSyncIndicators(message) {
+        window.dispatchEvent(new CustomEvent('offline-notification', {
+            detail: { message }
+        }));
     }
 
     /**

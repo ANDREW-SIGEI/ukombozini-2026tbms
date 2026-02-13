@@ -1,2 +1,0 @@
-Connected to the SQLite database.
-Institutional Layer: Cash Control tables extended with Monthly Intelligence.

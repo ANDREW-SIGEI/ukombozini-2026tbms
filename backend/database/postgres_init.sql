@@ -185,7 +185,41 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
 CREATE INDEX IF NOT EXISTS idx_ledger_tx_ref ON ledger_entries(tx_ref);
 CREATE INDEX IF NOT EXISTS idx_ledger_account ON ledger_entries(account_name);
 
--- 10. DIVIDEND ENGINE
+-- 10. SUPERVISOR WORKFLOW
+CREATE TABLE IF NOT EXISTS session_approval_requests (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL UNIQUE REFERENCES meeting_sessions(id),
+    requester_id INTEGER NOT NULL REFERENCES officers(id),
+    reason TEXT NOT NULL,
+    status TEXT CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')) DEFAULT 'PENDING',
+    approver_id INTEGER REFERENCES officers(id),
+    comments TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 11. RISK ENGINE
+CREATE TABLE IF NOT EXISTS risk_scores (
+    id SERIAL PRIMARY KEY,
+    scope TEXT CHECK(scope IN ('GROUP', 'MEMBER', 'OFFICER')),
+    target_id INTEGER NOT NULL,
+    score REAL DEFAULT 0,
+    metrics_snapshot JSONB,
+    calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS risk_alerts (
+    id SERIAL PRIMARY KEY,
+    scope TEXT CHECK(scope IN ('GROUP', 'MEMBER', 'OFFICER')),
+    target_id INTEGER NOT NULL,
+    alert_type TEXT,
+    severity TEXT,
+    message TEXT,
+    is_resolved INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 12. DIVIDEND ENGINE
 CREATE TABLE IF NOT EXISTS dividend_runs(
     id SERIAL PRIMARY KEY,
     financial_year INTEGER,
@@ -220,19 +254,20 @@ CREATE TABLE IF NOT EXISTS dividend_allocations(
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. AUDIT LOGS
-CREATE TABLE IF NOT EXISTS audit_logs(
-    id SERIAL PRIMARY KEY,
-    action TEXT NOT NULL,
-    category TEXT,
-    target_type TEXT,
-    target_id INTEGER,
-    details JSONB,
-    officer_id INTEGER REFERENCES officers(id),
-    officer_name TEXT,
-    ip_address TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. CASHBOOK & RECONCILIATION
+CREATE TABLE IF NOT EXISTS cash_transactions (
+    id TEXT PRIMARY KEY,
+    cash_session_id TEXT NOT NULL,
+    source TEXT,
+    reference_id TEXT,
+    direction TEXT CHECK(direction IN ('IN','OUT')),
+    amount DECIMAL(12,2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES officers(id)
 );
 
 -- 10. SYSTEM SETTINGS

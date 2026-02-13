@@ -12,6 +12,7 @@ const { initSchema } = require('./database/schema');
 const { initLedgerSchema } = require('./database/ledger_schema');
 const { initAllocationSchema } = require('./database/allocation_schema');
 const { initMatrixSchema } = require('./database/matrix_schema');
+const { initApprovalSchema } = require('./database/approval_schema');
 const { authenticateToken, isAdmin } = require('./middleware/auth');
 const { checkFreeze } = require('./middleware/guards');
 const { logAudit, logAndSendSMS } = require('./utils/logger');
@@ -57,6 +58,42 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// ==========================================
+// 🏥 HEALTH CHECK ENDPOINT (Phase 31)
+// ==========================================
+app.get('/health', async (req, res) => {
+    const healthStatus = {
+        status: 'UP',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        services: {
+            database: 'UNKNOWN',
+            sms_gateway: 'UNKNOWN'
+        }
+    };
+
+    // 1. Check Database
+    try {
+        await new Promise((resolve, reject) => {
+            db.get("SELECT 1", (err) => err ? reject(err) : resolve());
+        });
+        healthStatus.services.database = 'CONNECTED';
+    } catch (e) {
+        healthStatus.status = 'DEGRADED';
+        healthStatus.services.database = `ERROR: ${e.message}`;
+    }
+
+    // 2. Check SMS Gateway Availability (Mock check based on config)
+    if (process.env.AT_API_KEY || process.env.AT_USERNAME === 'sandbox') {
+        healthStatus.services.sms_gateway = 'CONFIGURED';
+    } else {
+        healthStatus.services.sms_gateway = 'NOT_CONFIGURED';
+    }
+
+    const statusCode = healthStatus.status === 'UP' ? 200 : 503;
+    res.status(statusCode).json(healthStatus);
+});
+
 /**
  * 👤 OFFICER SELF-SERVICE
  */
@@ -91,11 +128,13 @@ app.use((req, res, next) => {
 });
 
 // Initialize Database Schema
-initSchema();
-initLedgerSchema(db).catch(err => console.error("Ledger Init Failed:", err));
-initAllocationSchema(db).catch(err => console.error("Allocation Init Failed:", err));
-initMatrixSchema(db).catch(err => console.error("Matrix Init Failed:", err));
-initCashControl().catch(err => console.error("Cash Control Init Failed:", err));
+// Initialize Database Schema - Moved to startServer()
+// initSchema();
+// initLedgerSchema(db).catch(err => console.error("Ledger Init Failed:", err));
+// initAllocationSchema(db).catch(err => console.error("Allocation Init Failed:", err));
+// initMatrixSchema(db).catch(err => console.error("Matrix Init Failed:", err));
+// initCashControl().catch(err => console.error("Cash Control Init Failed:", err));
+// initApprovalSchema(db).catch(err => console.error("Approval Schema Init Failed:", err));
 
 // Mount Modular Routes
 app.use('/api/partnership', partnershipRoutes);
@@ -811,6 +850,7 @@ app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (re
         }
 
         await db.commit(client);
+        client = null;
 
         // 📢 POST-PROCESSING: Audit & SMS
         logAudit(`${finalType}: KES ${grossVal}`, 'finance', { memberId, finalType });
@@ -820,7 +860,27 @@ app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (re
 
         if (groupId) {
             const direction = ['WITHDRAWAL', 'LOAN_ISSUANCE', 'GROUP_LOAN_REPAYMENT', 'COMMITMENT_DEPOSIT'].includes(finalType) ? 'OUT' : 'IN';
-            autoLogToCashControl(groupId, finalType, grossVal, direction, txRef, req.user?.id);
+            // Use CashControlService directly
+            try {
+                // We need to find the active cash session for the group
+                const cashSession = await new Promise((resolve) => {
+                    db.get("SELECT id FROM cash_sessions WHERE group_id = ? AND status = 'OPEN' ORDER BY id DESC LIMIT 1", [groupId], (err, row) => resolve(row));
+                });
+
+                if (cashSession) {
+                    await CashControlService.logRecord({
+                        sessionId: cashSession.id,
+                        source: finalType,
+                        referenceId: txRef,
+                        amount: grossVal,
+                        direction: direction,
+                        createdBy: req.user?.id || 1
+                    });
+                }
+            } catch (ccErr) {
+                console.error("Auto-Log Cash Control Error:", ccErr.message);
+                // Do not fail the transaction for logging error
+            }
         }
 
         res.json({ success: true, txRef, message: '✅ Transaction processed successfully' });
@@ -1806,6 +1866,18 @@ app.get('/api/members/:id', authenticateToken, (req, res) => {
             res.json(row);
         }
     });
+});
+
+// GET /api/risk/member/:id - Individual Member Risk Evaluation
+app.get('/api/risk/member/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const riskData = await RiskService.evaluateMemberRisk(id);
+        res.json(riskData);
+    } catch (err) {
+        console.error("Member Risk Error:", err);
+        res.status(500).json({ error: "Failed to evaluate member risk", details: err.message });
+    }
 });
 
 // Create new member (WITH OPENING BALANCE RULES)
@@ -2963,6 +3035,98 @@ app.get('/api/loan-products', authenticateToken, (req, res) => {
     });
 });
 
+// Issue a new loan (Transaction + Record)
+app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), (req, res) => {
+    const {
+        memberId, groupId, loanType, amount, interestRate, duration,
+        purpose, guarantor1_id, guarantor2_id, monthly_installment,
+        principal_portion, interest_portion, shares_contribution,
+        officerId, sessionId
+    } = req.body;
+
+    if (!memberId || !amount || !loanType) {
+        return res.status(400).json({ error: "Missing required loan details" });
+    }
+
+    // Calculate dates
+    const issuedDate = new Date().toISOString().split('T')[0];
+    const dueDateObj = new Date();
+    dueDateObj.setMonth(dueDateObj.getMonth() + (parseInt(duration) || 1));
+    const dueDate = dueDateObj.toISOString().split('T')[0];
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        // 1. Create Loan Record (Matched to Schema)
+        const loanStmt = db.prepare(`
+            INSERT INTO loans (
+                member_id, group_id, loan_type, principal_amount, interest_rate,
+                issued_date, due_date,
+                guarantor1_id, guarantor2_id,
+                status, created_at, issued_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP, ?)
+        `);
+
+        loanStmt.run(
+            memberId, groupId, loanType, amount, interestRate,
+            issuedDate, dueDate,
+            guarantor1_id, guarantor2_id,
+            officerId,
+            function (err) {
+                if (err) {
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: err.message });
+                }
+                const loanId = this.lastID;
+
+                // 2. Create Disbursement Transaction
+                const txStmt = db.prepare(`
+                    INSERT INTO transactions (
+                        memberId, sessionId, transaction_type, amount, loans_issued,
+                        description, status, loan_id, created_at
+                    ) VALUES (?, ?, 'LOAN_ISSUANCE', ?, ?, ?, 'POSTED', ?, CURRENT_TIMESTAMP)
+                `);
+
+                txStmt.run(
+                    memberId, sessionId || null, amount, amount,
+                    `Loan Disbursement: ${loanType} - KES ${amount}`,
+                    loanId,
+                    function (err) {
+                        if (err) {
+                            db.run("ROLLBACK");
+                            return res.status(500).json({ error: err.message });
+                        }
+
+                        // 3. Update Member Balance
+                        db.run(
+                            "UPDATE members SET active_loan_balance = active_loan_balance + ? WHERE id = ?",
+                            [amount, memberId],
+                            function (err) {
+                                if (err) {
+                                    db.run("ROLLBACK");
+                                    return res.status(500).json({ error: err.message });
+                                }
+
+                                db.run("COMMIT");
+                                logAudit(`Issue Loan: ${loanId}`, 'transaction', { loanId, memberId, amount });
+                                // Return success with loanId
+                                res.json({
+                                    success: true,
+                                    loanId,
+                                    message: "Loan issued successfully",
+                                    amount
+                                });
+                            }
+                        );
+                    }
+                );
+                txStmt.finalize();
+            }
+        );
+        loanStmt.finalize();
+    });
+});
+
 // Get Loans (List)
 app.get('/api/loans', authenticateToken, (req, res) => {
     const { memberId, status } = req.query;
@@ -3538,10 +3702,27 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), async (req, res)
                     }, officerId || 1);
 
                     // 3. GENERATE REPAYMENT SCHEDULE
-                    const {
+                    let {
                         monthly_installment, principal_portion,
                         interest_portion, shares_contribution, duration: reqDuration
                     } = req.body;
+
+                    // AUTO-LOOKUP FROM MATRIX if portions are missing
+                    if (!monthly_installment || !principal_portion) {
+                        const product = await new Promise((resolve) => {
+                            db.get("SELECT * FROM loan_products WHERE loan_amount = ? AND is_active = 1", [amount], (err, row) => {
+                                resolve(row);
+                            });
+                        });
+
+                        if (product) {
+                            monthly_installment = product.monthly_installment;
+                            principal_portion = product.principal_portion;
+                            interest_portion = product.interest_portion;
+                            shares_contribution = product.shares_contribution;
+                            if (!reqDuration) reqDuration = product.repayment_period_months;
+                        }
+                    }
 
                     if (monthly_installment && principal_portion) {
                         let scheduleInsert = db.prepare(`
@@ -3552,7 +3733,8 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), async (req, res)
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
                             `);
 
-                        for (let i = 1; i <= (reqDuration || duration); i++) {
+                        const scheduleDuration = reqDuration || duration || 1;
+                        for (let i = 1; i <= scheduleDuration; i++) {
                             const instDate = new Date();
                             instDate.setMonth(instDate.getMonth() + i);
                             const instDateStr = instDate.toISOString().split('T')[0];
@@ -7507,9 +7689,40 @@ app.get('/api/reconciliation/dashboard', authenticateToken, (req, res) => {
 });
 
 // Start Server
-const HOST = '0.0.0.0'; // Open to all interfaces for connectivity reliability
-app.listen(PORT, HOST, () => {
-    console.log('\n\x1b[32m[SERVER]\x1b[0m UKOMBOZINI TBMS Backend Live');
-    console.log('\x1b[36m[URL]\x1b[0m http://' + HOST + ':' + PORT);
-    console.log('\x1b[33m[SECURITY]\x1b[0m Localhost Lockdown Active\n');
-});
+// Start Server with Async Init
+const startServer = async () => {
+    try {
+        console.log('Initializing Database...');
+
+        // Synchronous initSchema wrapped to ensure completion
+        await new Promise((resolve) => {
+            db.serialize(() => {
+                try {
+                    initSchema();
+                    // Queue a callback to resolve when done
+                    db.run("SELECT 1", () => resolve());
+                } catch (e) { console.error(e); resolve(); }
+            });
+        });
+
+        // Async Inits
+        await initLedgerSchema(db);
+        await initAllocationSchema(db);
+        await initMatrixSchema(db);
+        await initCashControl();
+        await initApprovalSchema(db);
+
+        const HOST = '0.0.0.0';
+        app.listen(PORT, HOST, () => {
+            console.log('\n\x1b[32m[SERVER]\x1b[0m UKOMBOZINI TBMS Backend Live');
+            console.log('\x1b[36m[URL]\x1b[0m http://' + HOST + ':' + PORT);
+            console.log('\x1b[33m[SECURITY]\x1b[0m Localhost Lockdown Active\n');
+        });
+
+    } catch (err) {
+        console.error('CRITICAL: Failed to initialize server:', err);
+        process.exit(1);
+    }
+};
+
+startServer();

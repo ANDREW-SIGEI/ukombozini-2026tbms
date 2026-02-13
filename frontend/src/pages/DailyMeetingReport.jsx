@@ -550,16 +550,20 @@ const DailyMeetingReport = () => {
     };
 
     // Request supervisor approval
-    const handleRequestSupervisorApproval = () => {
+    const handleRequestSupervisorApproval = async () => {
         if (!approvalReason.trim()) {
             toast.error('Please provide a reason for supervisor approval');
             return;
         }
 
-        setSupervisorApprovalRequested(true);
-        toast.success('Supervisor approval requested. Waiting for approval...');
-
-        // TODO: Send approval request to supervisor via API
+        try {
+            await api.requestSupervisorApproval(sessionId, approvalReason);
+            setSupervisorApprovalRequested(true);
+            setSessionStatus('PENDING_APPROVAL');
+            toast.success('Supervisor approval requested. Session locked for review.');
+        } catch (error) {
+            console.error('Approval Request Failed:', error);
+        }
     };
 
     // Submit session
@@ -649,27 +653,57 @@ const DailyMeetingReport = () => {
         }
     };
 
-    // Open new session
-    // SUPERVISOR APPROVAL (Mocked Action)
-    const handleSupervisorApprove = () => {
-        // This effectively POSTS the session to the ledger
-        // In a real app, this would be a separate screen for the Supervisor
-        const sessionMetadata = {
-            id: sessionId, // This is the ID of the 'PENDING' session
-            groupId: selectedGroup.id,
-            groupName: selectedGroup.name,
-            date: meetingDate,
-            officerId: user?.id || '4052',
-            status: 'POSTED',
-            totals: systemTotals,
-            openingBalance,
-            closingBalance,
-            ukomboziniRepayment
-        };
+    // SUPERVISOR APPROVAL (Real Action)
+    const handleSupervisorApprove = async () => {
+        try {
+            const pending = await api.getPendingApprovals();
+            const request = pending.find(r => r.session_id === sessionId);
 
-        const success = postSession(sessionMetadata, memberTransactions);
-        if (success) {
-            setSessionStatus('POSTED'); // Local update
+            if (!request) {
+                toast.error("Approval request record not found.");
+                return;
+            }
+
+            await api.reviewSupervisorApproval(request.id, 'APPROVED', 'Approved via Cockpit');
+
+            const sessionMetadata = {
+                id: sessionId,
+                groupId: selectedGroup.id,
+                groupName: selectedGroup.name,
+                date: meetingDate,
+                officerId: user?.id || '4052',
+                status: 'POSTED',
+                totals: systemTotals,
+                openingBalance,
+                closingBalance,
+                ukomboziniRepayment
+            };
+
+            const success = postSession(sessionMetadata, memberTransactions);
+            if (success) {
+                setSessionStatus('POSTED');
+            }
+        } catch (error) {
+            console.error('Supervisor Approval Failed:', error);
+        }
+    };
+
+    const handleSupervisorReject = async () => {
+        try {
+            const pending = await api.getPendingApprovals();
+            const request = pending.find(r => r.session_id === sessionId);
+
+            if (!request) {
+                toast.error("Approval request record not found.");
+                return;
+            }
+
+            await api.reviewSupervisorApproval(request.id, 'REJECTED', 'Rejected for corrections');
+            setSessionStatus('draft'); // Unlock for officer
+            setSupervisorApprovalRequested(false);
+            toast.info("Session rejected and unlocked for corrections.");
+        } catch (error) {
+            console.error('Supervisor Rejection Failed:', error);
         }
     };
 
@@ -1260,7 +1294,7 @@ const DailyMeetingReport = () => {
                     <div className="flex gap-4">
                         <button
                             className="bg-red-100 text-red-700 px-4 py-2 rounded font-bold"
-                            onClick={() => toast.info("Reject Logic Placeholder")}
+                            onClick={handleSupervisorReject}
                         >
                             Reject & Unlock
                         </button>

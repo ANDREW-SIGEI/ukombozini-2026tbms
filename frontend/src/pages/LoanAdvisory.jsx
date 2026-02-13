@@ -230,7 +230,12 @@ const LoanAdvisory = () => {
                 duration: parseInt(ltlSelection.period.split(' ')[0]),
                 officerId: 1,
                 guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
-                guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null
+                guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null,
+                // Pass Schedule Parameters for Automated Backend Generation
+                monthly_installment: ltlSelection.installment,
+                principal_portion: ltlSelection.principal,
+                interest_portion: ltlSelection.interest,
+                shares_contribution: ltlSelection.shares
             };
 
             await api.issueLoan(loanData);

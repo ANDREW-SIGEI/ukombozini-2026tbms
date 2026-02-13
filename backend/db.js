@@ -18,6 +18,7 @@ if (process.env.DATABASE_URL) {
         } else {
             console.log('Connected to the SQLite database.');
             db.run('PRAGMA foreign_keys = ON'); // Enable foreign key constraints
+            db.run('PRAGMA journal_mode = WAL'); // Enable Write-Ahead Logging for concurrency
         }
     });
 

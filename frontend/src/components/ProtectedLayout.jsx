@@ -1,13 +1,41 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
+import OfflineIndicator from './OfflineIndicator';
+import { api } from '../services/api';
 
 const ProtectedLayout = ({ children, allowedRoles = [] }) => {
     const { user, loading } = useAuth();
     const location = useLocation();
+    const [health, setHealth] = useState('CHECKING');
+    const [healthDetails, setHealthDetails] = useState(null);
 
-    console.log('[ProtectedLayout] Check. Loading:', loading, 'User:', user?.email);
+    useEffect(() => {
+        let interval;
+        if (user) {
+            const checkHealth = async () => {
+                try {
+                    const status = await api.getSystemHealth();
+                    if (status.status === 'UP') {
+                        setHealth('UP');
+                        setHealthDetails(status);
+                    } else {
+                        setHealth('DOWN');
+                        console.warn('System Health Issues:', status);
+                    }
+                } catch (e) {
+                    setHealth('DOWN');
+                }
+            };
+
+            checkHealth(); // Initial check
+            interval = setInterval(checkHealth, 30000); // Check every 30s
+        }
+        return () => clearInterval(interval);
+    }, [user]); const location = useLocation();
+
+    // console.log('[ProtectedLayout] Check. Loading:', loading, 'User:', user?.email);
 
     if (loading) {
         return (
@@ -31,7 +59,27 @@ const ProtectedLayout = ({ children, allowedRoles = [] }) => {
         return <Navigate to="/" replace />;
     }
 
-    return children;
+    return (
+        <>
+            {/* System Status Indicator (Only visible if issues or for admins) */}
+            <div className="fixed top-0 right-0 m-4 z-50 flex gap-2">
+                {health === 'DOWN' && (
+                    <div className="bg-red-500 text-white text-xs px-2 py-1 rounded shadow animate-pulse" title="Backend connection lost">
+                        ⚠️ SYSTEM OFFLINE
+                    </div>
+                )}
+                {health === 'UP' && user.role === 'admin' && (
+                    <div className="bg-green-500 text-white text-xs px-2 py-1 rounded shadow opacity-50 hover:opacity-100 transition-opacity cursor-help"
+                        title={`DB: ${healthDetails?.services?.database} | SMS: ${healthDetails?.services?.sms_gateway}`}>
+                        ● SYSTEM HEALTHY
+                    </div>
+                )}
+            </div>
+
+            <OfflineIndicator />
+            {children}
+        </>
+    );
 };
 
 export default ProtectedLayout;

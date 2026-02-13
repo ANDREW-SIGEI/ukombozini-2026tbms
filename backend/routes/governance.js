@@ -391,4 +391,121 @@ router.get('/loans/due-summary/:groupId', authenticateToken, (req, res) => {
     });
 });
 
+/**
+ * 🛰️ Supervisor Approval Workflow
+ */
+
+// POST /api/governance/approvals/request - Submit a session for supervisor review
+router.post('/approvals/request', authenticateToken, (req, res) => {
+    const { sessionId, reason } = req.body;
+    const requesterId = req.user.id;
+
+    if (!sessionId || !reason) {
+        return res.status(400).json({ error: "Session ID and reason are required" });
+    }
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        db.run(`INSERT INTO session_approval_requests (session_id, requester_id, reason) VALUES (?, ?, ?)`,
+            [sessionId, requesterId, reason], function (err) {
+                if (err) {
+                    db.run("ROLLBACK");
+                    if (err.message.includes('UNIQUE constraint failed')) {
+                        return res.status(400).json({ error: "Approval request already exists for this session" });
+                    }
+                    return res.status(500).json({ error: err.message });
+                }
+
+                const requestId = this.lastID;
+
+                db.run(`UPDATE meeting_sessions SET status = 'PENDING_APPROVAL' WHERE id = ?`, [sessionId], (err) => {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+
+                    db.run("COMMIT");
+                    logAudit("APPROVAL_REQUESTED", "SECURITY", { sessionId, reason }, requesterId, req.user.name, req);
+                    res.json({ success: true, requestId });
+                });
+            });
+    });
+});
+
+// GET /api/governance/approvals/pending - List all sessions awaiting review
+router.get('/approvals/pending', authenticateToken, isAdmin, (req, res) => {
+    const query = `
+        SELECT 
+            sar.*, 
+            ms.date, 
+            g.name as group_name,
+            o.name as requester_name
+        FROM session_approval_requests sar
+        JOIN meeting_sessions ms ON sar.session_id = ms.id
+        JOIN groups g ON ms.groupId = g.id
+        JOIN officers o ON sar.requester_id = o.id
+        WHERE sar.status = 'PENDING'
+        ORDER BY sar.created_at DESC
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// POST /api/governance/approvals/review - Approve or Reject a request
+router.post('/approvals/review', authenticateToken, isAdmin, (req, res) => {
+    const { requestId, status, comments } = req.body; // status: 'APPROVED', 'REJECTED'
+    const approverId = req.user.id;
+
+    if (!requestId || !['APPROVED', 'REJECTED'].includes(status)) {
+        return res.status(400).json({ error: "Invalid request data" });
+    }
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        db.get("SELECT session_id FROM session_approval_requests WHERE id = ?", [requestId], (err, request) => {
+            if (err || !request) {
+                db.run("ROLLBACK");
+                return res.status(404).json({ error: "Approval request not found" });
+            }
+
+            const sessionId = request.session_id;
+
+            db.run(`UPDATE session_approval_requests SET status = ?, approver_id = ?, comments = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                [status, approverId, comments, requestId], function (err) {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+
+                    if (status === 'APPROVED') {
+                        // Mark session as ACTIVE (Released for posting)
+                        db.run("UPDATE meeting_sessions SET status = 'ACTIVE' WHERE id = ?", [sessionId], (err) => {
+                            if (err) {
+                                db.run("ROLLBACK");
+                                return res.status(500).json({ error: err.message });
+                            }
+                            db.run("COMMIT");
+                            logAudit("SESSION_RELEASED", "SECURITY", { requestId, status, sessionId }, approverId, req.user.name, req);
+                            res.json({ success: true });
+                        });
+                    } else if (status === 'REJECTED') {
+                        // Reset session to ACTIVE so officer can correct it
+                        db.run("UPDATE meeting_sessions SET status = 'ACTIVE' WHERE id = ?", [sessionId], (err) => {
+                            if (err) {
+                                db.run("ROLLBACK");
+                                return res.status(500).json({ error: err.message });
+                            }
+                            db.run("COMMIT");
+                            logAudit("SESSION_REJECTED", "SECURITY", { requestId, status, sessionId }, approverId, req.user.name, req);
+                            res.json({ success: true });
+                        });
+                    }
+                });
+        });
+    });
+});
+
 module.exports = router;

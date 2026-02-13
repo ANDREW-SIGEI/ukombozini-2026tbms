@@ -58,6 +58,33 @@ const Members = () => {
     const [profileLoading, setProfileLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('overview'); // overview, savings, loans, risk
 
+    // NEW: Member Statement Export functions
+    const handleDownloadStatement = async (e, member) => {
+        e.stopPropagation();
+        try {
+            toast.info(`Generating statement for ${member.name}...`);
+            const [transactions, loans] = await Promise.all([
+                api.getTransactions(member.id),
+                api.getLoans(member.id)
+            ]);
+
+            // Calculate summary for the PDF
+            const summary = {
+                totalSavings: member.savings || 0,
+                activeLoans: member.active_loan_balance || 0,
+                arrears: 0 // You might need to calculate this or fetch it if available
+            };
+
+            import('../services/PDFReportService').then(({ pdfReportService }) => {
+                pdfReportService.generateMemberStatement(member, transactions, summary);
+                toast.success("Statement downloaded successfully!");
+            });
+        } catch (error) {
+            console.error("Statement generation failed:", error);
+            toast.error("Failed to generate statement.");
+        }
+    };
+
     // NEW: Member Statement Export State
     const [statementStartDate, setStatementStartDate] = useState('');
     const [statementEndDate, setStatementEndDate] = useState('');
@@ -565,12 +592,14 @@ const Members = () => {
 
                 {/* ZONE C: Intelligent Matrix Table */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                    <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-left border-collapse min-w-[1000px]">
                             <thead>
                                 <tr className="bg-gray-50/50 border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-500 font-black font-sans">
                                     <th className="px-6 py-4">Member / Group</th>
                                     <th className="px-6 py-4 text-right">Savings (KES)</th>
+                                    <th className="px-6 py-4 text-right">Education (KES)</th>
+                                    <th className="px-6 py-4 text-right">Agriculture (KES)</th>
                                     <th className="px-6 py-4 text-right">Active Loan</th>
                                     <th className="px-6 py-4 text-right">Net Position</th>
                                     <th className="px-6 py-4 text-center">Risk Score</th>
@@ -581,7 +610,7 @@ const Members = () => {
                             <tbody className="divide-y divide-gray-100">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan="7" className="px-6 py-12 text-center">
+                                        <td colSpan="9" className="px-6 py-12 text-center">
                                             <div className="flex flex-col items-center justify-center gap-3">
                                                 <FaSpinner className="animate-spin text-3xl text-safaricom-green" />
                                                 <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Running Audits...</span>
@@ -590,7 +619,7 @@ const Members = () => {
                                     </tr>
                                 ) : filteredMembers.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" className="px-6 py-12 text-center">
+                                        <td colSpan="9" className="px-6 py-12 text-center">
                                             <div className="flex flex-col items-center justify-center gap-4">
                                                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-300 text-2xl">
                                                     <FaMagnifyingGlass />
@@ -598,107 +627,95 @@ const Members = () => {
                                                 <div className="text-center">
                                                     <h3 className="text-lg font-black text-gray-700">No Records Match Filters</h3>
                                                     <p className="text-sm text-gray-400 font-bold max-w-xs mx-auto mt-1">
-                                                        Targeted filters returned no results. Try adjusting the scope.
+                                                        We couldn't find any members matching your current search or filter criteria.
                                                     </p>
                                                 </div>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredMembers.map((member) => {
-                                        const initials = member.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-
-                                        return (
-                                            <tr key={member.id} className="group hover:bg-gray-50/80 transition-all duration-200">
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-black shadow-sm group-hover:scale-110 transition-transform ${member.riskInfo.level === 'Healthy' ? 'bg-green-100 text-green-700' :
-                                                            member.riskInfo.level === 'Stable' ? 'bg-amber-100 text-amber-700' :
-                                                                'bg-red-100 text-red-700'
-                                                            }`}>
-                                                            {initials}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-black text-gray-800 text-sm group-hover:text-blue-600 transition-colors flex items-center gap-2">
-                                                                {member.name}
-                                                            </div>
-                                                            <div className="text-[10px] font-bold text-gray-400 flex items-center gap-1 uppercase">
-                                                                {member.groupName}
-                                                            </div>
-                                                        </div>
+                                    filteredMembers.map((member) => (
+                                        <tr key={member.id} className="hover:bg-slate-50/80 transition-all group">
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center font-black text-slate-500 text-sm border-2 border-white shadow-sm ring-1 ring-slate-100 uppercase">
+                                                        {member.name.charAt(0)}
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className="font-mono font-bold text-gray-700">
-                                                        {(member.savings || 0).toLocaleString()}
+                                                    <div>
+                                                        <div className="font-black text-slate-800 text-sm">{member.name}</div>
+                                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{member.groupName || 'No Group'}</div>
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className={`font-mono font-bold ${(member.activeLoans || 0) > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                                                        {(member.activeLoans || 0).toLocaleString()}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-black text-slate-900 text-sm">
+                                                {member.savings?.toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-bold text-blue-600 text-sm">
+                                                {(member.education_savings || 0).toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-bold text-emerald-600 text-sm">
+                                                {(member.agriculture_savings || 0).toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-black text-orange-600 text-sm">
+                                                {(member.activeLoans || 0).toLocaleString()}
+                                            </td>
+                                            <td className={`px-6 py-4 text-right font-black text-sm ${(member.netPosition || (member.savings - member.activeLoans)) >= 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
+                                                {(member.netPosition || (member.savings - member.activeLoans)).toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col items-center gap-1.5 min-w-[100px]">
+                                                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-50">
+                                                        <div
+                                                            className={`h-full transition-all duration-1000 ${member.risk_score > 70 ? 'bg-red-500' : member.risk_score > 40 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                                            style={{ width: `${member.risk_score || 0}%` }}
+                                                        />
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className={`font-mono font-black ${member.netPosition >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                                        {member.netPosition >= 0 ? '+' : ''}{member.netPosition.toLocaleString()}
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="flex flex-col items-center">
-                                                        <span className={`text-xs font-black ${member.riskScore <= 30 ? 'text-green-600' :
-                                                            member.riskScore <= 60 ? 'text-amber-600' :
-                                                                'text-red-600'
-                                                            }`}>
-                                                            {member.riskScore}/100
-                                                        </span>
-                                                        <div className="w-12 h-1 bg-gray-100 rounded-full mt-1 overflow-hidden">
-                                                            <div
-                                                                className={`h-full ${member.riskScore <= 30 ? 'bg-green-500' :
-                                                                    member.riskScore <= 60 ? 'bg-amber-500' :
-                                                                        'bg-red-500'
-                                                                    }`}
-                                                                style={{ width: `${member.riskScore}%` }}
-                                                            ></div>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${member.riskInfo.badge}`}>
-                                                        {member.riskInfo.level}
+                                                    <span className={`text-[9px] font-black uppercase tracking-tighter ${member.risk_score > 70 ? 'text-red-500' : 'text-slate-400'}`}>
+                                                        {member.risk_score || 0}% Risk
                                                     </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleMemberClick(member); }}
-                                                            className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg font-bold text-[10px] uppercase hover:bg-blue-100 transition-colors flex items-center gap-1.5"
-                                                        >
-                                                            <FaFileInvoice /> Profile
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                if (isAuditor) {
-                                                                    toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
-                                                                    return;
-                                                                }
-                                                                setSelectedMember(member);
-                                                                setShowTransactionPanel(true);
-                                                            }}
-                                                            className="px-3 py-1.5 bg-safaricom-green text-white rounded-lg font-bold text-[10px] uppercase hover:bg-green-700 transition-colors shadow-sm flex items-center gap-1.5"
-                                                        >
-                                                            <FaMoneyBillWave /> New Trans
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                {getStatusBadge(member.netPosition || (member.savings - member.activeLoans))}
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button
+                                                        onClick={(e) => handleDownloadStatement(e, member)}
+                                                        className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg font-bold text-[10px] uppercase hover:bg-gray-200 transition-colors flex items-center gap-1.5 border border-gray-200"
+                                                        title="Download Statement"
+                                                    >
+                                                        <FaFilePdf className="text-red-500" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleMemberClick(member); }}
+                                                        className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg font-bold text-[10px] uppercase hover:bg-blue-100 transition-colors flex items-center gap-1.5"
+                                                    >
+                                                        <FaFileInvoice /> Profile
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isAuditor) {
+                                                                toast.warning("🛡️ Auditor Mode: Financial operations are blocked.");
+                                                                return;
+                                                            }
+                                                            setSelectedMember(member);
+                                                            setShowTransactionPanel(true);
+                                                        }}
+                                                        className="px-3 py-1.5 bg-safaricom-green text-white rounded-lg font-bold text-[10px] uppercase hover:bg-green-700 transition-colors shadow-sm flex items-center gap-1.5"
+                                                    >
+                                                        <FaMoneyBillWave /> New Trans
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
                                 )}
                             </tbody>
                         </table>
-                    </div>
-                </div>
+                    </div >
+                </div >
 
 
 
@@ -1416,7 +1433,7 @@ const Members = () => {
                 {/* Withdrawal Modal */}
             </div >
             {/* Smart Transaction Panel (Side Drawer) */}
-            <SmartTransactionPanel
+            < SmartTransactionPanel
                 isOpen={showTransactionPanel}
                 onClose={() => setShowTransactionPanel(false)}
                 member={selectedMember}

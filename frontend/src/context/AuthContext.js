@@ -20,14 +20,14 @@ export const AuthProvider = ({ children }) => {
 
     const checkAuth = async () => {
         try {
-            const token = localStorage.getItem('ukombozi_token');
+            const token = localStorage.getItem('ukombozini_token');
             if (token) {
                 const userData = await api.getMe();
                 if (userData && mounted.current) {
                     setUser(userData);
                 } else if (mounted.current) {
                     // Token invalid or expired
-                    localStorage.removeItem('ukombozi_token');
+                    localStorage.removeItem('ukombozini_token');
                     setUser(null);
                 }
             } else {

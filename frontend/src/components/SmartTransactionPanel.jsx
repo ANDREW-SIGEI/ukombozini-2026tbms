@@ -381,18 +381,6 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
 
         setIsProcessing(true);
         try {
-            // Check internet connectivity
-            if (!navigator.onLine) {
-                toast.warning("Posting offline is not supported for Group Actions.");
-                if (mode === 'GROUP') return;
-
-                console.log("✈️ OFFLINE DETECTED: Redirecting to Offline Storage...");
-                // ... (existing offline logic)
-                return;
-            }
-
-            console.log("Committing transaction through MTE...", { type: selectedType?.id, amount });
-
             const commonPayload = {
                 memberId: mode === 'MEMBER' ? memberContext.id : 0,
                 groupId: mode === 'MEMBER' ? memberContext.group_id : (initialGroup?.id || groupRules?.id),
@@ -406,6 +394,72 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                 loanType: selectedLoan?.loan_type
             };
 
+            // Define offline handler
+            const processOffline = async () => {
+                let offlinePayload = { ...commonPayload };
+
+                // Enrich payload for specific transaction types (Loan / Asset)
+                if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
+                    offlinePayload = {
+                        ...offlinePayload,
+                        loanType: selectedType.id.toUpperCase(),
+                        interestRate: selectedType.id === 'stl' ? (groupRules?.stlInterestRate || 10) : (groupRules?.ltlInterestRate || 12),
+                        duration: selectedType.id === 'stl' ? 1 : 12,
+                        purpose: notes,
+                        guarantor1_id: guarantors.g1,
+                        guarantor2_id: guarantors.g2,
+                        monthly_installment: Math.ceil((parseFloat(amount) * 1.15) / 12),
+                        principal_portion: Math.ceil(parseFloat(amount) / 12),
+                        interest_portion: Math.ceil((parseFloat(amount) * 0.15) / 12),
+                        shares_contribution: 0
+                    };
+                } else if (selectedType.id === 'productfinancing') {
+                    offlinePayload = {
+                        ...offlinePayload,
+                        productName: assetDetails.productName,
+                        totalValue: parseFloat(assetDetails.value) || parseFloat(amount),
+                        commitmentPaid: parseFloat(amount)
+                    };
+                }
+
+                console.log("✈️ OFFLINE FALLBACK: Redirecting to Offline Storage...", offlinePayload);
+
+                await offlineManager.saveOfflineTransaction({
+                    type: selectedType.id,
+                    data: offlinePayload,
+                    localId: `OFFLINE-${Date.now()}`
+                });
+
+                toast.info("Transaction saved offline due to network.");
+
+                setLastTxData({
+                    id: `OFFLINE-${Date.now()}`,
+                    amount: offlinePayload.amount,
+                    type: selectedType.label,
+                    date: new Date().toISOString(),
+                    officer: user?.name,
+                    notes: notes,
+                    isOffline: true
+
+                });
+                setIsSuccess(true);
+                if (onRefresh) onRefresh();
+                return;
+            };
+
+            // Check internet connectivity initially
+            if (!navigator.onLine) {
+                if (mode === 'GROUP') {
+                    toast.warning("Posting offline is not supported for Group Actions.");
+                    setIsProcessing(false);
+                    return;
+                }
+                await processOffline();
+                return;
+            }
+
+            console.log("Committing transaction through MTE...", { type: selectedType?.id, amount });
+
             let result = null;
             if (mode === 'MEMBER') {
                 if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
@@ -416,7 +470,12 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                         duration: selectedType.id === 'stl' ? 1 : 12,
                         purpose: notes,
                         guarantor1_id: guarantors.g1,
-                        guarantor2_id: guarantors.g2
+                        guarantor2_id: guarantors.g2,
+                        // Basic estimation for Smart Panel - Backend will auto-correct to matrix if standard amount
+                        monthly_installment: Math.ceil((parseFloat(amount) * 1.15) / 12),
+                        principal_portion: Math.ceil(parseFloat(amount) / 12),
+                        interest_portion: Math.ceil((parseFloat(amount) * 0.15) / 12),
+                        shares_contribution: 0
                     });
                 } else if (selectedType.id === 'productfinancing') {
                     result = await api.postTransaction({
@@ -449,8 +508,21 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
             if (onRefresh) onRefresh();
         } catch (error) {
             console.error("MTE Post Failed:", error);
-            const errorMsg = error.response?.data?.error || error.message || "Posting Failed";
-            toast.error(errorMsg);
+
+            // Check for Network Error or Timeout -> Fallback to Offline
+            if (error.code === 'ECONNABORTED' || error.message.includes('Network Error') || error.message.includes('timeout')) {
+                if (mode === 'GROUP') {
+                    toast.error("Network Error: Group actions require online connection.");
+                } else {
+                    console.log("⚠️ Network timeout/error detected. Fallback to offline...");
+                    toast.warn("Network unstable. Saving offline...");
+                    await processOffline();
+                    return; // Exit success path
+                }
+            } else {
+                const errorMsg = error.response?.data?.error || error.message || "Posting Failed";
+                toast.error(errorMsg);
+            }
         } finally {
             setIsProcessing(false);
         }
@@ -518,27 +590,34 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                 {/* 🔹 ZONE A: FINANCIAL SNAPSHOT CARDS */}
                 <div className="bg-slate-900 grid grid-cols-2 md:grid-cols-6 gap-0.5 p-0.5 shrink-0 border-b border-slate-700">
                     {snapshot.map((card, i) => (
-                        <div key={i} className={`p - 4 ${card.isRisk ? 'bg-slate-800' : 'bg-slate-900'} `}>
-                            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">{card.label}</div>
+                        <div key={i} className={`p-4 ${card.isRisk ? 'bg-slate-800' : 'bg-slate-900'}`}>
+                            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1 flex items-center justify-between">
+                                {card.label}
+                                {card.info && (
+                                    <button title={card.info} className="text-slate-500 hover:text-slate-300">
+                                        <FaTriangleExclamation size={8} />
+                                    </button>
+                                )}
+                            </div>
                             {card.isRisk ? (
                                 <div className="flex items-center gap-2">
                                     <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
-                                        <div className={`h - full transition - all duration - 1000 ${card.val > 70 ? 'bg-red-500' : card.val > 40 ? 'bg-amber-500' : 'bg-green-500'} `} style={{ width: `${card.val}% ` }} />
+                                        <div className={`h-full transition-all duration-1000 ${card.val > 70 ? 'bg-red-500' : card.val > 40 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${card.val}%` }} />
                                     </div>
                                     <span className="text-sm font-black text-white">{card.val || 0}%</span>
                                 </div>
                             ) : card.isStatus ? (
-                                <div className={`text - sm font - black ${card.color} flex items - center gap - 2`}>
-                                    <span className={`w - 1.5 h - 1.5 rounded - full animate - pulse ${card.val === 'ELIGIBLE' ? 'bg-green-400' : 'bg-amber-400'} `}></span>
+                                <div className={`text-sm font-black ${card.color} flex items-center gap-2`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${card.val === 'ELIGIBLE' || card.val === 'ACTIVE' || card.val === 'LIQUID' ? 'bg-green-400' : 'bg-amber-400'}`}></span>
                                     {card.val}
                                 </div>
                             ) : card.isText ? (
-                                <div className={`text - sm font - black ${card.text} `}>
+                                <div className={`text-sm font-black ${card.text}`}>
                                     {card.val}
                                 </div>
                             ) : (
-                                <div className={`text - lg font - black ${card.color || card.text} `}>
-                                    {loadingContext ? "..." : `KES ${Number(card.val || 0).toLocaleString()} `}
+                                <div className={`text-lg font-black ${card.color || card.text}`}>
+                                    {loadingContext ? "..." : `KES ${Number(card.val || 0).toLocaleString()}`}
                                 </div>
                             )}
                         </div>
@@ -612,7 +691,39 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                 <div className="space-y-6">
                                     {/* Amount Input (Mandatory) */}
                                     <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 focus-within:ring-2 focus-within:ring-slate-900 transition-all">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Transaction Amount</label>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Transaction Amount</label>
+                                            {(selectedType.id === 'stl' || selectedType.id === 'ltl' || selectedType.id === 'stlrepay' || selectedType.id === 'ltlrepay' || selectedType.id === 'productrepay') && (
+                                                <div className="flex gap-1">
+                                                    {[0.25, 0.5, 0.75, 1].map((pct) => {
+                                                        let targetMax = 0;
+                                                        if (selectedType.id === 'stlrepay' || selectedType.id === 'ltlrepay') {
+                                                            targetMax = selectedLoan ? (selectedLoan.principal_amount + (selectedLoan.outstanding_interest || 0) + (selectedLoan.outstanding_penalty || 0)) : 0;
+                                                        } else if (selectedType.id === 'productrepay') {
+                                                            targetMax = memberContext?.active_asset_balance || 0;
+                                                        } else {
+                                                            // Loan issuance - use max multiplier
+                                                            const savings = memberContext?.current_savings || 0;
+                                                            const multiplier = selectedType.id === 'stl' ? 2 : 3;
+                                                            targetMax = (savings * multiplier) - (memberContext?.guaranteed_amount || 0);
+                                                        }
+
+                                                        if (targetMax <= 0) return null;
+
+                                                        return (
+                                                            <button
+                                                                key={pct}
+                                                                type="button"
+                                                                onClick={() => setAmount(Math.floor(targetMax * pct))}
+                                                                className="px-2 py-0.5 text-[8px] font-black bg-white border border-slate-200 rounded hover:bg-slate-100 transition-colors"
+                                                            >
+                                                                {pct * 100}%
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                         <div className="flex items-center gap-3">
                                             <span className="text-4xl font-black text-slate-300">KES</span>
                                             <input
@@ -717,62 +828,103 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
 
                                 {calculationPreview ? (
                                     <div className="space-y-6 flex-1">
-                                        <div className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-200 space-y-4">
-                                            {calculationPreview.metrics.map((m, i) => (
-                                                <div key={i} className="flex justify-between items-center group">
-                                                    <span className={`text - xs font - bold ${m.isBold ? 'text-slate-900 text-sm' : 'text-slate-500'} `}>{m.label}</span>
-                                                    <div className="text-right">
-                                                        {m.isRisk ? (
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-[10px] text-slate-300 line-through font-bold">{m.before}%</span>
-                                                                <span className={`text - xs font - black ${m.after > m.before ? 'text-red-500' : 'text-green-500'} `}>{m.after}%</span>
-                                                            </div>
-                                                        ) : (
-                                                            <>
-                                                                <div className="text-[10px] text-slate-300 line-through font-bold">KES {Number(m.before).toLocaleString()}</div>
-                                                                <div className={`text - xs font - black ${m.after > m.before && !m.label.includes('Loan') ? 'text-green-600' : m.after < m.before && m.label.includes('Loan') ? 'text-green-600' : 'text-slate-900'} `}>{m.after < 0 ? '-' : ''}KES {Number(Math.abs(m.after)).toLocaleString()}</div>
-                                                            </>
-                                                        )}
+                                        {calculationPreview.split && (
+                                            <div className="bg-indigo-900 text-white p-5 rounded-3xl space-y-3 shadow-xl transform transition-all hover:scale-[1.02]">
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-[10px] font-black uppercase text-indigo-300 tracking-widest">Decision Matrix: Repayment Split</p>
+                                                    <FaShieldHalved className="text-indigo-400" />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <div className="flex justify-between text-xs px-1">
+                                                        <span className="text-indigo-200">1. Penalties Cleared</span>
+                                                        <span className={`font-black ${calculationPreview.split.penalty > 0 ? 'text-amber-400' : 'text-indigo-400'}`}>KES {calculationPreview.split.penalty.toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs px-1">
+                                                        <span className="text-indigo-200">2. Interest serving</span>
+                                                        <span className={`font-black ${calculationPreview.split.interest > 0 ? 'text-amber-400' : 'text-indigo-400'}`}>KES {calculationPreview.split.interest.toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-sm border-t border-indigo-800 pt-2 mt-2 px-1">
+                                                        <span className="font-bold">3. Principal Reduction</span>
+                                                        <span className="text-green-400 font-black">KES {calculationPreview.split.principal.toLocaleString()}</span>
                                                     </div>
                                                 </div>
-                                            ))}
-                                        </div>
-
-                                        {calculationPreview.split && (
-                                            <div className="bg-indigo-900 text-white p-5 rounded-3xl space-y-3">
-                                                <p className="text-[10px] font-black uppercase text-indigo-300 tracking-widest">Decision Matrix: Repayment Split</p>
-                                                <div className="space-y-1.5">
-                                                    <div className="flex justify-between text-xs"><span>1. Penalties Cleared</span> <span className="font-black">KES {calculationPreview.split.penalty}</span></div>
-                                                    <div className="flex justify-between text-xs"><span>2. Interest Serving</span> <span className="font-black">KES {calculationPreview.split.interest}</span></div>
-                                                    <div className="flex justify-between text-xs border-t border-indigo-800 pt-1.5 mt-1.5"><span className="font-bold">3. Principal Reduction</span> <span className="text-safaricom-green font-black">KES {calculationPreview.split.principal}</span></div>
-                                                </div>
+                                                <div className="text-[9px] text-indigo-400 text-center italic pt-1">Automated Triple-Entry Allocation</div>
                                             </div>
                                         )}
 
+                                        <div className="space-y-4 pt-4 border-t border-slate-200">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Institutional Impact Ledger</p>
+                                            {calculationPreview.metrics.map((m, i) => {
+                                                if (m.isRisk) return null;
+                                                const isGrowth = m.after > m.before && !m.label.toLowerCase().includes('loan') && !m.label.toLowerCase().includes('penalty') && !m.label.toLowerCase().includes('debt');
+                                                const isReduction = m.after < m.before && (m.label.toLowerCase().includes('loan') || m.label.toLowerCase().includes('penalty') || m.label.toLowerCase().includes('debt'));
+
+                                                return (
+                                                    <div key={i} className={`flex items-start gap-4 p-4 bg-white rounded-2xl border-l-4 shadow-sm transition-all hover:shadow-md ${isGrowth || isReduction ? 'border-green-500 bg-green-50/30' : 'border-slate-300 bg-slate-50/50'}`}>
+                                                        <div className={`p-2 rounded-xl ${(isGrowth || isReduction) ? 'bg-green-100 text-green-600' : 'bg-slate-200 text-slate-500'}`}>
+                                                            {m.label.toLowerCase().includes('savings') ? <FaSackDollar /> : m.label.toLowerCase().includes('loan') ? <FaFileInvoiceDollar /> : <FaChartLine />}
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m.label}</div>
+                                                                    <div className={`text-lg font-black ${isGrowth || isReduction ? 'text-green-600' : 'text-slate-900'}`}>
+                                                                        {m.after < 0 ? '-' : ''}KES {Math.abs(m.after).toLocaleString()}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="text-[9px] text-slate-300 font-bold line-through">KES {m.before.toLocaleString()}</div>
+                                                                    <div className={`text-[10px] font-black ${(isGrowth || isReduction) ? 'text-green-500' : 'text-slate-400'}`}>
+                                                                        {m.after > m.before ? '+' : ''}{(m.after - m.before).toLocaleString()}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
                                         {calculationPreview.rules && (
-                                            <div className="bg-slate-900 text-white p-5 rounded-3xl space-y-3">
+                                            <div className="bg-slate-900 text-white p-5 rounded-3xl space-y-3 shadow-xl">
                                                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Business Rule Validation</p>
                                                 {calculationPreview.rules.map((rule, i) => (
                                                     <div key={i} className="flex justify-between items-center text-xs">
                                                         <span>{rule.label}</span>
-                                                        <span className={`font - black px - 2 py - 0.5 rounded - full ${rule.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'} `}>{rule.status}</span>
+                                                        <span className={`font-black px-2 py-0.5 rounded-full ${rule.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{rule.status}</span>
                                                     </div>
                                                 ))}
                                             </div>
                                         )}
 
                                         {calculationPreview.isRestricted && (
-                                            <div className="bg-rose-100 text-rose-600 p-5 rounded-3xl border border-rose-200">
-                                                <p className="text-[10px] font-black uppercase mb-1">Entry Blocked</p>
+                                            <div className="bg-rose-100 text-rose-600 p-5 rounded-3xl border border-rose-200 shadow-sm">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <FaTriangleExclamation className="text-rose-500" />
+                                                    <p className="text-[10px] font-black uppercase">Entry Blocked</p>
+                                                </div>
                                                 <p className="text-xs font-bold leading-tight">Member must be REGISTERED and seasonal window (Jan-Aug) must be OPEN.</p>
                                             </div>
                                         )}
 
-                                        <div className="bg-gradient-to-r from-green-500 to-blue-500 text-white p-6 rounded-3xl space-y-1 shadow-lg">
-                                            <p className="text-[10px] font-black uppercase text-white">Stability Verdict</p>
-                                            <div className="text-sm font-bold flex items-center gap-2 text-white">
-                                                <span className={`w-2 h-2 rounded-full animate-pulse ${calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'bg-white' : 'bg-yellow-300'}`}></span>
-                                                <span style={{ color: 'white' }} className="text-white font-black">{calculationPreview.metrics.find(m => m.isBold).after > calculationPreview.metrics.find(m => m.isBold).before ? 'POSITIVE ASSET GROWTH' : 'LIABILITY INCREASED'}</span>
+                                        <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white p-6 rounded-3xl space-y-1 shadow-lg border border-slate-700">
+                                            <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Stability Verdict</p>
+                                            <div className="text-sm font-bold flex items-center justify-between gap-2 text-white">
+                                                {(() => {
+                                                    const riskMetric = calculationPreview.metrics.find(m => m.isRisk);
+                                                    const isLowRisk = riskMetric ? riskMetric.after < 40 : true;
+                                                    return (
+                                                        <>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={`w-2 h-2 rounded-full animate-pulse ${isLowRisk ? 'bg-green-400' : 'bg-amber-400'}`}></span>
+                                                                <span className="text-white font-black">{isLowRisk ? 'CREDIT STABLE' : 'RISK ELEVATED'}</span>
+                                                            </div>
+                                                            <div className="text-[10px] bg-white/10 px-2 py-1 rounded-lg">
+                                                                SCORE: {riskMetric?.after || 0}%
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     </div>

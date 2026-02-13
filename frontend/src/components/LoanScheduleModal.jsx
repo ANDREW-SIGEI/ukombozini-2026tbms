@@ -1,7 +1,14 @@
 import React from 'react';
 import { X, Calendar, CheckCircle, Clock } from 'lucide-react';
+import { pdfReportService } from '../services/PDFReportService';
 
 const LoanScheduleModal = ({ isOpen, onClose, schedule, loanDetails }) => {
+
+    const handleExportPDF = () => {
+        if (!schedule || schedule.length === 0) return;
+        pdfReportService.generateLoanSchedule(loanDetails, schedule);
+    };
+
     if (!isOpen) return null;
 
     const getStatusIcon = (status) => {
@@ -45,15 +52,32 @@ const LoanScheduleModal = ({ isOpen, onClose, schedule, loanDetails }) => {
                             Member: <span className="font-bold text-gray-700">{loanDetails?.member_name}</span>
                         </p>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
-                    >
-                        <X className="w-6 h-6 text-gray-500" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {schedule && schedule.length > 0 && (
+                            <button
+                                onClick={handleExportPDF}
+                                className="px-4 py-2 bg-safaricom-green/10 text-safaricom-green hover:bg-safaricom-green hover:text-white rounded-lg font-bold transition-all flex items-center gap-2"
+                                title="Download PDF"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                                    <polyline points="14 2 14 8 20 8" />
+                                    <path d="M12 18v-6" />
+                                    <path d="M9 15l3 3 3-3" />
+                                </svg>
+                                Export PDF
+                            </button>
+                        )}
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                        >
+                            <X className="w-6 h-6 text-gray-500" />
+                        </button>
+                    </div>
                 </div>
 
-                {/* Content */}
+                {/* Content - Unchanged */}
                 <div className="p-6 overflow-y-auto">
                     {!schedule || schedule.length === 0 ? (
                         <div className="text-center py-12">

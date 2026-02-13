@@ -1,9 +1,0 @@
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhbmRyZXdzaWdlaTY4NEBnbWFpbC5jb20iLCJyb2xlIjoiQWRtaW4iLCJpYXQiOjE3NzA3MjcxNzEsImV4cCI6MTc3MDgxMzU3MX0.bK9grRSQO7FBgbCrMRrWnQElQKkrq7f68QntfgyHjaw",
-  "user": {
-    "id": 1,
-    "email": "andrewsigei684@gmail.com",
-    "name": "System Admin",
-    "role": "admin"
-  }
-}
