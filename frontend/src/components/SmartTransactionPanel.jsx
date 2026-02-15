@@ -380,84 +380,85 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
         }
 
         setIsProcessing(true);
-        try {
-            const commonPayload = {
-                memberId: mode === 'MEMBER' ? memberContext.id : 0,
-                groupId: mode === 'MEMBER' ? memberContext.group_id : (initialGroup?.id || groupRules?.id),
-                sessionId: activeSession?.id || latestCashSession?.id,
-                amount: parseFloat(amount),
-                officerId: user?.id,
-                description: notes,
-                type: selectedType.id.toUpperCase(), // Normalize for backend
-                breakdown: calculationPreview?.split,
-                loanId: selectedLoan?.id,
-                loanType: selectedLoan?.loan_type
-            };
 
-            // Define offline handler
-            const processOffline = async () => {
-                let offlinePayload = { ...commonPayload };
+        const commonPayload = {
+            memberId: mode === 'MEMBER' ? memberContext.id : 0,
+            groupId: mode === 'MEMBER' ? memberContext.group_id : (initialGroup?.id || groupRules?.id),
+            sessionId: activeSession?.id || latestCashSession?.id,
+            amount: parseFloat(amount),
+            officerId: user?.id,
+            description: notes,
+            type: selectedType.id.toUpperCase(), // Normalize for backend
+            breakdown: calculationPreview?.split,
+            loanId: selectedLoan?.id,
+            loanType: selectedLoan?.loan_type
+        };
 
-                // Enrich payload for specific transaction types (Loan / Asset)
-                if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
-                    offlinePayload = {
-                        ...offlinePayload,
-                        loanType: selectedType.id.toUpperCase(),
-                        interestRate: selectedType.id === 'stl' ? (groupRules?.stlInterestRate || 10) : (groupRules?.ltlInterestRate || 12),
-                        duration: selectedType.id === 'stl' ? 1 : 12,
-                        purpose: notes,
-                        guarantor1_id: guarantors.g1,
-                        guarantor2_id: guarantors.g2,
-                        monthly_installment: Math.ceil((parseFloat(amount) * 1.15) / 12),
-                        principal_portion: Math.ceil(parseFloat(amount) / 12),
-                        interest_portion: Math.ceil((parseFloat(amount) * 0.15) / 12),
-                        shares_contribution: 0
-                    };
-                } else if (selectedType.id === 'productfinancing') {
-                    offlinePayload = {
-                        ...offlinePayload,
-                        productName: assetDetails.productName,
-                        totalValue: parseFloat(assetDetails.value) || parseFloat(amount),
-                        commitmentPaid: parseFloat(amount)
-                    };
-                }
+        // Define offline handler (moved outside try block for catch block access)
+        const processOffline = async () => {
+            let offlinePayload = { ...commonPayload };
 
-                console.log("✈️ OFFLINE FALLBACK: Redirecting to Offline Storage...", offlinePayload);
-
-                await offlineManager.saveOfflineTransaction({
-                    type: selectedType.id,
-                    data: offlinePayload,
-                    localId: `OFFLINE-${Date.now()}`
-                });
-
-                toast.info("Transaction saved offline due to network.");
-
-                setLastTxData({
-                    id: `OFFLINE-${Date.now()}`,
-                    amount: offlinePayload.amount,
-                    type: selectedType.label,
-                    date: new Date().toISOString(),
-                    officer: user?.name,
-                    notes: notes,
-                    isOffline: true
-
-                });
-                setIsSuccess(true);
-                if (onRefresh) onRefresh();
-                return;
-            };
-
-            // Check internet connectivity initially
-            if (!navigator.onLine) {
-                if (mode === 'GROUP') {
-                    toast.warning("Posting offline is not supported for Group Actions.");
-                    setIsProcessing(false);
-                    return;
-                }
-                await processOffline();
-                return;
+            // Enrich payload for specific transaction types (Loan / Asset)
+            if (selectedType.id === 'stl' || selectedType.id === 'ltl') {
+                offlinePayload = {
+                    ...offlinePayload,
+                    loanType: selectedType.id.toUpperCase(),
+                    interestRate: selectedType.id === 'stl' ? (groupRules?.stlInterestRate || 10) : (groupRules?.ltlInterestRate || 12),
+                    duration: selectedType.id === 'stl' ? 1 : 12,
+                    purpose: notes,
+                    guarantor1_id: guarantors.g1,
+                    guarantor2_id: guarantors.g2,
+                    monthly_installment: Math.ceil((parseFloat(amount) * 1.15) / 12),
+                    principal_portion: Math.ceil(parseFloat(amount) / 12),
+                    interest_portion: Math.ceil((parseFloat(amount) * 0.15) / 12),
+                    shares_contribution: 0
+                };
+            } else if (selectedType.id === 'productfinancing') {
+                offlinePayload = {
+                    ...offlinePayload,
+                    productName: assetDetails.productName,
+                    totalValue: parseFloat(assetDetails.value) || parseFloat(amount),
+                    commitmentPaid: parseFloat(amount)
+                };
             }
 
+            console.log("✈️ OFFLINE FALLBACK: Redirecting to Offline Storage...", offlinePayload);
+
+            await offlineManager.saveOfflineTransaction({
+                type: selectedType.id,
+                data: offlinePayload,
+                localId: `OFFLINE-${Date.now()}`
+            });
+
+            toast.info("Transaction saved offline due to network.");
+
+            setLastTxData({
+                id: `OFFLINE-${Date.now()}`,
+                amount: offlinePayload.amount,
+                type: selectedType.label,
+                date: new Date().toISOString(),
+                officer: user?.name,
+                notes: notes,
+                isOffline: true
+
+            });
+            setIsSuccess(true);
+            if (onRefresh) onRefresh();
+            return;
+        };
+
+        // Check internet connectivity initially
+        if (!navigator.onLine) {
+            if (mode === 'GROUP') {
+                toast.warning("Posting offline is not supported for Group Actions.");
+                setIsProcessing(false);
+                return;
+            }
+            await processOffline();
+            return;
+        }
+
+        try {
             console.log("Committing transaction through MTE...", { type: selectedType?.id, amount });
 
             let result = null;
@@ -837,15 +838,15 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                                 <div className="space-y-1.5">
                                                     <div className="flex justify-between text-xs px-1">
                                                         <span className="text-indigo-200">1. Penalties Cleared</span>
-                                                        <span className={`font-black ${calculationPreview.split.penalty > 0 ? 'text-amber-400' : 'text-indigo-400'}`}>KES {calculationPreview.split.penalty.toLocaleString()}</span>
+                                                        <span className={`font-black ${calculationPreview.split.penalty > 0 ? 'text-amber-400' : 'text-indigo-400'}`}>KES {(calculationPreview.split.penalty || 0).toLocaleString()}</span>
                                                     </div>
                                                     <div className="flex justify-between text-xs px-1">
                                                         <span className="text-indigo-200">2. Interest serving</span>
-                                                        <span className={`font-black ${calculationPreview.split.interest > 0 ? 'text-amber-400' : 'text-indigo-400'}`}>KES {calculationPreview.split.interest.toLocaleString()}</span>
+                                                        <span className={`font-black ${calculationPreview.split.interest > 0 ? 'text-amber-400' : 'text-indigo-400'}`}>KES {(calculationPreview.split.interest || 0).toLocaleString()}</span>
                                                     </div>
                                                     <div className="flex justify-between text-sm border-t border-indigo-800 pt-2 mt-2 px-1">
                                                         <span className="font-bold">3. Principal Reduction</span>
-                                                        <span className="text-green-400 font-black">KES {calculationPreview.split.principal.toLocaleString()}</span>
+                                                        <span className="text-green-400 font-black">KES {(calculationPreview.split.principal || 0).toLocaleString()}</span>
                                                     </div>
                                                 </div>
                                                 <div className="text-[9px] text-indigo-400 text-center italic pt-1">Automated Triple-Entry Allocation</div>
@@ -856,8 +857,22 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Institutional Impact Ledger</p>
                                             {calculationPreview.metrics.map((m, i) => {
                                                 if (m.isRisk) return null;
-                                                const isGrowth = m.after > m.before && !m.label.toLowerCase().includes('loan') && !m.label.toLowerCase().includes('penalty') && !m.label.toLowerCase().includes('debt');
-                                                const isReduction = m.after < m.before && (m.label.toLowerCase().includes('loan') || m.label.toLowerCase().includes('penalty') || m.label.toLowerCase().includes('debt'));
+                                                if (m.isText || m.isStatus) {
+                                                    return (
+                                                        <div key={i} className={`flex items-start gap-4 p-4 bg-white rounded-2xl border-l-4 shadow-sm transition-all hover:shadow-md border-slate-300 bg-slate-50/50`}>
+                                                            <div className={`p-2 rounded-xl bg-slate-200 text-slate-500`}>
+                                                                <FaChartLine />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m.label}</div>
+                                                                <div className={`text-sm font-black ${m.text || 'text-slate-900'}`}>{m.val}</div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                const isGrowth = (m.after || 0) > (m.before || 0) && !m.label.toLowerCase().includes('loan') && !m.label.toLowerCase().includes('penalty') && !m.label.toLowerCase().includes('debt');
+                                                const isReduction = (m.after || 0) < (m.before || 0) && (m.label.toLowerCase().includes('loan') || m.label.toLowerCase().includes('penalty') || m.label.toLowerCase().includes('debt'));
 
                                                 return (
                                                     <div key={i} className={`flex items-start gap-4 p-4 bg-white rounded-2xl border-l-4 shadow-sm transition-all hover:shadow-md ${isGrowth || isReduction ? 'border-green-500 bg-green-50/30' : 'border-slate-300 bg-slate-50/50'}`}>
@@ -869,13 +884,13 @@ const SmartTransactionPanel = ({ member: initialMember, group: initialGroup, isO
                                                                 <div>
                                                                     <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{m.label}</div>
                                                                     <div className={`text-lg font-black ${isGrowth || isReduction ? 'text-green-600' : 'text-slate-900'}`}>
-                                                                        {m.after < 0 ? '-' : ''}KES {Math.abs(m.after).toLocaleString()}
+                                                                        {(m.after || 0) < 0 ? '-' : ''}KES {Math.abs(m.after || 0).toLocaleString()}
                                                                     </div>
                                                                 </div>
                                                                 <div className="text-right">
-                                                                    <div className="text-[9px] text-slate-300 font-bold line-through">KES {m.before.toLocaleString()}</div>
+                                                                    <div className="text-[9px] text-slate-300 font-bold line-through">KES {(m.before || 0).toLocaleString()}</div>
                                                                     <div className={`text-[10px] font-black ${(isGrowth || isReduction) ? 'text-green-500' : 'text-slate-400'}`}>
-                                                                        {m.after > m.before ? '+' : ''}{(m.after - m.before).toLocaleString()}
+                                                                        {(m.after || 0) > (m.before || 0) ? '+' : ''}{((m.after || 0) - (m.before || 0)).toLocaleString()}
                                                                     </div>
                                                                 </div>
                                                             </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTransactions } from '../context/TransactionContext';
+import { useLocation } from 'react-router-dom'; // [NEW] For pre-selected group
 import { api } from '../services/api'; // Import API
 import { validateCashReport, checkSystemAccessBlock } from '../utils/cashReportEnforcement'; // Keep utils
 import { validateTransaction, requiresSupervisorApproval, getBalanceAlert, validateDisbursement } from '../utils/validationRules';
@@ -8,7 +9,7 @@ import { toast } from 'react-toastify';
 import {
     FaSave, FaPaperPlane, FaLock, FaCheckCircle, FaTimesCircle,
     FaExclamationTriangle, FaCalculator, FaUsers, FaCalendarAlt, FaBan, FaUserShield, FaSearch,
-    FaFileInvoice
+    FaFileInvoice, FaBolt
 } from 'react-icons/fa';
 import SearchableGroupSelector from '../components/SearchableGroupSelector';
 import offlineManager from '../services/OfflineManager';
@@ -32,7 +33,28 @@ const TransactionInput = ({ value, onChange, disabled, memberId, field, rowIndex
             let nextCol = colIndex;
 
             if (key === 'ArrowUp') nextRow = Math.max(0, rowIndex - 1);
-            if (key === 'ArrowDown' || key === 'Enter') nextRow = Math.min(totalRows - 1, rowIndex + 1);
+            if (key === 'ArrowDown' || key === 'Enter') {
+                // [NEW] Smart Target: If hitting Enter/Down on the last column (Fines), jump to NEXT member's FIRST column (Savings)
+                if (colIndex === totalCols - 1 || key === 'Enter') {
+                    if (rowIndex < totalRows - 1) {
+                        nextRow = rowIndex + 1;
+                        nextCol = 0; // Jump to Savings of next member
+
+                        // [NEW] Smart Skip: If next member is absent, jump to next PRESENT member
+                        let skip = 1;
+                        while (rowIndex + skip < totalRows) {
+                            const nextMemberTr = document.querySelector(`tr[data-row-index="${rowIndex + skip}"]`);
+                            if (nextMemberTr && nextMemberTr.dataset.present === 'true') {
+                                nextRow = rowIndex + skip;
+                                break;
+                            }
+                            skip++;
+                        }
+                    }
+                } else {
+                    nextRow = Math.min(totalRows - 1, rowIndex + 1);
+                }
+            }
             if (key === 'ArrowLeft') nextCol = Math.max(0, colIndex - 1);
             if (key === 'ArrowRight') nextCol = Math.min(totalCols - 1, colIndex + 1);
 
@@ -65,6 +87,7 @@ const TransactionInput = ({ value, onChange, disabled, memberId, field, rowIndex
 
 const DailyMeetingReport = () => {
     const { user } = useAuth();
+    const location = useLocation(); // [NEW]
     const [selectedGroup, setSelectedGroup] = useState(null);
     const [memberSearchTerm, setMemberSearchTerm] = useState('');
     const [meetingDate, setMeetingDate] = useState(new Date().toISOString().split('T')[0]);
@@ -76,13 +99,14 @@ const DailyMeetingReport = () => {
     const [approvalReason, setApprovalReason] = useState('');
 
     // SMART MEETING STATE
-    const [meetingType, setMeetingType] = useState('Regular'); // Regular, AGM, Special
     const [meetingNotes, setMeetingNotes] = useState('');
     const [showNotes, setShowNotes] = useState(false);
+    const [isStandardMeeting, setIsStandardMeeting] = useState(true); // [NEW] Default to auto-fill mode
 
     // Cash Verification State
     const [actualCashStart, setActualCashStart] = useState('');
     const [actualCashEnd, setActualCashEnd] = useState('');
+    const [actualPartnerTopup, setActualPartnerTopup] = useState(0); // New: Capital Injection
 
     // Receipting State
     const [sessionTransactions, setSessionTransactions] = useState([]);
@@ -105,7 +129,7 @@ const DailyMeetingReport = () => {
     const [timeRemaining, setTimeRemaining] = useState('');
     const [isExpired, setIsExpired] = useState(false);
 
-    // Sync state with Active Session
+    // Sync state with Active Session or Navigation state
     useEffect(() => {
         if (activeSession) {
             setSessionId(activeSession.id);
@@ -115,12 +139,16 @@ const DailyMeetingReport = () => {
             const group = groups.find(g => g.id === activeSession.groupId);
             setSelectedGroup(group);
             setMeetingDate(activeSession.date);
+        } else if (location.state?.preSelectedGroupId && groups.length > 0) {
+            // [NEW] Handle pre-selection from Members page
+            const group = groups.find(g => g.id.toString() === location.state.preSelectedGroupId.toString());
+            if (group) setSelectedGroup(group);
         } else {
             setSessionId(null);
             setSessionStatus('draft'); // Or 'idle'
             setSelectedGroup(null);
         }
-    }, [activeSession, groups]);
+    }, [activeSession, groups, location.state]);
 
     // Timer Logic
     useEffect(() => {
@@ -181,13 +209,14 @@ const DailyMeetingReport = () => {
                         ltl_bf: member.ltl_bf || 0,
                         stl_bf: member.stl_bf || 0,
                         savings_bf: member.savings_bf || 0,
-                        savings_amount: 0,
-                        welfare: 0,
+                        savings_amount: isStandardMeeting ? (selectedGroup.default_savings || 500) : 0,
+                        welfare: isStandardMeeting ? (selectedGroup.default_welfare || 100) : 0,
                         stl_repayment: 0,
                         ltl_repayment: 0,
                         loan_interest: 0,
                         loan_principal: 0,
-                        project: 0,
+                        agriculture: 0, // Split Project: Agriculture
+                        education: 0,   // Split Project: Education
                         fines: 0,
                     }));
 
@@ -230,6 +259,19 @@ const DailyMeetingReport = () => {
         }
     }, [selectedGroup, sessionId, sessionStatus]);
 
+    // [NEW] Sync Transactions when Mode Toggles
+    useEffect(() => {
+        if (sessionStatus !== 'draft' || memberTransactions.length === 0) return;
+
+        if (isStandardMeeting) {
+            setMemberTransactions(prev => prev.map(t => ({
+                ...t,
+                savings_amount: t.attended ? (selectedGroup?.default_savings || 500) : 0,
+                welfare: t.attended ? (selectedGroup?.default_welfare || 100) : 0
+            })));
+        }
+    }, [isStandardMeeting, sessionStatus]);
+
     // Calculate totals in real-time (SYSTEM-ONLY, prevents tampering)
     const systemTotals = useMemo(() => {
         return memberTransactions.reduce((totals, transaction) => {
@@ -240,15 +282,21 @@ const DailyMeetingReport = () => {
             totals.total_ltl += parseFloat(transaction.ltl_repayment || 0);
             totals.total_welfare += parseFloat(transaction.welfare || 0);
             totals.total_fines += parseFloat(transaction.fines || 0);
+            totals.total_agri += parseFloat(transaction.agriculture || 0);
+            totals.total_edu += parseFloat(transaction.education || 0);
 
-            // Cash In only includes collections, NOT disbursements
-            totals.total_cash_in += parseFloat(transaction.savings_amount || 0) +
+            // Cash In includes collections + external capital injections
+            totals.total_collections += parseFloat(transaction.savings_amount || 0) +
                 parseFloat(transaction.stl_repayment || 0) +
                 parseFloat(transaction.ltl_repayment || 0) +
                 parseFloat(transaction.loan_interest || 0) +
                 parseFloat(transaction.welfare || 0) +
-                parseFloat(transaction.project || 0) +
+                parseFloat(transaction.agriculture || 0) +
+                parseFloat(transaction.education || 0) +
                 parseFloat(transaction.fines || 0);
+
+            totals.total_cash_in = totals.total_collections + parseFloat(actualPartnerTopup || 0);
+
             return totals;
         }, {
             total_present: 0,
@@ -257,9 +305,12 @@ const DailyMeetingReport = () => {
             total_ltl: 0,
             total_welfare: 0,
             total_fines: 0,
+            total_agri: 0,
+            total_edu: 0,
+            total_collections: 0,
             total_cash_in: 0,
         });
-    }, [memberTransactions]);
+    }, [memberTransactions, actualPartnerTopup]);
 
     // Real-time Table Balance (Liquid Cash in the room)
     const tableBalance = useMemo(() => {
@@ -275,7 +326,7 @@ const DailyMeetingReport = () => {
                 memberTransactions,
                 openingBalance,
                 cashOut,
-                meetingType,
+                isStandardMeeting,
                 meetingNotes,
                 ukomboziniRepayment
             };
@@ -284,7 +335,7 @@ const DailyMeetingReport = () => {
         }, 60000);
 
         return () => clearInterval(timer);
-    }, [sessionStatus, selectedGroup, memberTransactions, openingBalance, cashOut, meetingType, meetingNotes, ukomboziniRepayment]);
+    }, [sessionStatus, selectedGroup, memberTransactions, openingBalance, cashOut, isStandardMeeting, meetingNotes, ukomboziniRepayment]);
 
     // Calculate closing balance (same as table balance)
     useEffect(() => {
@@ -310,7 +361,7 @@ const DailyMeetingReport = () => {
 
     // Update member transaction field with validation
     const updateMemberTransaction = (memberId, field, value) => {
-        if (sessionStatus !== 'draft') {
+        if (sessionStatus !== 'draft' && sessionStatus !== 'ACTIVE') {
             toast.error('Cannot edit after submission. Contact supervisor to unlock.');
             return;
         }
@@ -341,7 +392,8 @@ const DailyMeetingReport = () => {
             const availableCash = tableBalance;
 
             if (diff > availableCash) {
-                toast.error(`Insufficient Table Balance! Available: KES ${availableCash.toLocaleString()}`);
+                // Silenced toast for better flow
+                // toast.error(`Insufficient Table Balance! Available: KES ${availableCash.toLocaleString()}`);
                 return;
             }
 
@@ -357,6 +409,55 @@ const DailyMeetingReport = () => {
         }));
     };
 
+    // [NEW] Quick Fill Dues Logic
+    const handleQuickFill = (memberId) => {
+        const dues = memberDues[memberId];
+        if (!dues) return;
+
+        setMemberTransactions(prev => prev.map(t => {
+            if (t.memberId === memberId) {
+                return {
+                    ...t,
+                    stl_repayment: dues.principal || 0,
+                    loan_interest: dues.interest || 0,
+                    attended: true
+                };
+            }
+            return t;
+        }));
+    };
+
+    // [NEW] Global Quick Fill - Fill ALL expected dues for ALL present members
+    const handleQuickFillAll = () => {
+        setMemberTransactions(prev => prev.map(t => {
+            if (!t.attended) return t;
+            const dues = memberDues[t.memberId];
+            if (!dues) return t;
+            return {
+                ...t,
+                stl_repayment: dues.principal || 0,
+                loan_interest: dues.interest || 0
+            };
+        }));
+        toast.success("✅ All expected dues auto-filled for members present!");
+    };
+
+    // [NEW] Mark All Present Toggle
+    const handleMarkAllPresent = (present = true) => {
+        setMemberTransactions(prev => prev.map(t => ({
+            ...t,
+            attended: present,
+            // If marking present and in standard mode, ensure rates are filled
+            savings_amount: (present && isStandardMeeting) ? (selectedGroup.default_savings || 500) : t.savings_amount,
+            welfare: (present && isStandardMeeting) ? (selectedGroup.default_welfare || 100) : t.welfare
+        })));
+        if (present) {
+            toast.info("All members marked present. Standard rates applied.", { autoClose: 2000 });
+        } else {
+            toast.info("All members marked absent.", { autoClose: 2000 });
+        }
+    };
+
     // Calculate total paid for a member (auto-calculated, not editable)
     const calculateMemberTotal = (transaction) => {
         return (
@@ -366,7 +467,8 @@ const DailyMeetingReport = () => {
             parseFloat(transaction.loan_interest || 0) +
             parseFloat(transaction.loan_principal || 0) +
             parseFloat(transaction.welfare || 0) +
-            parseFloat(transaction.project || 0) +
+            parseFloat(transaction.agriculture || 0) +
+            parseFloat(transaction.education || 0) +
             parseFloat(transaction.fines || 0)
         );
     };
@@ -438,7 +540,7 @@ const DailyMeetingReport = () => {
             memberTransactions,
             openingBalance,
             cashOut,
-            meetingType,
+            isStandardMeeting,
             meetingNotes,
             ukomboziniRepayment
         };
@@ -457,7 +559,7 @@ const DailyMeetingReport = () => {
             setMemberTransactions(draftData.memberTransactions);
             setOpeningBalance(draftData.openingBalance);
             setCashOut(draftData.cashOut);
-            setMeetingType(draftData.meetingType);
+            setIsStandardMeeting(draftData.isStandardMeeting || draftData.meetingType || true);
             setMeetingNotes(draftData.meetingNotes);
             setUkomboziniRepayment(draftData.ukomboziniRepayment);
             setHasRecoverableDraft(false);
@@ -533,7 +635,7 @@ const DailyMeetingReport = () => {
                     balances,
                     ukomboziniRepayment,
                     meetingNotes,
-                    meetingType
+                    isStandardMeeting
                 }
             };
 
@@ -636,7 +738,7 @@ const DailyMeetingReport = () => {
             openingBalance,
             closingBalance,
             variance: currentVariance,
-            meetingType,
+            isStandardMeeting,
             meetingNotes, // Add notes
             ukomboziniRepayment // Add Partnership Repayment
         };
@@ -747,17 +849,20 @@ const DailyMeetingReport = () => {
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                            Meeting Type
+                            Meeting Mode
                         </label>
-                        <select
-                            value={meetingType}
-                            onChange={(e) => setMeetingType(e.target.value)}
-                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green outline-none"
-                        >
-                            <option value="Regular">Regular Meeting</option>
-                            <option value="AGM">Annual General Meeting (AGM)</option>
-                            <option value="Special">Special / Emergency</option>
-                        </select>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="checkbox"
+                                checked={isStandardMeeting}
+                                onChange={(e) => setIsStandardMeeting(e.target.checked)}
+                                className="w-4 h-4 text-safaricom-green border-gray-300 rounded focus:ring-safaricom-green/20"
+                                id="standard-meeting-toggle"
+                            />
+                            <label htmlFor="standard-meeting-toggle" className="text-sm font-medium text-gray-700">
+                                {isStandardMeeting ? '✓ Standard Meeting (Auto-fill defaults)' : 'Custom Meeting (Manual entry)'}
+                            </label>
+                        </div>
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
@@ -790,8 +895,28 @@ const DailyMeetingReport = () => {
                         </div>
                         <div className="h-10 w-1 bg-gray-300 rounded-full"></div>
                         <div>
-                            <p className="text-xs text-gray-500 uppercase font-bold">Total Disbursed</p>
-                            <p className="text-xl font-bold text-red-600">KES {cashOut.toLocaleString()}</p>
+                            <p className="text-xs text-gray-500 uppercase font-bold text-red-600">Total Cash Out</p>
+                            <p className="text-xl font-bold text-red-600">KES {(cashOut + ukomboziniRepayment).toLocaleString()}</p>
+                        </div>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-200 flex justify-between items-center">
+                        <div>
+                            <p className="text-xs text-safaricom-green uppercase font-bold">Partner Capital Injection</p>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="font-bold text-gray-400">KES</span>
+                                <input
+                                    type="number"
+                                    value={actualPartnerTopup || ''}
+                                    onChange={(e) => setActualPartnerTopup(parseFloat(e.target.value) || 0)}
+                                    placeholder="0"
+                                    className="bg-transparent border-b border-safaricom-green/30 w-32 font-bold outline-none focus:border-safaricom-green"
+                                />
+                            </div>
+                        </div>
+                        <div className="h-10 w-1 bg-green-200 rounded-full"></div>
+                        <div>
+                            <p className="text-xs text-gray-500 uppercase font-bold text-safaricom-green">Liquid Table Cash</p>
+                            <p className="text-xl font-black text-safaricom-green">KES {tableBalance.toLocaleString()}</p>
                         </div>
                     </div>
                 </div>
@@ -912,15 +1037,57 @@ const DailyMeetingReport = () => {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                     {/* Sticky Header */}
                     <div className="bg-safaricom-green/95 text-white p-5 sticky top-0 z-10 flex flex-col md:flex-row justify-between items-center gap-6 shadow-lg backdrop-blur-sm">
-                        <div className="flex items-center gap-4">
-                            <div className="bg-white/20 p-3 rounded-2xl">
-                                <FaUsers className="text-2xl" />
+                        <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-white/20 p-3 rounded-2xl">
+                                    <FaUsers className="text-2xl" />
+                                </div>
+                                <div>
+                                    <h3 className="font-black text-xl tracking-tight">Member Transactions</h3>
+                                    <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">
+                                        {memberSearchTerm ? `Filtering: "${memberSearchTerm}"` : "Real-time automated ledger updates"}
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 className="font-black text-xl tracking-tight">Member Transactions</h3>
-                                <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">
-                                    {memberSearchTerm ? `Filtering: "${memberSearchTerm}"` : "Real-time automated ledger updates"}
-                                </p>
+                            {/* [NEW] FILL PROGRESS INDICATOR */}
+                            <div className="hidden lg:flex items-center gap-3 bg-black/20 px-4 py-2 rounded-xl border border-white/10">
+                                <div className="text-right">
+                                    <div className="text-[10px] font-black uppercase tracking-tighter text-white/60 leading-none">Record Progress</div>
+                                    <div className="text-sm font-black text-white leading-none mt-1">
+                                        {memberTransactions.filter(t => calculateMemberTotal(t) > 0).length} / {memberTransactions.length} FILLED
+                                    </div>
+                                </div>
+                                <div className="w-20 h-2 bg-white/10 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-safaricom-green transition-all"
+                                        style={{ width: `${(memberTransactions.filter(t => calculateMemberTotal(t) > 0).length / memberTransactions.length) * 100}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                            {/* [NEW] BULK ACTION BUTTONS */}
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handleMarkAllPresent(true)}
+                                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all flex items-center gap-1"
+                                    title="Mark all as attended"
+                                >
+                                    <FaCheckCircle className="text-green-400" /> All Present
+                                </button>
+                                <button
+                                    onClick={handleQuickFillAll}
+                                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all flex items-center gap-1"
+                                    title="Auto-fill expected dues for everyone"
+                                >
+                                    <FaCalculator className="text-blue-400" /> Bulk Fill
+                                </button>
+                                <div className="h-8 w-px bg-white/10 mx-2"></div>
+                                <button
+                                    onClick={() => setIsStandardMeeting(!isStandardMeeting)}
+                                    className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isStandardMeeting ? 'bg-white text-safaricom-green shadow-sm' : 'bg-white/10 text-white/40'
+                                        }`}
+                                >
+                                    <FaBolt /> {isStandardMeeting ? 'Standard' : 'Manual'}
+                                </button>
                             </div>
                         </div>
                         <div className="relative w-full md:w-80 group">
@@ -966,7 +1133,8 @@ const DailyMeetingReport = () => {
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">LTL Repay</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Interest</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Principal</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Project</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase text-green-600">Agri</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase text-blue-600">Edu</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase">Fines</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase bg-green-50">Total Paid</th>
                                     <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase">Actions</th>
@@ -991,12 +1159,14 @@ const DailyMeetingReport = () => {
 
                                     return filtered.map((transaction, index) => {
                                         const memberTotal = calculateMemberTotal(transaction);
-                                        const cols = ['savings_amount', 'welfare', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'project', 'fines'];
+                                        const cols = ['savings_amount', 'welfare', 'stl_repayment', 'ltl_repayment', 'loan_interest', 'loan_principal', 'agriculture', 'education', 'fines'];
                                         const isPresent = transaction.attended;
 
                                         return (
                                             <tr
                                                 key={transaction.id}
+                                                data-row-index={index}
+                                                data-present={isPresent}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${!isPresent ? 'bg-gray-100 opacity-60' : memberTotal > 0 ? 'bg-green-50/30' : ''
                                                     }`}
                                             >
@@ -1066,17 +1236,21 @@ const DailyMeetingReport = () => {
                                                     KES {memberTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
-                                                    {sessionStatus === 'POSTED' && memberTotal > 0 ? (
-                                                        <button
-                                                            onClick={() => handlePrintReceipt(transaction.memberId)}
-                                                            className="flex items-center gap-1 mx-auto px-2 py-1 bg-safaricom-green/10 text-safaricom-green rounded text-xs hover:bg-safaricom-green hover:text-white transition-all font-bold"
-                                                            title="Print Digital Receipt"
-                                                        >
-                                                            <FaFileInvoice /> Receipt
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-gray-300 text-xs">N/A</span>
-                                                    )}
+                                                    <div className="flex flex-col gap-1">
+                                                        {sessionStatus === 'POSTED' && memberTotal > 0 ? (
+                                                            <button
+                                                                onClick={() => handlePrintReceipt(transaction.memberId)}
+                                                                className="flex items-center gap-1 mx-auto px-2 py-1 bg-safaricom-green/10 text-safaricom-green rounded text-xs hover:bg-safaricom-green hover:text-white transition-all font-bold"
+                                                                title="Print Digital Receipt"
+                                                            >
+                                                                <FaFileInvoice /> Receipt
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-gray-300 text-xs italic">
+                                                                {sessionStatus === 'draft' || sessionStatus === 'ACTIVE' ? 'Pending Bulk...' : 'N/A'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -1106,6 +1280,14 @@ const DailyMeetingReport = () => {
                                 <div className="font-bold text-lg">KES {systemTotals.total_welfare.toLocaleString()}</div>
                             </div>
                             <div>
+                                <div className="text-xs opacity-90">Total Agri</div>
+                                <div className="font-bold text-lg">KES {systemTotals.total_agri.toLocaleString()}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs opacity-90">Total Edu</div>
+                                <div className="font-bold text-lg">KES {systemTotals.total_edu.toLocaleString()}</div>
+                            </div>
+                            <div>
                                 <div className="text-xs opacity-90">Total Fines</div>
                                 <div className="font-bold text-lg">KES {systemTotals.total_fines.toLocaleString()}</div>
                             </div>
@@ -1121,15 +1303,27 @@ const DailyMeetingReport = () => {
                                     <div className="font-bold">KES {openingBalance.toLocaleString()}</div>
                                 </div>
                                 <div className="text-center">
-                                    <div className="text-xs opacity-90">Cash In</div>
+                                    <div className="text-xs opacity-90">Collections</div>
+                                    <div className="font-bold">KES {systemTotals.total_collections.toLocaleString()}</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-xs opacity-90 font-bold text-yellow-300">Capital Injection</div>
+                                    <div className="font-bold text-yellow-300">KES {(actualPartnerTopup || 0).toLocaleString()}</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-xs opacity-90">Total In</div>
                                     <div className="font-bold">KES {systemTotals.total_cash_in.toLocaleString()}</div>
                                 </div>
-                                {cashOut > 0 && (
-                                    <div className="text-center">
-                                        <div className="text-xs opacity-90">Cash Out</div>
-                                        <div className="font-bold text-red-200">KES {cashOut.toLocaleString()}</div>
-                                    </div>
-                                )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 mb-3">
+                                <div className="text-center">
+                                    <div className="text-xs opacity-90 font-bold text-red-200">Disbursements</div>
+                                    <div className="font-bold text-red-200">KES {cashOut.toLocaleString()}</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-xs opacity-90 font-bold text-blue-200">Partner Repay</div>
+                                    <div className="font-bold text-blue-200">KES {ukomboziniRepayment.toLocaleString()}</div>
+                                </div>
                             </div>
                             <div className={`text-center pt-3 border-t border-white/20 ${closingBalance < 0 ? 'text-red-200' : ''
                                 }`}>
@@ -1169,201 +1363,255 @@ const DailyMeetingReport = () => {
                         </div>
                     </div>
                 </div>
-            )}
+            )
+            }
+
+            {/* Matrix preview section */}
+            {
+                (activeSession || sessionId) && (
+                    <div className="mx-4 mb-6 p-6 bg-slate-900 rounded-2xl border-2 border-slate-700 text-white shadow-2xl overflow-hidden relative">
+                        <div className="absolute top-0 right-0 p-8 opacity-10">
+                            <FaCalculator className="text-8xl" />
+                        </div>
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="bg-safaricom-green p-2 rounded-lg">
+                                <FaLock className="text-white" />
+                            </div>
+                            <div>
+                                <h4 className="font-black text-xl uppercase tracking-tight">Final Allocation Matrix Preview</h4>
+                                <p className="text-xs font-bold text-slate-400">SURPLUS: KES {(tableBalance - openingBalance).toLocaleString()} (In - Out)</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">STL Reserve (35%)</p>
+                                <p className="text-lg font-black text-amber-400">KES {Math.max(0, (tableBalance - openingBalance) * 0.35).toLocaleString()}</p>
+                            </div>
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">LTL Reserve (25%)</p>
+                                <p className="text-lg font-black text-blue-400">KES {Math.max(0, (tableBalance - openingBalance) * 0.25).toLocaleString()}</p>
+                            </div>
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Welfare/Insurance (5%)</p>
+                                <p className="text-lg font-black text-red-400">KES {Math.max(0, (tableBalance - openingBalance) * 0.05).toLocaleString()}</p>
+                            </div>
+                            <div className="p-4 bg-white/10 rounded-xl border-2 border-safaricom-green shadow-[0_0_15px_rgba(65,117,5,0.3)]">
+                                <p className="text-[10px] font-black text-safaricom-green uppercase mb-1">Admin/TRF Fee (1%)</p>
+                                <p className="text-lg font-black text-white">KES {Math.max(0, (systemTotals.total_collections) * 0.01).toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase italic">
+                            <FaExclamationTriangle /> This preview is based on standard institutional rules (35/25 matrix). Final figures will be posted to the general ledger upon session lock.
+                        </div>
+                    </div>
+                )
+            }
 
             {/* Action Buttons & Cash Verification */}
-            {sessionId && (sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
-                <>
-                    {/* Cash Verification (Required) */}
-                    {/* Cash Verification (Required) */}
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
-                        <div className="flex justify-between items-center mb-6">
-                            <h4 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
-                                <FaUserShield className="text-blue-600" /> Financial Proofing & Verification
-                            </h4>
-                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-black uppercase tracking-widest">Step 2 of 2</span>
-                        </div>
+            {
+                sessionId && (sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
+                    <>
+                        {/* Cash Verification (Required) */}
+                        {/* Cash Verification (Required) */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <h4 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
+                                    <FaUserShield className="text-blue-600" /> Financial Proofing & Verification
+                                </h4>
+                                <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-black uppercase tracking-widest">Step 2 of 2</span>
+                            </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Breakdown Column */}
-                            <div className="space-y-3">
-                                <div className="flex justify-between text-sm py-2 border-b border-gray-50">
-                                    <span className="text-gray-500 font-bold">Opening Balance</span>
-                                    <span className="font-mono font-bold">KES {openingBalance.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between text-sm py-2 border-b border-gray-50">
-                                    <span className="text-gray-500 font-bold text-safaricom-green">Total Collections (+)</span>
-                                    <span className="font-mono font-bold text-safaricom-green">KES {systemTotals.total_cash_in.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between text-sm py-2 border-b border-gray-50">
-                                    <span className="text-gray-500 font-bold text-red-600">Total Disbursements (-)</span>
-                                    <span className="font-mono font-bold text-red-600">KES {cashOut.toLocaleString()}</span>
-                                </div>
-                                {ukomboziniRepayment > 0 && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Breakdown Column */}
+                                <div className="space-y-3">
                                     <div className="flex justify-between text-sm py-2 border-b border-gray-50">
-                                        <span className="text-gray-500 font-bold text-blue-600">UKOMBOZINI Topup Repay</span>
-                                        <span className="font-mono font-bold text-blue-600">KES {ukomboziniRepayment.toLocaleString()}</span>
+                                        <span className="text-gray-500 font-bold">Opening Balance</span>
+                                        <span className="font-mono font-bold">KES {openingBalance.toLocaleString()}</span>
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Result Column */}
-                            <div className="p-4 bg-gray-50 rounded-2xl flex flex-col justify-center items-center text-center border border-gray-100">
-                                <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Expected Cash Bag Weight</label>
-                                <div className="text-3xl font-black text-gray-800 font-mono italic">
-                                    KES {(openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment).toLocaleString()}
-                                </div>
-                                <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">This amount must match the physical cash counted in the group's safe bag.</p>
-                            </div>
-
-                            {/* Input Column */}
-                            <div className={`p-5 rounded-2xl border-2 transition-all ${actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment))
-                                ? 'border-red-500 bg-red-50/50'
-                                : 'border-safaricom-green/30 bg-white'
-                                }`}>
-                                <label className="block text-xs font-black text-gray-600 uppercase mb-3 tracking-widest flex items-center gap-1">
-                                    <FaCalculator className="text-[10px]" /> Physical Cash Counted *
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-gray-400">KES</span>
-                                    <input
-                                        type="number"
-                                        value={actualCashEnd}
-                                        onChange={(e) => setActualCashEnd(e.target.value)}
-                                        className="w-full pl-12 pr-4 py-3 text-2xl font-black rounded-xl outline-none bg-transparent"
-                                        placeholder="0.00"
-                                    />
-                                </div>
-
-                                {actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment)) && (
-                                    <div className="mt-4 p-3 bg-red-600 rounded-lg text-white animate-pulse">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <FaExclamationTriangle className="text-sm" />
-                                            <span className="font-black text-xs uppercase tracking-tighter">Variance Detected</span>
+                                    <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                        <span className="text-gray-500 font-bold text-safaricom-green">Total Collections (+)</span>
+                                        <span className="font-mono font-bold text-safaricom-green">KES {systemTotals.total_cash_in.toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                        <span className="text-gray-500 font-bold text-red-600">Total Disbursements (-)</span>
+                                        <span className="font-mono font-bold text-red-600">KES {cashOut.toLocaleString()}</span>
+                                    </div>
+                                    {ukomboziniRepayment > 0 && (
+                                        <div className="flex justify-between text-sm py-2 border-b border-gray-50">
+                                            <span className="text-gray-500 font-bold text-blue-600">UKOMBOZINI Topup Repay</span>
+                                            <span className="font-mono font-bold text-blue-600">KES {ukomboziniRepayment.toLocaleString()}</span>
                                         </div>
-                                        <p className="font-bold text-lg">KES {(parseFloat(actualCashEnd) - (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment)).toLocaleString()}</p>
+                                    )}
+                                </div>
+
+                                {/* Result Column */}
+                                <div className="p-4 bg-gray-50 rounded-2xl flex flex-col justify-center items-center text-center border border-gray-100">
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-2 tracking-widest">Expected Cash Bag Weight</label>
+                                    <div className="text-3xl font-black text-gray-800 font-mono italic">
+                                        KES {(openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment).toLocaleString()}
                                     </div>
-                                )}
+                                    <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">This amount must match the physical cash counted in the group's safe bag.</p>
+                                </div>
+
+                                {/* Input Column */}
+                                <div className={`p-5 rounded-2xl border-2 transition-all ${actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment))
+                                    ? 'border-red-500 bg-red-50/50'
+                                    : 'border-safaricom-green/30 bg-white'
+                                    }`}>
+                                    <label className="block text-xs font-black text-gray-600 uppercase mb-3 tracking-widest flex items-center gap-1">
+                                        <FaCalculator className="text-[10px]" /> Physical Cash Counted *
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-gray-400">KES</span>
+                                        <input
+                                            type="number"
+                                            value={actualCashEnd}
+                                            onChange={(e) => setActualCashEnd(e.target.value)}
+                                            className="w-full pl-12 pr-4 py-3 text-2xl font-black rounded-xl outline-none bg-transparent"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+
+                                    {actualCashEnd && (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment)) && (
+                                        <div className="mt-4 p-3 bg-red-600 rounded-lg text-white animate-pulse">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <FaExclamationTriangle className="text-sm" />
+                                                <span className="font-black text-xs uppercase tracking-tighter">Variance Detected</span>
+                                            </div>
+                                            <p className="font-bold text-lg">KES {(parseFloat(actualCashEnd) - (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment)).toLocaleString()}</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    {/* Footer Actions */}
-                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50 flex flex-col md:flex-row justify-between items-center md:px-10 gap-4">
-                        <div className="text-sm">
-                            <span className="font-bold text-gray-500 uppercase mr-2">Session Status:</span>
-                            <span className="font-bold text-blue-600">IN PROGRESS</span>
+                        {/* Footer Actions */}
+                        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-50 flex flex-col md:flex-row justify-between items-center md:px-10 gap-4">
+                            <div className="text-sm">
+                                <span className="font-bold text-gray-500 uppercase mr-2">Session Status:</span>
+                                <span className="font-bold text-blue-600">IN PROGRESS</span>
+                            </div>
+
+                            <div className="flex gap-4 w-full md:w-auto">
+                                <button
+                                    onClick={handleSaveDraft}
+                                    className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                                >
+                                    <FaSave /> Save Draft
+                                </button>
+
+                                <button
+                                    onClick={handleCloseMeeting}
+                                    disabled={
+                                        !actualCashEnd ||
+                                        (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment) && !approvalReason) ||
+                                        closingBalance < 0
+                                    }
+                                    className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-safaricom-green text-white font-bold rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-900/20"
+                                >
+                                    <FaPaperPlane /> Submit & Close Session
+                                </button>
+                            </div>
                         </div>
-
-                        <div className="flex gap-4 w-full md:w-auto">
-                            <button
-                                onClick={handleSaveDraft}
-                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
-                            >
-                                <FaSave /> Save Draft
-                            </button>
-
-                            <button
-                                onClick={handleCloseMeeting}
-                                disabled={
-                                    !actualCashEnd ||
-                                    (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment) && !approvalReason) ||
-                                    closingBalance < 0
-                                }
-                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-safaricom-green text-white font-bold rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-900/20"
-                            >
-                                <FaPaperPlane /> Submit & Close Session
-                            </button>
-                        </div>
-                    </div>
-                    {/* Padding for fixed footer */}
-                    <div className="h-24"></div>
-                </>
-            )}
+                        {/* Padding for fixed footer */}
+                        <div className="h-24"></div>
+                    </>
+                )
+            }
 
             {/* SUPERVISOR VIEW (PENDING APPROVAL) */}
-            {sessionStatus === 'PENDING_APPROVAL' && (
-                <div className="bg-yellow-50 border-2 border-yellow-200 p-6 rounded-xl">
-                    <div className="flex items-center gap-3 mb-2">
-                        <FaExclamationTriangle className="text-yellow-600 text-xl" />
-                        <h3 className="font-bold text-yellow-900">Meeting Pending Approval</h3>
+            {
+                sessionStatus === 'PENDING_APPROVAL' && (
+                    <div className="bg-yellow-50 border-2 border-yellow-200 p-6 rounded-xl">
+                        <div className="flex items-center gap-3 mb-2">
+                            <FaExclamationTriangle className="text-yellow-600 text-xl" />
+                            <h3 className="font-bold text-yellow-900">Meeting Pending Approval</h3>
+                        </div>
+                        <p className="text-sm text-yellow-700 mb-4">
+                            This meeting has been closed by the Field Officer. Waiting for Supervisor approval to post to General Ledger.
+                        </p>
+                        <div className="flex gap-4">
+                            <button
+                                className="bg-red-100 text-red-700 px-4 py-2 rounded font-bold"
+                                onClick={handleSupervisorReject}
+                            >
+                                Reject & Unlock
+                            </button>
+                            <button
+                                className="bg-green-600 text-white px-4 py-2 rounded font-bold shadow"
+                                onClick={handleSupervisorApprove}
+                            >
+                                APPROVE OB & POST
+                            </button>
+                        </div>
                     </div>
-                    <p className="text-sm text-yellow-700 mb-4">
-                        This meeting has been closed by the Field Officer. Waiting for Supervisor approval to post to General Ledger.
-                    </p>
-                    <div className="flex gap-4">
-                        <button
-                            className="bg-red-100 text-red-700 px-4 py-2 rounded font-bold"
-                            onClick={handleSupervisorReject}
-                        >
-                            Reject & Unlock
-                        </button>
-                        <button
-                            className="bg-green-600 text-white px-4 py-2 rounded font-bold shadow"
-                            onClick={handleSupervisorApprove}
-                        >
-                            APPROVE OB & POST
-                        </button>
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Status Messages */}
-            {sessionStatus === 'POSTED' && (
-                <div className="bg-blue-50 border-2 border-blue-200 p-6 rounded-xl">
-                    <div className="flex items-center gap-3 mb-2">
-                        <FaCheckCircle className="text-blue-600 text-xl" />
-                        <h3 className="font-bold text-blue-900">Meeting POSTED</h3>
+            {
+                sessionStatus === 'POSTED' && (
+                    <div className="bg-blue-50 border-2 border-blue-200 p-6 rounded-xl">
+                        <div className="flex items-center gap-3 mb-2">
+                            <FaCheckCircle className="text-blue-600 text-xl" />
+                            <h3 className="font-bold text-blue-900">Meeting POSTED</h3>
+                        </div>
+                        <p className="text-sm text-blue-700">
+                            This session has been POSTED to the General Ledger. Balances have been updated.
+                        </p>
                     </div>
-                    <p className="text-sm text-blue-700">
-                        This session has been POSTED to the General Ledger. Balances have been updated.
-                    </p>
-                </div>
-            )}
+                )
+            }
 
-            {sessionStatus === 'approved' && (
-                <div className="bg-green-50 border-2 border-green-200 p-6 rounded-xl">
-                    <div className="flex items-center gap-3 mb-2">
-                        <FaLock className="text-green-600 text-xl" />
-                        <h3 className="font-bold text-green-900">Session Approved & Locked</h3>
+            {
+                sessionStatus === 'approved' && (
+                    <div className="bg-green-50 border-2 border-green-200 p-6 rounded-xl">
+                        <div className="flex items-center gap-3 mb-2">
+                            <FaLock className="text-green-600 text-xl" />
+                            <h3 className="font-bold text-green-900">Session Approved & Locked</h3>
+                        </div>
+                        <p className="text-sm text-green-700">
+                            This session has been approved and is now a permanent record. No further edits are allowed.
+                        </p>
                     </div>
-                    <p className="text-sm text-green-700">
-                        This session has been approved and is now a permanent record. No further edits are allowed.
-                    </p>
-                </div>
-            )}
+                )
+            }
 
             {/* Recover Draft Dialog */}
-            {hasRecoverableDraft && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300">
-                        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-6 mx-auto">
-                            <FaCalculator className="text-amber-600 text-2xl" />
-                        </div>
-                        <h3 className="text-xl font-black text-center text-slate-900 mb-2">Recover Local Draft?</h3>
-                        <p className="text-sm text-slate-500 text-center mb-8">
-                            We found an unsaved meeting draft for <b>{selectedGroup?.name}</b> in your local vault. Would you like to restore it?
-                        </p>
-                        <div className="grid grid-cols-2 gap-4">
-                            <button
-                                onClick={handleDiscardDraft}
-                                className="py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
-                            >
-                                Discard
-                            </button>
-                            <button
-                                onClick={handleRecoverDraft}
-                                className="py-4 bg-safaricom-green text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-green-900/20 hover:scale-105 active:scale-95 transition-all"
-                            >
-                                Recover Data
-                            </button>
+            {
+                hasRecoverableDraft && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300">
+                            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-6 mx-auto">
+                                <FaCalculator className="text-amber-600 text-2xl" />
+                            </div>
+                            <h3 className="text-xl font-black text-center text-slate-900 mb-2">Recover Local Draft?</h3>
+                            <p className="text-sm text-slate-500 text-center mb-8">
+                                We found an unsaved meeting draft for <b>{selectedGroup?.name}</b> in your local vault. Would you like to restore it?
+                            </p>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button
+                                    onClick={handleDiscardDraft}
+                                    className="py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-colors"
+                                >
+                                    Discard
+                                </button>
+                                <button
+                                    onClick={handleRecoverDraft}
+                                    className="py-4 bg-safaricom-green text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-green-900/20 hover:scale-105 active:scale-95 transition-all"
+                                >
+                                    Recover Data
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             <OfflineIndicator />
-        </div>
+        </div >
     );
 };
 
