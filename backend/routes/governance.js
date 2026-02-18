@@ -154,7 +154,7 @@ router.post('/unfreeze', authenticateToken, isAdmin, (req, res) => {
 });
 
 // GET /api/risk/overview (Group Health List)
-router.get('/risk/overview', authenticateToken, isAdmin, async (req, res) => {
+router.get('/overview', authenticateToken, isAdmin, async (req, res) => {
     try {
         const heatmap = await new Promise((resolve) => {
             db.all(`
@@ -187,7 +187,7 @@ router.get('/risk/overview', authenticateToken, isAdmin, async (req, res) => {
 });
 
 // GET /api/risk/dashboard (Analytics View)
-router.get('/risk/dashboard', authenticateToken, isAdmin, async (req, res) => {
+router.get('/dashboard', authenticateToken, isAdmin, async (req, res) => {
     try {
         const [scores, alerts] = await Promise.all([
             new Promise((resolve) => {
@@ -228,7 +228,7 @@ router.get('/risk/dashboard', authenticateToken, isAdmin, async (req, res) => {
 });
 
 // POST /api/risk/recalculate-all
-router.post('/risk/recalculate-all', authenticateToken, isAdmin, async (req, res) => {
+router.post('/recalculate-all', authenticateToken, isAdmin, async (req, res) => {
     try {
         const groups = await new Promise((resolve) => {
             db.all("SELECT id FROM groups", (err, rows) => resolve(rows || []));
@@ -246,7 +246,7 @@ router.post('/risk/recalculate-all', authenticateToken, isAdmin, async (req, res
 });
 
 // GET /api/admin/system-settings (Mirrored for compatibility)
-router.get('/admin/system-settings', authenticateToken, isAdmin, (req, res) => {
+router.get('/system-settings', authenticateToken, isAdmin, (req, res) => {
     db.all("SELECT * FROM system_settings", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
@@ -254,7 +254,7 @@ router.get('/admin/system-settings', authenticateToken, isAdmin, (req, res) => {
 });
 
 // POST /api/admin/settings
-router.post('/admin/settings', authenticateToken, isAdmin, (req, res) => {
+router.post('/settings', authenticateToken, isAdmin, (req, res) => {
     const { key, value, description } = req.body;
     db.run("INSERT OR REPLACE INTO system_settings (key, value, description) VALUES (?, ?, ?)",
         [key, value, description], function (err) {

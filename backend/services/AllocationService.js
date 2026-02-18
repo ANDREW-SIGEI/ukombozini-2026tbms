@@ -89,7 +89,7 @@ const AllocationService = {
 
         // Get Group ID from Session
         const session = await new Promise((resolve, reject) => {
-            db.get("SELECT group_id FROM meeting_sessions WHERE id = ?", [sessionId], (err, r) => {
+            db.get("SELECT groupId FROM meeting_sessions WHERE id = ?", [sessionId], (err, r) => {
                 if (err) return reject(err);
                 resolve(r);
             });
@@ -97,7 +97,7 @@ const AllocationService = {
 
         if (!session) throw new Error("Session not found");
 
-        const rules = await this.getGroupRules(session.group_id);
+        const rules = await this.getGroupRules(session.groupId);
 
         const allocations = {
             stl: surplus * rules.stl_pct,
@@ -110,7 +110,7 @@ const AllocationService = {
 
         return {
             sessionId,
-            groupId: session.group_id, // Fix consistency: group_id instead of groupId
+            groupId: session.groupId,
             cashIn,
             cashOut,
             surplus,
@@ -120,22 +120,57 @@ const AllocationService = {
     },
 
     /**
+     * Calculate Service Fee
+     * Rule: 1% for 10k-300k, capped at 3k beyond that.
+     */
+    calculateServiceFee(amount) {
+        if (!amount || amount < 10000) return 0;
+        if (amount > 300000) return 3000;
+        return Math.round(amount * 0.01);
+    },
+
+    /**
      * Commit Allocation to Table
      */
-    async commitAllocation(sessionId) {
+    async commitAllocation(sessionId, detailedAllocations = {}) {
         const preview = await this.previewAllocation(sessionId);
+
+        // Merge preview surplus with user-provided detailed buckets
+        const data = {
+            ...preview,
+            ...detailedAllocations
+        };
 
         return new Promise((resolve, reject) => {
             db.run(`
                 INSERT INTO group_share_snapshots (
-                    session_id, group_id, total_cash_in, total_cash_out, net_surplus, status
-                ) VALUES (?, ?, ?, ?, ?, 'COMMITTED')
+                    session_id, group_id, total_cash_in, total_cash_out, net_surplus, status,
+                    service_fees, stl_disbursed, ltl_disbursed, withdrawals,
+                    welfare_out, edu_project_out, agri_project_out
+                ) VALUES (?, ?, ?, ?, ?, 'COMMITTED', ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET 
                     total_cash_in = excluded.total_cash_in,
                     total_cash_out = excluded.total_cash_out,
                     net_surplus = excluded.net_surplus,
-                    status = 'COMMITTED'
-            `, [sessionId, preview.groupId, preview.cashIn, preview.cashOut, preview.surplus], function (err) {
+                    status = 'COMMITTED',
+                    service_fees = excluded.service_fees,
+                    stl_disbursed = excluded.stl_disbursed,
+                    ltl_disbursed = excluded.ltl_disbursed,
+                    withdrawals = excluded.withdrawals,
+                    welfare_out = excluded.welfare_out,
+                    edu_project_out = excluded.edu_project_out,
+                    agri_project_out = excluded.agri_project_out,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [
+                sessionId, data.groupId, data.cashIn, data.cashOut, data.surplus,
+                data.service_fees || 0,
+                data.stl_disbursed || 0,
+                data.ltl_disbursed || 0,
+                data.withdrawals || 0,
+                data.welfare_out || 0,
+                data.edu_project_out || 0,
+                data.agri_project_out || 0
+            ], function (err) {
                 if (err) return reject(err);
                 resolve({ success: true, id: this.lastID });
             });

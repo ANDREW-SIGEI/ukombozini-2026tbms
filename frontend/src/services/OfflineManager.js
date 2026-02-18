@@ -430,6 +430,23 @@ class OfflineManager {
     }
 
     /**
+     * Clear all pending transactions from the queue (Manual recovery)
+     */
+    async clearPendingTransactions() {
+        if (!this.db) return;
+        const tx = this.db.transaction(['pendingTransactions'], 'readwrite');
+        const store = tx.objectStore('pendingTransactions');
+        return new Promise((resolve, reject) => {
+            const request = store.clear();
+            request.onsuccess = () => {
+                console.log('✅ Offline queue cleared manually.');
+                resolve(true);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
      * Get sync queue
      */
     async getSyncQueue() {
@@ -449,16 +466,8 @@ class OfflineManager {
         };
     }
 
-    /**
-     * Sync pending transactions with the server
-     */
-    // Duplicate syncPendingTransactions removed.
-    // The correct version is defined earlier (around line 172) handling various transaction types.
-
     updateSyncIndicators(message) {
-        window.dispatchEvent(new CustomEvent('offline-notification', {
-            detail: { message }
-        }));
+        this.showNotification(message);
     }
 
     /**

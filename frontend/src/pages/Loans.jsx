@@ -68,7 +68,7 @@ const Loans = () => {
 
     const filteredLoans = loans.filter(loan => {
         const matchesSearch =
-            loan.members?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            loan.member_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             loan.id.toString().includes(searchTerm);
 
         const matchesFilter = filterStatus === 'ALL' || loan.status === filterStatus ||
@@ -83,11 +83,11 @@ const Loans = () => {
 
         const exportData = filteredLoans.map(l => ({
             id: l.id,
-            member: l.members?.full_name || 'Unknown',
+            member: l.member_name || 'Unknown',
             principal: l.principal_amount || 0,
             status: l.status,
             duration: l.duration_months,
-            repayable: l.total_repayable || 0,
+            repayable: l.total_repayment || 0,
             issued: new Date(l.created_at).toLocaleDateString()
         }));
 
@@ -118,7 +118,7 @@ const Loans = () => {
     };
 
     const handleViewSchedule = async (loan) => {
-        setScheduleModal({ ...scheduleModal, loading: true, isOpen: true, loan: { id: loan.id, member_name: loan.members?.full_name } });
+        setScheduleModal({ ...scheduleModal, loading: true, isOpen: true, loan: { id: loan.id, member_name: loan.member_name } });
         try {
             const data = await api.getLoanSchedule(loan.id);
             setScheduleModal(prev => ({ ...prev, schedule: data || [], loading: false }));
@@ -291,17 +291,17 @@ const Loans = () => {
                                 filteredLoans.map((loan) => (
                                     <tr key={loan.id} className="hover:bg-blue-50/50 transition-colors group">
                                         <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-800">{loan.members?.full_name || 'Unknown Member'}</div>
+                                            <div className="font-bold text-gray-800">{loan.member_name || 'Unknown Member'}</div>
                                             <div className="text-xs font-mono text-gray-500">#{loan.id.toString().substring(0, 8)}...</div>
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-gray-700">
                                             KES {(loan.principal_amount || 0).toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-safaricom-green">
-                                            KES {loan.total_repayable?.toLocaleString()}
+                                            KES {loan.total_repayment ? loan.total_repayment.toLocaleString() : 'N/A'}
                                         </td>
                                         <td className="px-6 py-4 text-sm font-bold text-gray-600">
-                                            {loan.duration_months} Months
+                                            {loan.duration_months ? `${loan.duration_months} Month${loan.duration_months > 1 ? 's' : ''}` : 'N/A'}
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border ${getStatusStyle(loan.status)}`}>

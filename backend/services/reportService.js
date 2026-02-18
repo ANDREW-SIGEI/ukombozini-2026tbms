@@ -30,7 +30,7 @@ const reportService = {
                     if (err) return reject(err);
 
                     try {
-                        const doc = new PDFDocument({ margin: 30, size: 'A4' });
+                        const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
                         let buffers = [];
                         doc.on('data', buffers.push.bind(buffers));
                         doc.on('end', () => {
@@ -165,6 +165,7 @@ const reportService = {
                         const doc = new PDFDocument({
                             margin: 40,
                             size: 'A4',
+                            bufferPages: true,
                             info: {
                                 Title: `Member Statement - ${member.name}`,
                                 Author: 'UKOMBOZINI TBMS',
@@ -456,7 +457,7 @@ const reportService = {
                     if (err) return reject(err);
 
                     try {
-                        const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
+                        const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape', bufferPages: true });
                         let buffers = [];
                         doc.on('data', buffers.push.bind(buffers));
                         doc.on('end', () => {
@@ -570,7 +571,7 @@ const reportService = {
                 if (err) return reject(err);
 
                 try {
-                    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+                    const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
                     let buffers = [];
                     doc.on('data', buffers.push.bind(buffers));
                     doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -656,7 +657,7 @@ const reportService = {
                 if (err) return reject(err);
 
                 try {
-                    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+                    const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
                     let buffers = [];
                     doc.on('data', buffers.push.bind(buffers));
                     doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -729,7 +730,7 @@ const reportService = {
                     gap = 0
                 } = data;
 
-                const doc = new PDFDocument({ margin: 40, size: 'A4' });
+                const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
                 let buffers = [];
                 doc.on('data', buffers.push.bind(buffers));
                 doc.on('end', () => resolve(Buffer.concat(buffers)));

@@ -189,7 +189,7 @@ const MeetingLedger = ({ sessionId, onClose }) => {
                                 <p className="text-[10px] font-black text-emerald-600 uppercase">Available Surplus</p>
                                 <p className="text-xl font-black text-emerald-800">KES {allocation.surplus.toLocaleString()}</p>
                             </div>
-                            {allocation.splits.map((split, idx) => (
+                            {(allocation?.splits || []).map((split, idx) => (
                                 <div key={idx} className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm">
                                     <p className="text-[10px] font-black text-slate-400 uppercase">{split.ledger}</p>
                                     <p className="text-lg font-black text-slate-800">KES {split.amount.toLocaleString()}</p>

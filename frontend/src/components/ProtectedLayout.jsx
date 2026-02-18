@@ -33,7 +33,7 @@ const ProtectedLayout = ({ children, allowedRoles = [] }) => {
             interval = setInterval(checkHealth, 30000); // Check every 30s
         }
         return () => clearInterval(interval);
-    }, [user]); const location = useLocation();
+    }, [user]);
 
     // console.log('[ProtectedLayout] Check. Loading:', loading, 'User:', user?.email);
 

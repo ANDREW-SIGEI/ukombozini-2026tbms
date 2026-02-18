@@ -23,7 +23,12 @@ import {
     FaShieldAlt,
     FaExclamationTriangle,
     FaBox,
-    FaPlay
+    FaPlay,
+    FaBolt,
+    FaCheckDouble,
+    FaArrowRight,
+    FaLeaf,
+    FaGraduationCap
 } from 'react-icons/fa';
 import { FaHandHoldingDollar } from 'react-icons/fa6';
 import { toast } from 'react-toastify';
@@ -32,37 +37,92 @@ import { useAuth } from '../context/AuthContext';
 import MeetingLedger from '../components/MeetingLedger';
 import SmartTransactionPanel from '../components/SmartTransactionPanel';
 import NotificationService from '../services/NotificationService';
-
 import { api } from '../services/api';
+import offlineManager from '../services/OfflineManager';
 import SearchableGroupSelector from '../components/SearchableGroupSelector';
+
+/**
+ * TransactionInput Component for grid-based entry
+ */
+const TransactionInput = ({ value, onChange, disabled, rowIndex, colIndex, totalRows, totalCols, placeholder = "0" }) => {
+    const handleKeyDown = (e) => {
+        const { key } = e;
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(key)) {
+            e.preventDefault();
+
+            let nextRow = rowIndex;
+            let nextCol = colIndex;
+
+            if (key === 'ArrowUp') nextRow = Math.max(0, rowIndex - 1);
+            if (key === 'ArrowDown' || key === 'Enter') {
+                if (colIndex === totalCols - 1 || key === 'Enter') {
+                    if (rowIndex < totalRows - 1) {
+                        nextRow = rowIndex + 1;
+                        nextCol = 0;
+                    }
+                } else {
+                    nextRow = Math.min(totalRows - 1, rowIndex + 1);
+                }
+            }
+            if (key === 'ArrowLeft') nextCol = Math.max(0, colIndex - 1);
+            if (key === 'ArrowRight') nextCol = Math.min(totalCols - 1, colIndex + 1);
+
+            const nextInput = document.querySelector(`input[data-cockpit-row="${nextRow}"][data-cockpit-col="${nextCol}"]`);
+            if (nextInput) {
+                nextInput.focus();
+                nextInput.select();
+            }
+        }
+    };
+
+    return (
+        <input
+            type="number"
+            min="0"
+            step="10"
+            value={value === 0 ? '' : value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={(e) => e.target.select()}
+            disabled={disabled}
+            data-cockpit-row={rowIndex}
+            data-cockpit-col={colIndex}
+            className={`w-full px-2 py-1.5 text-right border-2 rounded-lg focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none font-bold transition-all text-xs ${disabled ? 'bg-gray-50 opacity-40 cursor-not-allowed border-gray-100' : 'bg-white border-slate-100 text-slate-700'
+                }`}
+            placeholder={placeholder}
+        />
+    );
+};
 
 const MeetingSessions = () => {
     const [meetings, setMeetings] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('ALL');
     const [searchTerm, setSearchTerm] = useState('');
+    const [showAllSessions, setShowAllSessions] = useState(false);
+
     const [showOpenModal, setShowOpenModal] = useState(false);
     const [showCloseModal, setShowCloseModal] = useState(false);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [closingNotes, setClosingNotes] = useState('');
     const [showLedger, setShowLedger] = useState(false);
 
-    // Meeting Cockpit State
+    // Cockpit State
     const [showCockpit, setShowCockpit] = useState(false);
     const [cockpitSession, setCockpitSession] = useState(null);
     const [sessionMembers, setSessionMembers] = useState([]);
-    const [memberTransactions, setMemberTransactions] = useState({});
+    const [memberTransactions, setMemberTransactions] = useState([]); // Array of objects for grid
     const [memberAttendance, setMemberAttendance] = useState({});
-    const [selectedMember, setSelectedMember] = useState(null);
-    const [showTransactionPanel, setShowTransactionPanel] = useState(false);
     const [cockpitLoading, setCockpitLoading] = useState(false);
     const [memberSearchTerm, setMemberSearchTerm] = useState('');
-    const [loansDue, setLoansDue] = useState({});
+    const [isStandardMode, setIsStandardMode] = useState(true);
     const [groupExposure, setGroupExposure] = useState(null);
+    const [loansDue, setLoansDue] = useState({});
+    const [riskMetrics, setRiskMetrics] = useState({});
 
     // Group Actions State
     const [showGroupLoanModal, setShowGroupLoanModal] = useState(false);
-    const [groupLoanType, setGroupLoanType] = useState(null); // 'STL' or 'LTL'
+    const [groupLoanType, setGroupLoanType] = useState(null);
     const [groupLoanAmount, setGroupLoanAmount] = useState('');
     const [groupLoanNotes, setGroupLoanNotes] = useState('');
     const [processingGroupLoan, setProcessingGroupLoan] = useState(false);
@@ -80,245 +140,24 @@ const MeetingSessions = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [editId, setEditId] = useState(null);
 
-    // Search state for new meeting modal
-    const [groupSearchQuery, setGroupSearchQuery] = useState('');
-
     const { groups } = useTransactions();
-    const { user } = useAuth();
+    const { user, isAuditor } = useAuth();
 
-    // Current user from auth context
-    const currentUser = {
-        id: user?.id || 1,
-        name: user?.name || 'System',
-        role: user?.role || 'Officer'
-    };
-
-    // Matrix Security: Check if user has elevated privileges
     const isElevatedRole = useMemo(() => {
         const role = (user?.role || '').toLowerCase();
         return role.includes('admin') || role.includes('director') || role.includes('auditor') || role === 'super_user';
     }, [user?.role]);
 
-    // Matrix Security: Get officer's assigned group IDs
     const assignedGroupIds = useMemo(() => {
-        if (isElevatedRole) return null; // null means all access
+        if (isElevatedRole) return null;
         return user?.assigned_group_ids || user?.groupIds || [];
     }, [user, isElevatedRole]);
 
-    // Matrix-filtered groups for new meeting modal
     const matrixFilteredGroups = useMemo(() => {
         if (isElevatedRole || !assignedGroupIds) return groups;
         return groups.filter(g => assignedGroupIds.includes(g.id));
     }, [groups, assignedGroupIds, isElevatedRole]);
 
-    // Cockpit Attendance Stats
-    const attendanceStats = useMemo(() => {
-        const values = Object.values(memberAttendance);
-        const present = values.filter(v => v === 'PRESENT' || v === 'LATE').length;
-        const absent = values.filter(v => v === 'ABSENT').length;
-        const late = values.filter(v => v === 'LATE').length;
-        const total = sessionMembers.length;
-        const percent = total > 0 ? Math.round((present / total) * 100) : 0;
-
-        return { present, absent, late, total, percent };
-    }, [memberAttendance, sessionMembers]);
-
-    // Open Meeting Cockpit for an active session
-    const openCockpit = async (meeting) => {
-        setCockpitLoading(true);
-        setShowCockpit(true);
-        setCockpitSession(meeting);
-
-        try {
-            // Fetch group members
-            const members = await api.getMembersByGroup(meeting.group_id);
-            setSessionMembers(members || []);
-
-            // Fetch attendance
-            try {
-                const attendanceData = await api.getAttendance(meeting.id);
-                const attendanceMap = {};
-                (attendanceData || []).forEach(a => {
-                    attendanceMap[a.member_id] = a.status;
-                });
-                // Fill defaults for missing members
-                (members || []).forEach(m => {
-                    if (!attendanceMap[m.id]) attendanceMap[m.id] = 'PRESENT';
-                });
-                setMemberAttendance(attendanceMap);
-            } catch (err) {
-                console.log('Using default attendance');
-                const initialAttendance = {};
-                (members || []).forEach(m => {
-                    initialAttendance[m.id] = 'PRESENT';
-                });
-                setMemberAttendance(initialAttendance);
-            }
-
-            // Fetch Loan Due Summary
-            try {
-                const dueData = await api.getLoansDueSummary(meeting.group_id);
-                const dueMap = {};
-                (dueData || []).forEach(d => {
-                    dueMap[d.member_id] = d;
-                });
-                setLoansDue(dueMap);
-            } catch (err) {
-                console.log('Failed to fetch due summary');
-                setLoansDue({});
-            }
-
-            // Fetch Group Exposure/Portfolio status
-            try {
-                const exposure = await api.getGroupExposure(meeting.group_id);
-                setGroupExposure(exposure);
-            } catch (err) {
-                console.error('Failed to fetch group exposure:', err);
-            }
-
-            // Fetch session transactions to show member statuses
-            await fetchSessionTransactions(meeting.id);
-        } catch (error) {
-            console.error('Failed to load cockpit data:', error);
-            toast.error('Failed to load session members');
-        } finally {
-            setCockpitLoading(false);
-        }
-    };
-
-    const fetchSessionTransactions = async (sessionId) => {
-        try {
-            const txData = await api.getSessionTransactions(sessionId);
-            const txByMember = {};
-            (txData || []).forEach(tx => {
-                if (!txByMember[tx.member_id]) {
-                    txByMember[tx.member_id] = { savings: 0, welfare: 0, stl_repay: 0, ltl_repay: 0, penalty: 0, product_repay: 0 };
-                }
-                const type = tx.type?.toLowerCase() || '';
-                if (type === 'savings' || type === 'contribution') txByMember[tx.member_id].savings += tx.amount;
-                else if (type === 'welfare') txByMember[tx.member_id].welfare += tx.amount;
-                else if (type === 'loanrepayment' && tx.loan_type === 'STL') txByMember[tx.member_id].stl_repay += tx.amount;
-                else if (type === 'loanrepayment' && tx.loan_type === 'LTL') txByMember[tx.member_id].ltl_repay += tx.amount;
-                else if (type === 'penalty' || tx.transaction_type === 'PENALTY') txByMember[tx.member_id].penalty += tx.amount;
-                else if (type === 'productfinancing' || type === 'product_repay') txByMember[tx.member_id].product_repay += tx.amount;
-            });
-            setMemberTransactions(txByMember);
-        } catch (err) {
-            console.log('No session transactions yet');
-            setMemberTransactions({});
-        }
-    };
-
-    // Close cockpit and go back to list
-    const closeCockpit = () => {
-        setShowCockpit(false);
-        setCockpitSession(null);
-        setSessionMembers([]);
-        setMemberTransactions({});
-        setSelectedMember(null);
-        setMemberSearchTerm('');
-    };
-
-    // Handle group loan repayment to Ukombozini
-    const handleGroupLoanRepayment = async () => {
-        if (!groupLoanAmount || parseFloat(groupLoanAmount) <= 0) {
-            toast.error('Please enter a valid repayment amount');
-            return;
-        }
-
-        setProcessingGroupLoan(true);
-        try {
-            const payload = {
-                groupId: cockpitSession.group_id,
-                sessionId: cockpitSession.id,
-                transaction_type: 'GROUP_LOAN_REPAYMENT',
-                amount: parseFloat(groupLoanAmount),
-                loanType: groupLoanType, // 'STL' or 'LTL'
-                description: groupLoanNotes || `Group ${groupLoanType} Repayment to Ukombozini`,
-                memberId: 0 // Using 0 for group-level actions
-            };
-
-            const res = await api.postTransaction(payload);
-
-            if (res?.success) {
-                toast.success(`${groupLoanType} Repayment of KES ${parseFloat(groupLoanAmount).toLocaleString()} recorded!`);
-
-                // Reset and close
-                setShowGroupLoanModal(false);
-                setGroupLoanAmount('');
-                setGroupLoanNotes('');
-                setGroupLoanType(null);
-
-                // Refresh cockpit data
-                openCockpit(cockpitSession);
-            }
-        } catch (error) {
-            console.error('Group loan repayment error:', error);
-            const msg = error.response?.data?.error || 'Failed to record group repayment';
-            toast.error(msg);
-        } finally {
-            setProcessingGroupLoan(false);
-        }
-    };
-
-    // Handle member click - open transaction panel
-    const handleMemberClick = (member) => {
-        setSelectedMember(member);
-        setShowTransactionPanel(true);
-    };
-
-    // Toggle attendance states: PRESENT -> LATE -> ABSENT
-    const toggleAttendance = async (memberId) => {
-        const currentStatus = memberAttendance[memberId] || 'PRESENT';
-        const statuses = ['PRESENT', 'LATE', 'ABSENT'];
-        const nextIndex = (statuses.indexOf(currentStatus) + 1) % statuses.length;
-        const nextStatus = statuses[nextIndex];
-
-        try {
-            const res = await api.recordAttendance(cockpitSession.id, memberId, nextStatus);
-            setMemberAttendance(prev => ({
-                ...prev,
-                [memberId]: nextStatus
-            }));
-
-            if (res.message && res.message.includes('penalty')) {
-                toast.info(res.message, { autoClose: 5000 });
-                // Refresh transactions to show penalty
-                await fetchSessionTransactions(cockpitSession.id);
-            } else {
-                toast.success(`Marked as ${nextStatus}`);
-            }
-        } catch (error) {
-            console.error('Attendance update failed:', error);
-            toast.error("Failed to update attendance");
-        }
-    };
-
-
-    // Filtered members for cockpit search
-    const filteredSessionMembers = useMemo(() => {
-        if (!memberSearchTerm.trim()) return sessionMembers;
-        return sessionMembers.filter(m =>
-            m.name.toLowerCase().includes(memberSearchTerm.toLowerCase()) ||
-            m.phone?.includes(memberSearchTerm)
-        );
-    }, [sessionMembers, memberSearchTerm]);
-
-    // Calculate session totals
-    const sessionTotals = useMemo(() => {
-        let savings = 0, welfare = 0, stl = 0, ltl = 0, penalty = 0, product = 0;
-        Object.values(memberTransactions).forEach(tx => {
-            savings += tx.savings || 0;
-            welfare += tx.welfare || 0;
-            stl += tx.stl_repay || 0;
-            ltl += tx.ltl_repay || 0;
-            penalty += tx.penalty || 0;
-            product += tx.product_repay || 0;
-        });
-        return { savings, welfare, stl, ltl, penalty, product, total: savings + welfare + stl + ltl + penalty + product };
-    }, [memberTransactions]);
-
-    // Fetch meetings on mount
     useEffect(() => {
         loadMeetings();
     }, []);
@@ -327,7 +166,29 @@ const MeetingSessions = () => {
         setIsLoading(true);
         try {
             const data = await api.getMeetingSessions();
-            setMeetings(data);
+
+            // [NEW] Merge pending offline transactions for immediate accumulation visibility in list
+            const pendingTxs = await offlineManager.getPendingTransactions();
+            const enrichedMeetings = (data || []).map(m => {
+                const sessionPending = pendingTxs.filter(tx =>
+                    (tx.data?.meetingId === m.id || tx.data?.sessionId === m.id || tx.meetingId === m.id || tx.sessionId === m.id)
+                );
+
+                if (sessionPending.length > 0) {
+                    const pendingTotal = sessionPending.reduce((sum, tx) => {
+                        const amount = tx.data?.amount || tx.amount || 0;
+                        return sum + parseFloat(amount);
+                    }, 0);
+
+                    return {
+                        ...m,
+                        total_collected: (parseFloat(m.total_collected) || 0) + pendingTotal
+                    };
+                }
+                return m;
+            });
+
+            setMeetings(enrichedMeetings);
         } catch (error) {
             toast.error("Failed to load meetings");
         } finally {
@@ -335,44 +196,253 @@ const MeetingSessions = () => {
         }
     };
 
-    // Filter meetings by status AND matrix (officer-group assignment)
-    const filteredMeetings = useMemo(() => {
-        let filtered = meetings;
+    const openCockpit = async (meeting) => {
+        setCockpitLoading(true);
+        setShowCockpit(true);
+        setCockpitSession(meeting);
 
-        // Matrix filtering: Field Officers only see their assigned groups
-        if (!isElevatedRole && assignedGroupIds && assignedGroupIds.length > 0) {
-            filtered = filtered.filter(m => assignedGroupIds.includes(m.group_id));
+        try {
+            const [members, attendance, dueSummary, exposure, sessionTxs] = await Promise.all([
+                api.getMembersByGroup(meeting.group_id),
+                api.getAttendance(meeting.id).catch(() => []),
+                api.getLoansDueSummary(meeting.group_id).catch(() => []),
+                api.getGroupExposure(meeting.group_id).catch(() => null),
+                api.getSessionTransactions(meeting.id).catch(() => [])
+            ]);
+
+            setSessionMembers(members || []);
+            setGroupExposure(exposure);
+            setRiskMetrics(exposure?.memberMetrics || {});
+
+            const attendanceMap = {};
+            (attendance || []).forEach(a => { attendanceMap[a.member_id] = a.status; });
+            (members || []).forEach(m => { if (!attendanceMap[m.id]) attendanceMap[m.id] = 'PRESENT'; });
+            setMemberAttendance(attendanceMap);
+
+            const dueMap = {};
+            (dueSummary || []).forEach(d => { dueMap[d.member_id] = d; });
+            setLoansDue(dueMap);
+
+            // Fetch group settings for defaults
+            const groupDetails = await api.getGroupById(meeting.group_id).catch(() => null);
+
+            // Map existing transactions to member rows
+            const txByMember = {};
+            (sessionTxs || []).forEach(tx => {
+                if (!txByMember[tx.member_id]) {
+                    txByMember[tx.member_id] = { savings: 0, welfare: 0, stl_repay: 0, ltl_repay: 0, penalty: 0, product_repay: 0, agri: 0, edu: 0 };
+                }
+                const type = tx.type?.toLowerCase() || tx.transaction_type?.toLowerCase() || '';
+                if (type === 'savings' || type === 'contribution') txByMember[tx.member_id].savings += tx.amount;
+                else if (type === 'welfare') txByMember[tx.member_id].welfare += tx.amount;
+                else if (type === 'loan_repayment' && tx.loan_type === 'STL') txByMember[tx.member_id].stl_repay += tx.amount;
+                else if (type === 'loan_repayment' && tx.loan_type === 'LTL') txByMember[tx.member_id].ltl_repay += tx.amount;
+                else if (type === 'penalty') txByMember[tx.member_id].penalty += tx.amount;
+                else if (type === 'product_financing_repayment') txByMember[tx.member_id].product_repay += tx.amount;
+                else if (type === 'project_savings' && tx.project_type === 'AGRICULTURE') txByMember[tx.member_id].agri += tx.amount;
+                else if (type === 'project_savings' && tx.project_type === 'EDUCATION') txByMember[tx.member_id].edu += tx.amount;
+            });
+
+            // [NEW] Merge pending offline transactions for immediate accumulation visibility
+            const pendingTxs = await offlineManager.getPendingTransactions();
+            pendingTxs.filter(tx => (tx.data?.sessionId === meeting.id || tx.data?.meetingId === meeting.id)).forEach(tx => {
+                const data = tx.data;
+                const mId = data.memberId;
+                if (!txByMember[mId]) {
+                    txByMember[mId] = { savings: 0, welfare: 0, stl_repay: 0, ltl_repay: 0, penalty: 0, product_repay: 0, agri: 0, edu: 0 };
+                }
+                const type = data.transaction_type?.toLowerCase() || tx.type?.toLowerCase() || '';
+                if (type === 'savings' || type === 'contribution' || type === 'contributions') txByMember[mId].savings += data.amount;
+                else if (type === 'welfare') txByMember[mId].welfare += data.amount;
+                else if (type === 'loan_repayment' && data.loanType === 'STL') txByMember[mId].stl_repay += data.amount;
+                else if (type === 'loan_repayment' && data.loanType === 'LTL') txByMember[mId].ltl_repay += data.amount;
+                else if (type === 'penalty') txByMember[mId].penalty += data.amount;
+                else if (type === 'product_financing_repayment') txByMember[mId].product_repay += data.amount;
+                else if (type === 'project_savings' && data.project_type === 'AGRICULTURE') txByMember[mId].agri += data.amount;
+                else if (type === 'project_savings' && data.project_type === 'EDUCATION') txByMember[mId].edu += data.amount;
+            });
+
+            // Initialize Grid
+            const gridData = (members || []).map(m => ({
+                id: m.id,
+                name: m.name || m.full_name || m.fullName,
+                phone: m.phone,
+                attendance: attendanceMap[m.id] || 'PRESENT',
+                savings: txByMember[m.id]?.savings || (isStandardMode ? (groupDetails?.default_savings || 500) : 0),
+                welfare: txByMember[m.id]?.welfare || (isStandardMode ? (groupDetails?.default_welfare || 100) : 0),
+                stl_repay: txByMember[m.id]?.stl_repay || 0,
+                ltl_repay: txByMember[m.id]?.ltl_repay || 0,
+                penalty: txByMember[m.id]?.penalty || 0,
+                product_repay: txByMember[m.id]?.product_repay || 0,
+                agri: txByMember[m.id]?.agri || 0,
+                edu: txByMember[m.id]?.edu || 0,
+                committed: !!txByMember[m.id] // Mark as done if transactions exist
+            }));
+
+            setMemberTransactions(gridData);
+        } catch (error) {
+            console.error('Failed to load cockpit data:', error);
+            toast.error('Failed to load session data');
+        } finally {
+            setCockpitLoading(false);
         }
-
-        // Status filtering
-        if (filterStatus !== 'ALL') {
-            filtered = filtered.filter(m => m.status === filterStatus);
-        }
-
-        // Search filtering
-        if (searchTerm.trim()) {
-            const query = searchTerm.toLowerCase();
-            filtered = filtered.filter(m =>
-                (m.session_number || '').toLowerCase().includes(query) ||
-                (m.group_name || '').toLowerCase().includes(query)
-            );
-        }
-
-        return filtered;
-    }, [meetings, filterStatus, isElevatedRole, assignedGroupIds, searchTerm]);
-
-    // Get active meeting for a group
-    const getActiveMeeting = (groupId) => {
-        return meetings.find(m => m.group_id === groupId && m.status === 'ACTIVE');
     };
 
-    // Save current meeting (Create or Update)
-    const handleSaveMeeting = async () => {
-        if (!newMeeting.group_id) {
-            toast.error('Please select a group');
-            return;
+    const updateGridValue = (memberId, field, value) => {
+        setMemberTransactions(prev => prev.map(m =>
+            m.id === memberId ? { ...m, [field]: value } : m
+        ));
+    };
+
+    const toggleAttendance = async (memberId) => {
+        const current = memberTransactions.find(m => m.id === memberId)?.attendance || 'PRESENT';
+        const order = ['PRESENT', 'LATE', 'ABSENT'];
+        const next = order[(order.indexOf(current) + 1) % order.length];
+
+        try {
+            await api.recordAttendance(cockpitSession.id, memberId, next);
+            setMemberTransactions(prev => prev.map(m =>
+                m.id === memberId ? { ...m, attendance: next } : m
+            ));
+            toast.success(`Marked as ${next}`, { autoClose: 1000 });
+        } catch (err) {
+            toast.error("Failed to update attendance");
+        }
+    };
+
+    const handleCommitMember = async (member) => {
+        if (isAuditor) return toast.warning("🛡️ Auditor Mode: Commit blocked.");
+
+        const total = parseFloat(member.savings || 0) +
+            parseFloat(member.welfare || 0) +
+            parseFloat(member.stl_repay || 0) +
+            parseFloat(member.ltl_repay || 0) +
+            parseFloat(member.penalty || 0) +
+            parseFloat(member.product_repay || 0) +
+            parseFloat(member.agri || 0) +
+            parseFloat(member.edu || 0);
+
+        if (total === 0 && member.attendance === 'PRESENT') {
+            return toast.warning(`No amounts entered for ${member.name}`);
         }
 
+        toast.info(`💾 Committing entries for ${member.name}...`);
+
+        try {
+            const promises = [];
+
+            if (parseFloat(member.savings) > 0) promises.push(api.postContribution({
+                memberId: member.id,
+                meetingId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                type: 'CONTRIBUTION',
+                amount: parseFloat(member.savings),
+                savings_amount: parseFloat(member.savings)
+            }));
+
+            if (parseFloat(member.welfare) > 0) promises.push(api.postContribution({
+                memberId: member.id,
+                meetingId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                type: 'WELFARE',
+                amount: parseFloat(member.welfare),
+                welfare: parseFloat(member.welfare)
+            }));
+
+            if (parseFloat(member.stl_repay) > 0) promises.push(api.postTransaction({
+                memberId: member.id,
+                sessionId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                transaction_type: 'LOAN_REPAYMENT',
+                amount: parseFloat(member.stl_repay),
+                loanType: 'STL'
+            }));
+
+            if (parseFloat(member.ltl_repay) > 0) promises.push(api.postTransaction({
+                memberId: member.id,
+                sessionId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                transaction_type: 'LOAN_REPAYMENT',
+                amount: parseFloat(member.ltl_repay),
+                loanType: 'LTL'
+            }));
+
+            if (parseFloat(member.penalty) > 0) promises.push(api.postTransaction({
+                memberId: member.id,
+                sessionId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                transaction_type: 'PENALTY',
+                amount: parseFloat(member.penalty)
+            }));
+
+            if (parseFloat(member.product_repay) > 0) promises.push(api.postTransaction({
+                memberId: member.id,
+                sessionId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                transaction_type: 'PRODUCT_FINANCING_REPAYMENT',
+                amount: parseFloat(member.product_repay)
+            }));
+
+            if (parseFloat(member.agri) > 0) promises.push(api.postTransaction({
+                memberId: member.id,
+                sessionId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                transaction_type: 'PROJECT_SAVINGS',
+                project_type: 'AGRICULTURE',
+                amount: parseFloat(member.agri)
+            }));
+
+            if (parseFloat(member.edu) > 0) promises.push(api.postTransaction({
+                memberId: member.id,
+                sessionId: cockpitSession.id,
+                groupId: cockpitSession.group_id,
+                transaction_type: 'PROJECT_SAVINGS',
+                project_type: 'EDUCATION',
+                amount: parseFloat(member.edu)
+            }));
+
+            await Promise.all(promises);
+            updateGridValue(member.id, 'committed', true);
+            toast.success(`✓ Entries for ${member.name} persisted!`);
+        } catch (error) {
+            toast.error(`Failed to commit ${member.name}`);
+        }
+    };
+
+    const handleCommitAll = async () => {
+        const pending = memberTransactions.filter(m => !m.committed && m.attendance !== 'ABSENT');
+        if (pending.length === 0) return toast.info("All present members are already committed.");
+
+        for (const member of pending) {
+            await handleCommitMember(member);
+        }
+        toast.success("✅ Bulk commit completed!");
+    };
+
+    const cockpitTotals = useMemo(() => {
+        return memberTransactions.reduce((acc, current) => {
+            if (current.attendance === 'ABSENT') return acc;
+            acc.savings += parseFloat(current.savings || 0);
+            acc.welfare += parseFloat(current.welfare || 0);
+            acc.stl += parseFloat(current.stl_repay || 0);
+            acc.ltl += parseFloat(current.ltl_repay || 0);
+            acc.penalty += parseFloat(current.penalty || 0);
+            acc.product += parseFloat(current.product_repay || 0);
+            acc.agri += parseFloat(current.agri || 0);
+            acc.edu += parseFloat(current.edu || 0);
+            acc.total = acc.savings + acc.welfare + acc.stl + acc.ltl + acc.penalty + acc.product + acc.agri + acc.edu;
+            return acc;
+        }, { savings: 0, welfare: 0, stl: 0, ltl: 0, penalty: 0, product: 0, agri: 0, edu: 0, total: 0 });
+    }, [memberTransactions]);
+
+    const filteredGridRows = useMemo(() => {
+        return memberTransactions.filter(m =>
+            m.name?.toLowerCase().includes(memberSearchTerm.toLowerCase()) || m.phone?.includes(memberSearchTerm)
+        );
+    }, [memberTransactions, memberSearchTerm]);
+
+    const handleSaveMeeting = async () => {
+        if (!newMeeting.group_id) return toast.error('Please select a group');
         try {
             if (isEditing) {
                 await api.updateMeeting(editId, {
@@ -384,979 +454,530 @@ const MeetingSessions = () => {
                 });
                 toast.success("Meeting rescheduled successfully!");
             } else {
-                // Check if group already has an active meeting
-                const activeMeeting = getActiveMeeting(parseInt(newMeeting.group_id));
-                if (activeMeeting) {
-                    toast.error(`Group already has an active meeting: ${activeMeeting.session_number}`);
-                    return;
-                }
-
                 await api.createMeeting({
                     groupId: parseInt(newMeeting.group_id),
-                    officerId: currentUser.id,
+                    officerId: user.id,
                     date: newMeeting.meeting_date,
-                    startTime: new Date().toISOString(),
                     venue: newMeeting.venue,
                     agenda: newMeeting.agenda,
                     meeting_type: newMeeting.meeting_type,
                     expected_attendance: newMeeting.expected_attendance
                 });
-
-                // Send SMS Notification
-                await NotificationService.sendSMS(
-                    'ALL_MEMBERS',
-                    `New Meeting Scheduled: ${groups.find(g => g.id === parseInt(newMeeting.group_id))?.name} on ${newMeeting.meeting_date} at ${newMeeting.venue || 'Usual Venue'}.`,
-                    { date: newMeeting.meeting_date }
-                );
-
-                toast.success(`Meeting opened successfully!`);
+                toast.success("New meeting session opened!");
             }
-
-            loadMeetings();
             setShowOpenModal(false);
-            resetForm();
+            loadMeetings();
         } catch (error) {
-            console.error('Save meeting error:', error);
-            toast.error(isEditing ? 'Failed to update meeting' : 'Failed to open meeting');
+            toast.error("Failed to save meeting session");
         }
     };
 
-    const resetForm = () => {
-        setNewMeeting({
-            group_id: '',
-            meeting_date: new Date().toISOString().split('T')[0],
-            venue: '',
-            agenda: '',
-            meeting_type: 'Routine',
-            expected_attendance: ''
-        });
-        setIsEditing(false);
-        setEditId(null);
-        setGroupSearchQuery('');
-    };
-
-    const handleEditMeeting = (meeting) => {
-        setEditId(meeting.id);
-        setIsEditing(true);
-        setNewMeeting({
-            group_id: meeting.groupId || meeting.group_id,
-            meeting_date: meeting.date || meeting.meeting_date,
-            venue: meeting.venue || '',
-            agenda: meeting.agenda || '',
-            meeting_type: meeting.meeting_type || 'Routine',
-            expected_attendance: meeting.expected_attendance || ''
-        });
-        setGroupSearchQuery(meeting.group_name || '');
-        setShowOpenModal(true);
-    };
-
-    const handleScheduleNext = (meeting) => {
-        const nextDate = new Date(meeting.date || meeting.meeting_date);
-        nextDate.setMonth(nextDate.getMonth() + 1);
-
-        setIsEditing(false);
-        setEditId(null);
-        setNewMeeting({
-            group_id: meeting.groupId || meeting.group_id,
-            meeting_date: nextDate.toISOString().split('T')[0],
-            venue: meeting.venue || '',
-            agenda: meeting.agenda || '',
-            meeting_type: meeting.meeting_type || 'Routine',
-            expected_attendance: meeting.expected_attendance || ''
-        });
-        setGroupSearchQuery(meeting.group_name || '');
-        setShowOpenModal(true);
-    };
-
-    // Close meeting
     const handleCloseMeeting = async () => {
-        if (!closingNotes.trim()) {
-            toast.error('Please add closing notes');
-            return;
-        }
-
+        if (!closingNotes) return toast.error("Closing notes are required");
         try {
-            // Close meeting (would be API call)
-            setMeetings(prev => prev.map(m =>
-                m.id === selectedMeeting.id
-                    ? {
-                        ...m,
-                        status: 'LOCKED',
-                        end_time: new Date().toISOString(),
-                        closed_by_name: currentUser.name,
-                        closed_at: new Date().toISOString(),
-                        closing_notes: closingNotes,
-                        meeting_duration_hours: ((new Date() - new Date(m.start_time)) / 1000 / 3600).toFixed(2)
-                    }
-                    : m
-            ));
-
-            toast.success(`Meeting ${selectedMeeting.session_number} closed and locked!`);
+            await api.closeMeeting(selectedMeeting.id, { notes: closingNotes });
+            toast.success("Meeting session closed and locked!");
             setShowCloseModal(false);
             setClosingNotes('');
-            setSelectedMeeting(null);
+            loadMeetings();
+            if (showCockpit) setShowCockpit(false);
         } catch (error) {
-            console.error('Close meeting error:', error);
-            toast.error('Failed to close meeting');
+            toast.error("Failed to close meeting");
         }
     };
 
-    // Get status color
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'ACTIVE':
-                return 'bg-green-100 text-green-700 border-green-200';
-            case 'LOCKED':
-                return 'bg-gray-100 text-gray-700 border-gray-200';
-            case 'SCHEDULED':
-                return 'bg-blue-100 text-blue-700 border-blue-200';
-            case 'CANCELLED':
-                return 'bg-red-100 text-red-700 border-red-200';
-            default:
-                return 'bg-gray-100 text-gray-700 border-gray-200';
+    const handleGroupLoanRepayment = async () => {
+        if (!groupLoanAmount) return toast.error("Amount required");
+        setProcessingGroupLoan(true);
+        try {
+            await api.postTransaction({
+                groupId: cockpitSession.group_id,
+                sessionId: cockpitSession.id,
+                transaction_type: 'GROUP_LOAN_REPAYMENT',
+                amount: parseFloat(groupLoanAmount),
+                loanType: groupLoanType,
+                description: groupLoanNotes
+            });
+            toast.success(`${groupLoanType} Repayment recorded!`);
+            setShowGroupLoanModal(false);
+            openCockpit(cockpitSession);
+        } catch (error) {
+            toast.error("Failed to record group repayment");
+        } finally {
+            setProcessingGroupLoan(false);
         }
     };
 
-    // Statistics
-    const stats = {
-        totalMeetings: meetings.length,
-        activeMeetings: meetings.filter(m => m.status === 'ACTIVE').length,
-        lockedMeetings: meetings.filter(m => m.status === 'LOCKED').length,
-        totalCollected: meetings.filter(m => m.status === 'LOCKED').reduce((sum, m) => sum + m.total_collected, 0)
-    };
+    const filteredMeetings = useMemo(() => {
+        let filtered = meetings;
+        if (!isElevatedRole && assignedGroupIds) {
+            filtered = filtered.filter(m => assignedGroupIds.includes(m.group_id));
+        }
+        if (filterStatus !== 'ALL') filtered = filtered.filter(m => m.status === filterStatus);
+
+        // Hide stale sessions (older than 30 days) if not requested to show all
+        if (!showAllSessions) {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            filtered = filtered.filter(m => new Date(m.date) >= thirtyDaysAgo || m.status === 'ACTIVE');
+        }
+
+        if (searchTerm) {
+            const q = searchTerm.toLowerCase();
+            filtered = filtered.filter(m => m.group_name?.toLowerCase().includes(q) || m.session_number?.toLowerCase().includes(q));
+        }
+        return filtered;
+    }, [meetings, filterStatus, searchTerm, isElevatedRole, assignedGroupIds, showAllSessions]);
+
+    if (isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+                <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
+                <p className="text-gray-400 font-bold uppercase text-[10px]">Loading Sessions...</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Meeting Sessions Control</h2>
-                    <p className="text-sm text-gray-500 mt-1">Meeting-based posting & transaction locking</p>
+                    <h2 className="text-2xl font-black text-gray-800 tracking-tight">Meeting Management</h2>
+                    <p className="text-sm text-gray-500 font-medium">Coordinate and track official group sessions.</p>
                 </div>
                 <button
-                    onClick={() => setShowOpenModal(true)}
-                    className="flex items-center px-6 py-3 bg-safaricom-green text-white rounded-lg hover:bg-safaricom-dark transition-colors shadow-sm font-bold"
+                    onClick={() => {
+                        setIsEditing(false);
+                        setNewMeeting({
+                            group_id: '',
+                            meeting_date: new Date().toISOString().split('T')[0],
+                            venue: '',
+                            agenda: '',
+                            meeting_type: 'Routine',
+                            expected_attendance: ''
+                        });
+                        setShowOpenModal(true);
+                    }}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2"
                 >
-                    <FaPlus className="mr-2" /> Open New Meeting
+                    <FaPlus /> Start New Session
                 </button>
             </div>
 
-            {/* Statistics Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                    <p className="text-xs text-gray-500 uppercase font-bold">Total Meetings</p>
-                    <p className="text-2xl font-black text-gray-800 mt-1">{stats.totalMeetings}</p>
-                </div>
-                <div className="bg-green-50 p-4 rounded-xl shadow-sm border border-green-100">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-xs text-green-700 uppercase font-bold">Active Now</p>
-                            <p className="text-2xl font-black text-green-800 mt-1">{stats.activeMeetings}</p>
-                        </div>
-                        <FaUnlock className="text-3xl text-green-400" />
-                    </div>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-xl shadow-sm border border-gray-100">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-xs text-gray-700 uppercase font-bold">Locked</p>
-                            <p className="text-2xl font-black text-gray-800 mt-1">{stats.lockedMeetings}</p>
-                        </div>
-                        <FaLock className="text-3xl text-gray-400" />
-                    </div>
-                </div>
-                <div className="bg-blue-50 p-4 rounded-xl shadow-sm border border-blue-100">
-                    <p className="text-xs text-blue-700 uppercase font-bold">Total Collected</p>
-                    <p className="text-lg font-black text-blue-800 mt-1">KES {(stats.totalCollected || 0).toLocaleString()}</p>
-                </div>
-            </div>
-
-            {/* Filters & Search */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div className="flex flex-wrap gap-2">
-                        {['ALL', 'ACTIVE', 'SCHEDULED', 'LOCKED', 'CANCELLED'].map(status => (
+            {/* List & Filtering */}
+            <div className="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden">
+                <div className="p-8 border-b border-gray-50 flex flex-col lg:flex-row justify-between items-center gap-6">
+                    <div className="flex gap-2 items-center">
+                        <button
+                            onClick={() => setShowAllSessions(!showAllSessions)}
+                            className={`mr-4 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${showAllSessions ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
+                                }`}
+                        >
+                            {showAllSessions ? 'Showing All' : 'Showing Recent'}
+                        </button>
+                        {['ALL', 'ACTIVE', 'CLOSED'].map(status => (
                             <button
                                 key={status}
                                 onClick={() => setFilterStatus(status)}
-                                className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${filterStatus === status
-                                    ? 'bg-safaricom-green text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterStatus === status ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
                                     }`}
                             >
-                                {status}
+                                {status === 'CLOSED' ? 'Completed' : status}
                             </button>
                         ))}
                     </div>
 
-                    {/* NEW SEARCH BAR PILL */}
-                    <div className="relative w-full md:w-64">
+                    <div className="relative w-full max-w-md">
                         <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
                             type="text"
-                            placeholder="Search session or group..."
+                            placeholder="Search by group or session..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-100 rounded-full focus:ring-4 focus:ring-safaricom-green/10 focus:border-safaricom-green font-bold text-sm transition-all"
+                            className="w-full pl-11 pr-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl font-bold focus:border-blue-500 focus:bg-white focus:outline-none transition-all"
                         />
                     </div>
                 </div>
-            </div>
 
-            {/* Meetings Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
-                            <tr>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Session #</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Group</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Collected</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Attendance</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Duration</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Actions</th>
+                    <table className="w-full">
+                        <thead>
+                            <tr className="bg-gray-50/50">
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Session #</th>
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Group</th>
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Date / Type</th>
+                                <th className="px-8 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Funds</th>
+                                <th className="px-8 py-4 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                                <th className="px-8 py-4 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest">Action</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {filteredMeetings.length === 0 ? (
-                                <tr>
-                                    <td colSpan="8" className="px-6 py-10 text-center text-gray-500">
-                                        No meetings found.
+                        <tbody className="divide-y divide-gray-50">
+                            {filteredMeetings.map(m => (
+                                <tr key={m.id} className="hover:bg-gray-50/30 transition-colors group">
+                                    <td className="px-8 py-5">
+                                        <div className="font-black text-blue-600 font-mono">{m.session_number}</div>
+                                        <div className="text-[9px] font-bold text-gray-400 uppercase mt-0.5">{m.officer_name}</div>
+                                    </td>
+                                    <td className="px-8 py-5">
+                                        <div className="font-black text-gray-800">{m.group_name}</div>
+                                        <div className="text-[9px] font-bold text-gray-400 uppercase mt-0.5 flex items-center gap-1">
+                                            <FaMapMarkerAlt size={8} /> {m.venue || 'No Venue'}
+                                        </div>
+                                    </td>
+                                    <td className="px-8 py-5">
+                                        <div className="font-bold text-gray-700">{new Date(m.meeting_date).toLocaleDateString()}</div>
+                                        <div className="text-[9px] font-black text-blue-400 uppercase tracking-tighter mt-0.5">{m.meeting_type}</div>
+                                    </td>
+                                    <td className="px-8 py-5 text-right">
+                                        <div className="font-black text-slate-800">KES {(m.total_collected || 0).toLocaleString()}</div>
+                                        <div className="text-[9px] font-bold text-green-500 uppercase">Success Rate: {m.expected_attendance ? Math.round(((m.actual_attendance || 0) / m.expected_attendance) * 100) : 0}%</div>
+                                    </td>
+                                    <td className="px-8 py-5 text-center">
+                                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${m.status === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'
+                                            }`}>
+                                            {m.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-8 py-5 text-right">
+                                        {m.status === 'ACTIVE' ? (
+                                            <button
+                                                onClick={() => openCockpit(m)}
+                                                className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg active:scale-95 flex items-center gap-2 ml-auto"
+                                            >
+                                                <FaPlay /> Cockpit
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={() => { setSelectedMeeting(m); setShowLedger(true); }}
+                                                className="px-6 py-2 bg-gray-50 border border-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-100 transition-all ml-auto"
+                                            >
+                                                View Journal
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
-                            ) : (
-                                filteredMeetings.map(meeting => (
-                                    <tr key={meeting.id} className="hover:bg-blue-50/50 transition-colors">
-                                        <td className="px-6 py-4 font-mono font-bold text-gray-900">{meeting.session_number}</td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-2">
-                                                <FaUsers className="text-gray-400" />
-                                                <span className="font-medium text-gray-900">{meeting.group_name}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-gray-600">
-                                            {new Date(meeting.meeting_date).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border flex items-center gap-1 w-fit ${getStatusColor(meeting.status)}`}>
-                                                {meeting.status === 'ACTIVE' ? <FaUnlock /> : <FaLock />}
-                                                {meeting.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right font-mono font-bold text-gray-900">
-                                            KES {(meeting.total_collected || 0).toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <div className="flex flex-col items-center">
-                                                <span className="font-bold text-gray-900">
-                                                    {meeting.members_present}/{meeting.members_present + meeting.members_absent}
-                                                </span>
-                                                <span className="text-xs text-gray-500">
-                                                    {(meeting.attendance_percentage || 0).toFixed(0)}%
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {meeting.status === 'ACTIVE' ? (
-                                                <span className="text-green-600 font-bold flex items-center gap-1">
-                                                    <FaClock />
-                                                    {(meeting.hours_open || 0).toFixed(1)}h
-                                                </span>
-                                            ) : (
-                                                <span className="text-gray-600">
-                                                    {meeting.meeting_duration_hours}h
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <div className="flex justify-center gap-2">
-                                                {/* PDF Download removed - backend service not implemented */}
-                                                <button
-                                                    onClick={() => handleScheduleNext(meeting)}
-                                                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                                                    title="Schedule Next (Clone)"
-                                                >
-                                                    <FaCalendarAlt size={18} />
-                                                </button>
-                                                {meeting.status !== 'LOCKED' && (
-                                                    <button
-                                                        onClick={() => handleEditMeeting(meeting)}
-                                                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
-                                                        title="Reschedule / Edit"
-                                                    >
-                                                        <FaEdit size={18} />
-                                                    </button>
-                                                )}
-                                                <button
-                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                    title="View Details"
-                                                >
-                                                    <FaFileAlt size={18} />
-                                                </button>
-                                                {meeting.status === 'ACTIVE' && (
-                                                    <>
-                                                        <button
-                                                            onClick={() => openCockpit(meeting)}
-                                                            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-lg text-xs font-black shadow-lg hover:from-blue-700 hover:to-indigo-800 transition-all flex items-center gap-2"
-                                                            title="Enter Meeting Cockpit"
-                                                        >
-                                                            <FaPlay /> ENTER COCKPIT
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedMeeting(meeting);
-                                                                setShowLedger(true);
-                                                            }}
-                                                            className="px-3 py-1 bg-green-50 text-safaricom-green rounded-lg text-xs font-black border border-green-100 hover:bg-green-100 transition-all flex items-center gap-1"
-                                                            title="Analyze Session Cash"
-                                                        >
-                                                            <FaMoneyBillWave /> Ledger
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedMeeting(meeting);
-                                                                setShowCloseModal(true);
-                                                            }}
-                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                            title="Emergency Lock"
-                                                        >
-                                                            <FaLock />
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
+                            ))}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {/* Meeting Ledger Modal */}
-            {showLedger && selectedMeeting && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
-                    <MeetingLedger
-                        sessionId={selectedMeeting.id}
-                        onClose={() => {
-                            setShowLedger(false);
-                            // Refresh meetings list after closing
-                            setTimeout(() => window.location.reload(), 1500);
-                        }}
-                    />
-                    <button
-                        onClick={() => setShowLedger(false)}
-                        className="absolute top-8 right-8 text-white/50 hover:text-white text-4xl font-light"
-                    >
-                        &times;
-                    </button>
-                </div>
-            )}
-
-            {/* Warning Banner for Active Meetings */}
-            {stats.activeMeetings > 0 && (
-                <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-lg">
-                    <div className="flex items-start gap-3">
-                        <FaClock className="text-yellow-600 mt-0.5 flex-shrink-0 text-xl" />
-                        <div className="text-sm">
-                            <p className="font-bold text-yellow-900 mb-1">⚠️ {stats.activeMeetings} Active Meeting(s)</p>
-                            <p className="text-yellow-700">
-                                Transactions can only be posted during active meetings. Remember to close and lock meetings when done.
-                            </p>
+            {/* COCKPIT GRID OVERLAY */}
+            {showCockpit && cockpitSession && (
+                <div className="fixed inset-0 z-[70] bg-slate-50 flex flex-col">
+                    {/* Header */}
+                    <div className="bg-slate-900 text-white p-6 shrink-0 flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div className="flex items-center gap-6 w-full md:w-auto">
+                            <button onClick={() => setShowCockpit(false)} className="w-12 h-12 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-all">
+                                <FaArrowLeft />
+                            </button>
+                            <div>
+                                <h1 className="text-2xl font-black tracking-tight">{cockpitSession.group_name}</h1>
+                                <p className="text-blue-400 text-xs font-bold uppercase tracking-widest">Session {cockpitSession.session_number} • Bulk Entry Grid</p>
+                            </div>
                         </div>
+
+                        <div className="flex gap-4 w-full md:w-auto overflow-x-auto">
+                            <div className="bg-white/5 border border-white/10 px-6 py-3 rounded-2xl">
+                                <p className="text-[10px] font-bold text-white/40 uppercase">Session Liquidity</p>
+                                <p className="text-xl font-black text-green-400">KES {cockpitTotals.total.toLocaleString()}</p>
+                            </div>
+                            <button
+                                onClick={() => setIsStandardMode(!isStandardMode)}
+                                className={`px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all shrink-0 ${isStandardMode ? 'bg-safaricom-green text-white shadow-lg shadow-green-900/20' : 'bg-white/10 text-white'
+                                    }`}
+                            >
+                                <FaBolt /> {isStandardMode ? 'Standard' : 'Manual'}
+                            </button>
+                            <button
+                                onClick={() => setShowCloseModal(true)}
+                                className="px-6 py-3 bg-red-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-red-900/20 hover:bg-red-700 transition-all flex items-center gap-2 shrink-0"
+                            >
+                                <FaLock /> Finish & Close
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Dashboard Strip */}
+                    <div className="bg-slate-800 px-6 py-3 flex items-center gap-8 shrink-0 overflow-x-auto no-scrollbar border-b border-slate-700">
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaCoins className="text-blue-400" /> SLP: <span className="text-white">KES {cockpitTotals.savings.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaShieldAlt className="text-teal-400" /> WLF: <span className="text-white">KES {cockpitTotals.welfare.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaHandHoldingDollar className="text-orange-400" /> STL: <span className="text-white">KES {cockpitTotals.stl.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaHandHoldingDollar className="text-amber-400" /> LTL: <span className="text-white">KES {cockpitTotals.ltl.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaLeaf className="text-green-400" /> AGRI: <span className="text-white">KES {cockpitTotals.agri.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaGraduationCap className="text-blue-300" /> EDU: <span className="text-white">KES {cockpitTotals.edu.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaExclamationTriangle className="text-red-400" /> FINE: <span className="text-white">KES {cockpitTotals.penalty.toLocaleString()}</span></div>
+                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaBox className="text-purple-400" /> ASSET: <span className="text-white">KES {cockpitTotals.product.toLocaleString()}</span></div>
+                    </div>
+
+                    {/* Grid Controls */}
+                    <div className="p-6 shrink-0 bg-white border-b flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div className="relative w-full max-w-md">
+                            <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search member in grid..."
+                                value={memberSearchTerm}
+                                onChange={(e) => setMemberSearchTerm(e.target.value)}
+                                className="w-full pl-11 pr-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl font-bold focus:border-blue-500 focus:bg-white focus:outline-none transition-all"
+                            />
+                        </div>
+                        <div className="flex gap-3 w-full md:w-auto">
+                            <button onClick={handleCommitAll} className="flex-1 md:flex-none px-6 py-3 bg-blue-100 text-blue-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-200 transition-all flex items-center justify-center gap-2">
+                                <FaCheckDouble /> Commit All Present
+                            </button>
+                            <button
+                                onClick={() => setShowGroupLoanModal(true)}
+                                className="flex-1 md:flex-none px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 shadow-xl shadow-slate-100"
+                            >
+                                <FaUsers /> Group Repayment
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Grid */}
+                    <div className="flex-1 overflow-auto p-6">
+                        {cockpitLoading ? (
+                            <div className="h-full flex flex-col items-center justify-center space-y-4">
+                                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                <p className="text-slate-400 font-bold uppercase text-[10px]">Assembling Grid...</p>
+                            </div>
+                        ) : (
+                            <table className="w-full border-separate border-spacing-0">
+                                <thead className="sticky top-0 z-20 bg-slate-50">
+                                    <tr>
+                                        <th className="px-4 py-4 text-center text-[10px] font-black text-slate-400 uppercase w-16 border-b border-slate-200">#</th>
+                                        <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 min-w-[200px]">Member / Risk</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-blue-500 uppercase border-b border-slate-200 w-28">SLP</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-teal-600 uppercase border-b border-slate-200 w-28">WLF</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-orange-600 uppercase border-b border-slate-200 w-28">STL</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-amber-600 uppercase border-b border-slate-200 w-28">LTL</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-green-600 uppercase border-b border-slate-200 w-28">AGRI</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-blue-400 uppercase border-b border-slate-200 w-28">EDU</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-red-600 uppercase border-b border-slate-200 w-24">FINE</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-purple-600 uppercase border-b border-slate-200 w-24">ASSET</th>
+                                        <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 w-20">Commit</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 bg-white">
+                                    {filteredGridRows.map((m, idx) => {
+                                        const isAbsent = m.attendance === 'ABSENT';
+                                        const risk = riskMetrics[m.id] || { score: 0, status: 'Healthy' };
+                                        const total = (parseFloat(m.savings || 0) + parseFloat(m.welfare || 0) + parseFloat(m.stl_repay || 0) + parseFloat(m.ltl_repay || 0) + parseFloat(m.penalty || 0) + parseFloat(m.product_repay || 0) + parseFloat(m.agri || 0) + parseFloat(m.edu || 0));
+
+                                        return (
+                                            <tr key={m.id} className={`group transition-all ${isAbsent ? 'bg-slate-50/50 opacity-40' : 'hover:bg-blue-50/20'}`}>
+                                                <td className="px-4 py-4 text-center">
+                                                    <button
+                                                        onClick={() => toggleAttendance(m.id)}
+                                                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs transition-all ${m.attendance === 'PRESENT' ? 'bg-green-100 text-green-600' :
+                                                            m.attendance === 'LATE' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600'
+                                                            }`}
+                                                    >
+                                                        {m.attendance.charAt(0)}
+                                                    </button>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="font-black text-slate-800 text-sm">{m.name}</div>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter ${risk.status === 'At Risk' ? 'bg-red-100 text-red-600' :
+                                                            risk.status === 'Stable' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'
+                                                            }`}>
+                                                            {risk.score}% Risk
+                                                        </span>
+                                                        <span className="text-[8px] font-bold text-slate-400 font-mono italic tracking-tighter">KES {(risk.netPosition || 0).toLocaleString()} NP</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-2 py-4">
+                                                    <TransactionInput
+                                                        value={m.savings} onChange={(v) => updateGridValue(m.id, 'savings', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={0} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4">
+                                                    <TransactionInput
+                                                        value={m.welfare} onChange={(v) => updateGridValue(m.id, 'welfare', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={1} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4 relative">
+                                                    <TransactionInput
+                                                        value={m.stl_repay} onChange={(v) => updateGridValue(m.id, 'stl_repay', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={2} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                    {loansDue[m.id]?.expected_installment && (
+                                                        <div className="absolute top-1 right-2 w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse" title={`Due: ${loansDue[m.id].expected_installment}`} />
+                                                    )}
+                                                </td>
+                                                <td className="px-2 py-4">
+                                                    <TransactionInput
+                                                        value={m.ltl_repay} onChange={(v) => updateGridValue(m.id, 'ltl_repay', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={3} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4">
+                                                    <TransactionInput
+                                                        value={m.agri} onChange={(v) => updateGridValue(m.id, 'agri', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={4} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4">
+                                                    <TransactionInput
+                                                        value={m.edu} onChange={(v) => updateGridValue(m.id, 'edu', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={5} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4">
+                                                    <TransactionInput
+                                                        value={m.penalty} onChange={(v) => updateGridValue(m.id, 'penalty', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={6} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4 text-purple-600">
+                                                    <TransactionInput
+                                                        value={m.product_repay} onChange={(v) => updateGridValue(m.id, 'product_repay', v)}
+                                                        disabled={isAbsent || m.committed}
+                                                        rowIndex={idx} colIndex={7} totalRows={filteredGridRows.length} totalCols={8}
+                                                    />
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {m.committed ? (
+                                                        <span className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center mx-auto shadow-lg shadow-green-100">
+                                                            <FaCheckCircle />
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            disabled={isAbsent || total === 0}
+                                                            onClick={() => handleCommitMember(m)}
+                                                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center mx-auto transition-all ${total > 0 ? 'border-blue-500 text-blue-500 hover:bg-blue-600 hover:text-white' : 'border-slate-100 text-slate-100'
+                                                                }`}
+                                                        >
+                                                            <FaPlus />
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* Premium Meeting Scheduler Modal */}
+            {/* Existing Modals Adapted for Harmony */}
             {showOpenModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                    <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-2xl w-full overflow-hidden border border-white/20 animate-in zoom-in duration-300">
-                        {/* Modal Header */}
-                        <div className={`p-8 text-white flex justify-between items-center ${isEditing ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-safaricom-green to-emerald-700'}`}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in duration-300">
+                        <div className="p-8 bg-slate-900 flex justify-between items-center text-white">
                             <div>
-                                <h3 className="text-3xl font-black flex items-center gap-3">
-                                    {isEditing ? <FaEdit /> : <FaCalendarAlt />}
-                                    {isEditing ? 'Reschedule Meeting' : 'Schedule Next Meeting'}
-                                </h3>
-                                <p className="text-white/80 font-bold text-sm uppercase tracking-widest mt-1">
-                                    {isEditing ? 'Modifying existing session parameters' : 'Plan and notify members for the upcoming session'}
-                                </p>
+                                <h3 className="text-2xl font-black tracking-tight">Open Meeting Session</h3>
+                                <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mt-1">Initiating group lifecycle event</p>
                             </div>
-                            <button
-                                onClick={() => { setShowOpenModal(false); resetForm(); }}
-                                className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-2xl transition-all"
-                            >
-                                &times;
-                            </button>
+                            <button onClick={() => setShowOpenModal(false)} className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full transition-all flex items-center justify-center"><FaTimesCircle /></button>
                         </div>
-
-                        <div className="p-8">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                {/* Column 1: Core Logistics */}
-                                <div className="space-y-6">
-                                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                        <SearchableGroupSelector
-                                            label="Group Selection"
-                                            groups={matrixFilteredGroups}
-                                            selectedGroupId={newMeeting.group_id}
-                                            onSelect={(id) => {
-                                                setNewMeeting({ ...newMeeting, group_id: id });
-                                            }}
-                                            disabled={isEditing}
-                                        />
-                                        {!isEditing && groups.length === 0 && (
-                                            <p className="text-[10px] text-red-600 font-bold mt-1 uppercase tracking-tighter">❌ No groups found or assigned</p>
-                                        )}
+                        <div className="p-10">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                <SearchableGroupSelector label="Group" groups={matrixFilteredGroups} selectedGroupId={newMeeting.group_id} onSelect={(id) => setNewMeeting({ ...newMeeting, group_id: id })} />
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Meeting Date</label>
+                                        <input type="date" value={newMeeting.meeting_date} onChange={(e) => setNewMeeting({ ...newMeeting, meeting_date: e.target.value })} className="w-full mt-2 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-blue-500 outline-none" />
                                     </div>
-
-                                    <div className="grid grid-cols-1 gap-6">
-                                        <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
-                                            <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                                <FaClock /> Date & Time
-                                            </h4>
-                                            <input
-                                                type="date"
-                                                value={newMeeting.meeting_date}
-                                                onChange={(e) => setNewMeeting({ ...newMeeting, meeting_date: e.target.value })}
-                                                className="w-full px-4 py-2.5 bg-white border border-blue-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-bold text-gray-700"
-                                            />
-                                        </div>
-                                        <div className="p-4 bg-purple-50/50 rounded-2xl border border-purple-100">
-                                            <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                                <FaMapMarkerAlt /> Meeting Venue
-                                            </h4>
-                                            <input
-                                                type="text"
-                                                value={newMeeting.venue}
-                                                onChange={(e) => setNewMeeting({ ...newMeeting, venue: e.target.value })}
-                                                placeholder="e.g., Kajiado Community Hall"
-                                                className="w-full px-4 py-2.5 bg-white border border-purple-200 rounded-xl focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 font-bold text-gray-700"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Column 2: Agenda & Information */}
-                                <div className="space-y-6">
-                                    <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
-                                        <h4 className="text-xs font-black text-emerald-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <FaListUl /> Strategic Agenda
-                                        </h4>
-                                        <textarea
-                                            value={newMeeting.agenda}
-                                            onChange={(e) => setNewMeeting({ ...newMeeting, agenda: e.target.value })}
-                                            placeholder="1. Welfare Contributions&#10;2. Loan Appraisals&#10;3. Market Updates..."
-                                            className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 font-bold text-gray-700 min-h-[120px]"
-                                        />
-                                    </div>
-
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Type</label>
-                                            <select
-                                                className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700"
-                                                value={newMeeting.meeting_type}
-                                                onChange={(e) => setNewMeeting({ ...newMeeting, meeting_type: e.target.value })}
-                                            >
-                                                <option>Routine</option>
-                                                <option>Annual AGM</option>
-                                                <option>Emergency</option>
-                                                <option>Special</option>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Type</label>
+                                            <select className="w-full mt-2 p-4 bg-slate-50 rounded-2xl font-bold" value={newMeeting.meeting_type} onChange={e => setNewMeeting({ ...newMeeting, meeting_type: e.target.value })}>
+                                                <option>Routine</option><option>AGM</option><option>Special</option>
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black text-gray-400 uppercase ml-2">Target Pop.</label>
-                                            <input
-                                                type="number"
-                                                placeholder="Members"
-                                                className="w-full mt-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700"
-                                                value={newMeeting.expected_attendance}
-                                                onChange={(e) => setNewMeeting({ ...newMeeting, expected_attendance: e.target.value })}
-                                            />
+                                            <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Target Pax</label>
+                                            <input type="number" placeholder="Exp." value={newMeeting.expected_attendance} onChange={e => setNewMeeting({ ...newMeeting, expected_attendance: e.target.value })} className="w-full mt-2 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold" />
                                         </div>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Footer Actions */}
-                            <div className="flex gap-4 mt-10">
-                                <button
-                                    onClick={() => { setShowOpenModal(false); resetForm(); }}
-                                    className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black hover:bg-gray-200 transition-all uppercase tracking-widest text-xs"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveMeeting}
-                                    className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all uppercase tracking-widest text-xs active:scale-95 flex items-center justify-center gap-2 ${isEditing ? 'bg-orange-600 hover:bg-orange-700' : 'bg-safaricom-green hover:bg-safaricom-dark'
-                                        }`}
-                                >
-                                    {isEditing ? <><FaClock /> Update & Notify</> : <><FaCheckCircle /> Schedule & Notify</>}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Close Meeting Modal */}
-            {showCloseModal && selectedMeeting && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-                        <div className="p-6">
-                            <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <FaLock className="text-red-600" />
-                                Close & Lock Meeting
-                            </h3>
-
-                            <div className="space-y-4">
-                                <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded-r-lg">
-                                    <p className="text-sm font-bold text-yellow-900 mb-1">⚠️ Warning</p>
-                                    <p className="text-xs text-yellow-700">
-                                        Closing this meeting will permanently lock all transactions.
-                                        No further edits will be possible.
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <p className="text-sm text-gray-600 mb-2">
-                                        <span className="font-bold">Session:</span> {selectedMeeting.session_number}
-                                    </p>
-                                    <p className="text-sm text-gray-600 mb-2">
-                                        <span className="font-bold">Total Collected:</span> KES {(selectedMeeting.total_collected || 0).toLocaleString()}
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        Closing Notes <span className="text-red-600">*</span>
-                                    </label>
-                                    <textarea
-                                        value={closingNotes}
-                                        onChange={(e) => setClosingNotes(e.target.value)}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-safaricom-green/20 focus:border-safaricom-green"
-                                        rows="4"
-                                        placeholder="e.g., All transactions verified. Meeting closed at 4:30 PM."
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3 mt-6">
-                                <button
-                                    onClick={() => {
-                                        setShowCloseModal(false);
-                                        setClosingNotes('');
-                                        setSelectedMeeting(null);
-                                    }}
-                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-bold"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleCloseMeeting}
-                                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-bold"
-                                >
-                                    Close & Lock
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MEETING COCKPIT - Full Screen Member Checklist */}
-            {showCockpit && cockpitSession && (
-                <div className="fixed inset-0 z-[70] bg-white flex flex-col">
-                    {/* Cockpit Header */}
-                    <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-purple-900 text-white p-4 md:p-6 shrink-0">
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                            <div className="flex items-center gap-3 md:gap-6">
-                                <button
-                                    onClick={closeCockpit}
-                                    className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all shrink-0"
-                                >
-                                    <FaArrowLeft className="text-lg md:text-xl" />
-                                </button>
-                                <div className="min-w-0">
-                                    <h1 className="text-xl md:text-3xl font-black flex items-center gap-2 md:gap-3 truncate">
-                                        <FaUsers className="text-yellow-400 shrink-0" />
-                                        <span className="truncate">{cockpitSession.group_name}</span>
-                                    </h1>
-                                    <p className="text-blue-200 text-xs md:text-sm font-bold mt-1 truncate">
-                                        Session #{cockpitSession.session_number} • {new Date(cockpitSession.meeting_date).toLocaleDateString()}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 md:gap-4">
-                                <div className="bg-green-500/20 px-3 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl border border-green-400/30 flex-1 md:flex-none">
-                                    <p className="text-[8px] md:text-[10px] font-black text-green-300 uppercase">Session Total</p>
-                                    <p className="text-lg md:text-2xl font-black text-green-400">KES {sessionTotals.total.toLocaleString()}</p>
-                                </div>
-                                <div className="bg-white/10 px-3 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl flex-1 md:flex-none">
-                                    <p className="text-[8px] md:text-[10px] font-black text-white/60 uppercase">Members</p>
-                                    <p className="text-lg md:text-2xl font-black">
-                                        {Object.values(memberAttendance).filter(Boolean).length}/{sessionMembers.length}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Category Totals Bar */}
-                    <div className="bg-slate-800 px-6 py-3 flex items-center gap-6 shrink-0 overflow-x-auto">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                            <FaCoins className="text-blue-400" /> Savings: <span className="text-blue-400">KES {sessionTotals.savings.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                            <FaShieldAlt className="text-teal-400" /> Welfare: <span className="text-teal-400">KES {sessionTotals.welfare.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                            <FaHandHoldingDollar className="text-orange-400" /> STL Repay: <span className="text-orange-400">KES {sessionTotals.stl.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                            <FaHandHoldingDollar className="text-amber-400" /> LTL Repay: <span className="text-amber-400">KES {sessionTotals.ltl.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                            <FaExclamationTriangle className="text-red-400" /> Penalties: <span className="text-red-400">KES {sessionTotals.penalty.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                            <FaBox className="text-purple-400" /> Product: <span className="text-purple-400">KES {sessionTotals.product.toLocaleString()}</span>
-                        </div>
-                    </div>
-
-                    {/* Member Search */}
-                    <div className="bg-slate-100 px-6 py-4 shrink-0 border-b border-slate-200">
-                        <div className="relative max-w-md">
-                            <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="text"
-                                value={memberSearchTerm}
-                                onChange={(e) => setMemberSearchTerm(e.target.value)}
-                                placeholder="Search member by name or phone..."
-                                className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-slate-200 bg-white font-bold text-slate-700 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Member Checklist Table */}
-                    <div className="flex-1 overflow-auto">
-                        {cockpitLoading ? (
-                            <div className="flex items-center justify-center h-full">
-                                <div className="text-center">
-                                    <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                                    <p className="font-bold text-slate-500">Loading members...</p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="min-w-full inline-block align-middle">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[900px]">
-                                        <thead className="bg-slate-50 sticky top-0 z-10">
-                                            <tr>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-left text-[10px] md:text-xs font-black text-slate-500 uppercase w-12 md:w-16">✓</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-left text-[10px] md:text-xs font-black text-slate-500 uppercase">Member</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-blue-600 uppercase">Savings</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-teal-600 uppercase">Welfare</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-orange-600 uppercase">STL</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-amber-600 uppercase">LTL</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-red-600 uppercase">Penalty</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-purple-600 uppercase">Product</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-slate-500 uppercase">Status</th>
-                                                <th className="px-3 md:px-6 py-3 md:py-4 text-center text-[10px] md:text-xs font-black text-slate-500 uppercase">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {filteredSessionMembers.map(member => {
-                                                const tx = memberTransactions[member.id] || {};
-                                                const hasAnyTx = (tx.savings || 0) + (tx.welfare || 0) + (tx.stl_repay || 0) + (tx.ltl_repay || 0) + (tx.penalty || 0) + (tx.product_repay || 0) > 0;
-                                                const currentStatus = memberAttendance[member.id] || 'PRESENT';
-                                                const isPresent = currentStatus !== 'ABSENT';
-
-                                                return (
-                                                    <tr
-                                                        key={member.id}
-                                                        className={`hover:bg-blue-50/50 transition-colors ${!isPresent ? 'bg-red-50/30 opacity-60' : ''}`}
-                                                    >
-                                                        <td className="px-2 md:px-6 py-3 md:py-4">
-                                                            <button
-                                                                onClick={() => toggleAttendance(member.id)}
-                                                                className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-black ${memberAttendance[member.id] === 'PRESENT'
-                                                                    ? 'bg-green-100 text-green-600 hover:bg-green-200'
-                                                                    : memberAttendance[member.id] === 'LATE'
-                                                                        ? 'bg-orange-100 text-orange-600 hover:bg-orange-200'
-                                                                        : 'bg-red-100 text-red-600 hover:bg-red-200'
-                                                                    }`}
-                                                                title={`Current: ${memberAttendance[member.id] || 'PRESENT'}. Click to cycle status.`}
-                                                            >
-                                                                {memberAttendance[member.id] === 'PRESENT' ? 'P' : memberAttendance[member.id] === 'LATE' ? 'L' : 'A'}
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-2 md:px-6 py-3 md:py-4">
-                                                            <div className="flex items-center gap-2 md:gap-3">
-                                                                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-sm shrink-0">
-                                                                    {member.name.charAt(0)}
-                                                                </div>
-                                                                <div className="min-w-0">
-                                                                    <p className="font-black text-slate-900 text-sm md:text-base truncate">{member.name}</p>
-                                                                    <p className="text-[10px] md:text-xs text-slate-400 font-mono truncate">{member.phone}</p>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`font-mono font-bold ${tx.savings ? 'text-blue-600' : 'text-slate-300'}`}>
-                                                                {tx.savings ? `KES ${tx.savings.toLocaleString()}` : '—'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`font-mono font-bold ${tx.welfare ? 'text-teal-600' : 'text-slate-300'}`}>
-                                                                {tx.welfare ? `KES ${tx.welfare.toLocaleString()}` : '—'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center relative group">
-                                                            <span className={`font-mono font-bold ${tx.stl_repay ? 'text-orange-600' : 'text-slate-300'}`}>
-                                                                {tx.stl_repay ? `KES ${tx.stl_repay.toLocaleString()}` : '—'}
-                                                            </span>
-                                                            {loansDue[member.id] && (
-                                                                <div className="absolute top-1 right-2 animate-pulse">
-                                                                    <div className="w-2 h-2 rounded-full bg-orange-500" title={`Due: KES ${loansDue[member.id].expected_installment.toLocaleString()}`}></div>
-                                                                </div>
-                                                            )}
-                                                            {loansDue[member.id] && (
-                                                                <div className="invisible group-hover:visible absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] py-1.5 px-3 rounded-lg shadow-2xl z-50 whitespace-nowrap">
-                                                                    <div className="font-black text-orange-400">STL DUE: KES {loansDue[member.id].expected_installment.toLocaleString()}</div>
-                                                                    <div className="text-slate-400 mt-0.5">Principal: {loansDue[member.id].expected_principal} | Interest: {loansDue[member.id].expected_interest}</div>
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`font-mono font-bold ${tx.ltl_repay ? 'text-amber-600' : 'text-slate-300'}`}>
-                                                                {tx.ltl_repay ? `KES ${tx.ltl_repay.toLocaleString()}` : '—'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`font-mono font-bold ${tx.penalty ? 'text-red-600' : 'text-slate-300'}`}>
-                                                                {tx.penalty ? `KES ${tx.penalty.toLocaleString()}` : '—'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`font-mono font-bold ${tx.product_repay ? 'text-purple-600' : 'text-slate-300'}`}>
-                                                                {tx.product_repay ? `KES ${tx.product_repay.toLocaleString()}` : '—'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-2 md:px-6 py-3 md:py-4 text-center">
-                                                            {memberAttendance[member.id] === 'ABSENT' ? (
-                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-600 border border-red-200">
-                                                                    ABSENT
-                                                                </span>
-                                                            ) : memberAttendance[member.id] === 'LATE' ? (
-                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-orange-100 text-orange-600 border border-orange-200">
-                                                                    LATE
-                                                                </span>
-                                                            ) : hasAnyTx ? (
-                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-green-100 text-green-600 border border-green-200">
-                                                                    ✓ DONE
-                                                                </span>
-                                                            ) : (
-                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-600 border border-amber-200">
-                                                                    PENDING
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <button
-                                                                onClick={() => handleMemberClick(member)}
-                                                                disabled={!isPresent}
-                                                                className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${isPresent
-                                                                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl'
-                                                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                                                    }`}
-                                                            >
-                                                                + ADD
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* GROUP ACTIONS PANEL */}
-                    <div className="bg-gradient-to-r from-indigo-900 to-purple-900 px-6 py-4 shrink-0">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h3 className="text-white font-black text-sm flex items-center gap-2">
-                                    <FaUsers className="text-yellow-400" /> GROUP ACTIONS
-                                </h3>
-                                <p className="text-indigo-300 text-xs font-bold">Group-level loan repayments to Ukombozini</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => {
-                                        setGroupLoanType('STL');
-                                        setShowGroupLoanModal(true);
-                                    }}
-                                    className="px-6 py-3 bg-orange-500 text-white rounded-xl font-black text-sm hover:bg-orange-600 transition-all flex flex-col items-center justify-center shadow-lg min-w-[180px]"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <FaHandHoldingDollar /> Repay STL
-                                    </div>
-                                    <span className="text-[10px] opacity-80">Bal: KES {groupExposure?.portfolio?.totalTopUp?.toLocaleString() || '0'}</span>
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setGroupLoanType('LTL');
-                                        setShowGroupLoanModal(true);
-                                    }}
-                                    className="px-6 py-3 bg-amber-500 text-white rounded-xl font-black text-sm hover:bg-amber-600 transition-all flex flex-col items-center justify-center shadow-lg min-w-[180px]"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <FaHandHoldingDollar /> Repay LTL
-                                    </div>
-                                    <span className="text-[10px] opacity-80">Bal: KES {groupExposure?.portfolio?.totalProductFinance?.toLocaleString() || '0'}</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Cockpit Footer Actions */}
-                    <div className="bg-slate-800 p-4 flex items-center justify-between shrink-0">
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <div className="flex -space-x-2">
-                                    <div className="w-8 h-8 rounded-full bg-green-500 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">{attendanceStats.present}</div>
-                                    <div className="w-8 h-8 rounded-full bg-red-500 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">{attendanceStats.absent}</div>
-                                </div>
-                                <div className="ml-2">
-                                    <p className="text-white text-xs font-black uppercase tracking-wider">Attendance: {attendanceStats.percent}%</p>
-                                    <p className="text-slate-400 text-[10px] font-bold">
-                                        {attendanceStats.present} Present • {attendanceStats.absent} Absent • {attendanceStats.late} Late
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="h-8 w-px bg-slate-700 mx-2" />
-                            <div className="text-blue-400 text-sm font-bold">
-                                <span className="text-blue-400">{Object.keys(memberTransactions).length}</span> Contributed
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => {
-                                    setSelectedMeeting(cockpitSession);
-                                    setShowLedger(true);
-                                }}
-                                className="px-6 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-all flex items-center gap-2"
-                            >
-                                <FaMoneyBillWave /> View Ledger
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setSelectedMeeting(cockpitSession);
-                                    setShowCloseModal(true);
-                                }}
-                                className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all flex items-center gap-2"
-                            >
-                                <FaLock /> Close Session
+                            <button onClick={handleSaveMeeting} className="w-full mt-10 py-5 bg-blue-600 text-white rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-blue-200 hover:bg-black transition-all">
+                                Open Session Now
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Smart Transaction Panel for Cockpit */}
-            {showTransactionPanel && selectedMember && (
-                <SmartTransactionPanel
-                    member={selectedMember}
-                    isOpen={showTransactionPanel}
-                    onClose={() => {
-                        setShowTransactionPanel(false);
-                        setSelectedMember(null);
-                    }}
-                    onRefresh={() => {
-                        // Reload cockpit data after transaction
-                        if (cockpitSession) {
-                            openCockpit(cockpitSession);
-                        }
-                    }}
-                />
+            {/* Close Session Modal */}
+            {showCloseModal && cockpitSession && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-md w-full p-10 text-center">
+                        <div className="w-24 h-24 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <FaLock size={40} />
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-900 mb-2">Seal Session #{cockpitSession.session_number}</h3>
+                        <p className="text-slate-500 font-medium mb-8">This will lock all entries and generate official receipts and reports.</p>
+                        <textarea
+                            value={closingNotes}
+                            onChange={(e) => setClosingNotes(e.target.value)}
+                            placeholder="Final session observations..."
+                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold mb-6 min-h-[100px] outline-none focus:border-red-500"
+                        />
+                        <div className="flex gap-4">
+                            <button onClick={() => setShowCloseModal(false)} className="flex-1 py-4 bg-slate-100 text-slate-400 rounded-2xl font-black text-[10px] uppercase">Cancel</button>
+                            <button onClick={handleCloseMeeting} className="flex-2 py-4 bg-red-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-red-700">Audit & Close</button>
+                        </div>
+                    </div>
+                </div>
             )}
 
-            {/* Group Loan Repayment Modal */}
-            {showGroupLoanModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-6">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-                        <div className={`p-6 ${groupLoanType === 'STL' ? 'bg-gradient-to-r from-orange-500 to-orange-600' : 'bg-gradient-to-r from-amber-500 to-amber-600'}`}>
-                            <h3 className="text-xl font-black text-white flex items-center gap-2">
-                                <FaHandHoldingDollar /> Repay Ukombozini {groupLoanType}
-                            </h3>
-                            <p className="text-white/80 text-sm font-bold mt-1">
-                                Group: {cockpitSession?.group_name} • Session #{cockpitSession?.session_number}
-                            </p>
-                        </div>
-
-                        <div className="p-6 space-y-4">
+            {/* Group Repayment Modal */}
+            {showGroupLoanModal && cockpitSession && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-lg overflow-hidden">
+                        <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
                             <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                    Repayment Amount (KES)
-                                </label>
-                                <input
-                                    type="number"
-                                    value={groupLoanAmount}
-                                    onChange={(e) => setGroupLoanAmount(e.target.value)}
-                                    placeholder="Enter amount"
-                                    className="w-full mt-2 p-4 text-xl font-black text-center border-2 border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none"
-                                />
+                                <h3 className="text-xl font-black">Group Repayment</h3>
+                                <p className="text-xs text-blue-400 font-bold uppercase tracking-widest mt-1">Direct to Central Fund (Ukombozini)</p>
                             </div>
-
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                    Notes (Optional)
-                                </label>
-                                <textarea
-                                    value={groupLoanNotes}
-                                    onChange={(e) => setGroupLoanNotes(e.target.value)}
-                                    placeholder="e.g., Monthly installment #3"
-                                    rows={2}
-                                    className="w-full mt-2 p-3 border-2 border-slate-200 rounded-xl focus:border-orange-500 focus:outline-none font-bold text-slate-600"
-                                />
-                            </div>
-
-                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                <p className="text-xs text-slate-500 font-bold">
-                                    This will record a {groupLoanType === 'STL' ? 'Short-Term' : 'Long-Term'} loan repayment
-                                    from the group's collected cash to Ukombozini central.
-                                </p>
-                            </div>
+                            <FaHandHoldingDollar size={32} className="text-blue-500" />
                         </div>
-
-                        <div className="flex gap-3 p-6 bg-slate-50 border-t border-slate-200">
-                            <button
-                                onClick={() => {
-                                    setShowGroupLoanModal(false);
-                                    setGroupLoanAmount('');
-                                    setGroupLoanNotes('');
-                                    setGroupLoanType(null);
-                                }}
-                                disabled={processingGroupLoan}
-                                className="flex-1 py-3 px-6 bg-slate-200 text-slate-700 rounded-xl font-black hover:bg-slate-300 transition-all"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleGroupLoanRepayment}
-                                disabled={processingGroupLoan || !groupLoanAmount}
-                                className={`flex-1 py-3 px-6 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2 ${groupLoanType === 'STL' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-amber-500 hover:bg-amber-600'} disabled:opacity-50`}
-                            >
-                                {processingGroupLoan ? 'Processing...' : `Confirm ${groupLoanType} Repayment`}
+                        <div className="p-10 space-y-6">
+                            <div className="flex gap-3">
+                                <button onClick={() => setGroupLoanType('STL')} className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest border-2 transition-all ${groupLoanType === 'STL' ? 'bg-orange-600 border-orange-600 text-white' : 'border-slate-100 text-slate-400'}`}>STL Repayment</button>
+                                <button onClick={() => setGroupLoanType('LTL')} className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-widest border-2 transition-all ${groupLoanType === 'LTL' ? 'bg-amber-600 border-amber-600 text-white' : 'border-slate-100 text-slate-400'}`}>LTL Repayment</button>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Repayment Amount (KES)</label>
+                                <input type="number" value={groupLoanAmount} onChange={e => setGroupLoanAmount(e.target.value)} placeholder="0.00" className="w-full mt-2 p-6 text-3xl font-black text-center bg-slate-50 border-2 border-slate-100 rounded-3xl focus:border-blue-500 outline-none" />
+                            </div>
+                            <button disabled={!groupLoanType || !groupLoanAmount} onClick={handleGroupLoanRepayment} className="w-full py-5 bg-black text-white rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl hover:bg-blue-600 transition-all disabled:opacity-30">
+                                Post Group Repayment
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Ledger Overlay */}
+            {showLedger && selectedMeeting && (
+                <div className="fixed inset-0 z-[100] bg-white overflow-auto flex flex-col">
+                    <div className="bg-slate-900 p-6 flex justify-between items-center text-white shrink-0">
+                        <div>
+                            <h3 className="text-xl font-black">Session Ledger View</h3>
+                            <p className="text-xs text-blue-400 font-bold uppercase tracking-widest">{selectedMeeting.group_name} • {selectedMeeting.session_number}</p>
+                        </div>
+                        <button onClick={() => setShowLedger(false)} className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center font-black">X</button>
+                    </div>
+                    <div className="p-10 flex-1">
+                        <MeetingLedger meetingId={selectedMeeting.id} />
                     </div>
                 </div>
             )}

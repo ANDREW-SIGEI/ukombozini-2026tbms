@@ -67,8 +67,9 @@ export const TransactionProvider = ({ children }) => {
         let mounted = true;
         const loadTransactions = async () => {
             if (sessions.length > 0) {
-                const data = await api.getTransactions().catch(err => {
+                const data = await api.getTransactions(null, { timeout: 20000 }).catch(err => {
                     if (err.name === 'AbortError') return [];
+                    console.error("Failed to load transactions:", err);
                     throw err;
                 });
                 if (mounted) setTransactions(data || []);
@@ -193,12 +194,50 @@ export const TransactionProvider = ({ children }) => {
 
     /**
      * Post a new meeting session (Approve/Finalize)
-     * NOTE: In Supabase model, transactions are posted immediately. 
-     * This method might be redundant or just a "Mark as Verified" step.
+     * Includes Table Banking Allocation Matrix data
      */
-    const postSession = async (sessionMetadata, newTransactions) => {
+    const postSession = async (sessionMetadata, newTransactions, allocationData = {}, disbursedLoans = []) => {
         try {
-            // Call API to post session and transactions
+            // 1. Commit Allocation Matrix (if provided)
+            if (Object.keys(allocationData).length > 0) {
+                await api.commitAllocation(sessionMetadata.id, allocationData);
+            }
+
+            // 2. Process Disbursed Loans (if any)
+            if (disbursedLoans.length > 0) {
+                for (const loan of disbursedLoans) {
+                    try {
+                        // A. Create Loan Application
+                        const appResult = await api.postLoanApplication({
+                            memberId: loan.memberId,
+                            groupId: sessionMetadata.groupId,
+                            loanType: loan.loanType,
+                            amount: loan.amount,
+                            duration: loan.duration,
+                            purpose: loan.purpose,
+                            monthly_installment: loan.monthlyRepayment,
+                            principal_portion: loan.principal_portion,
+                            interest_portion: loan.interest_portion,
+                            shares_contribution: loan.shares_contribution || 0,
+                            officerId: sessionMetadata.officerId,
+                            guarantor1_id: loan.guarantor1_id,
+                            guarantor2_id: loan.guarantor2_id
+                        });
+
+                        // B. If auto-approved, trigger disbursement flow
+                        if (loan.approvalStatus === 'Auto-Approved' && appResult.id) {
+                            await api.updateLoanApplicationStatus(appResult.id, 'APPROVED', 'Automatically approved during meeting session');
+                        }
+                    } catch (loanError) {
+                        console.error("Failed to process loan for member:", loan.memberId, loanError);
+                        toast.error(`Loan issuance failed for ${loan.memberName}: ${loanError.message}`);
+                        // We continue with other transactions even if one loan fails, or should we abort? 
+                        // For now, let's just log and continue.
+                    }
+                }
+            }
+
+            // 3. Call API to post session and transactions
             const result = await api.postMeeting(sessionMetadata.id, {
                 metadata: sessionMetadata,
                 transactions: newTransactions

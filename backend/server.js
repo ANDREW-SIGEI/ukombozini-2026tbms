@@ -58,6 +58,19 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// 📝 REQUEST LOGGER (Moved to top for full visibility)
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} ${res.statusCode} (${duration}ms)`);
+    });
+    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+        console.log('Body:', JSON.stringify(req.body, null, 2));
+    }
+    next();
+});
+
 // ==========================================
 // 🏥 HEALTH CHECK ENDPOINT (Phase 31)
 // ==========================================
@@ -114,18 +127,8 @@ app.put('/api/me/password', authenticateToken, async (req, res) => {
     }
 });
 
-// 📝 REQUEST LOGGER
-app.use((req, res, next) => {
-    const start = Date.now();
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} ${res.statusCode} (${duration}ms)`);
-    });
-    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-        console.log('Body:', JSON.stringify(req.body, null, 2));
-    }
-    next();
-});
+
+// 📝 REQUEST LOGGER (Moved to top)
 
 // Initialize Database Schema
 // Initialize Database Schema - Moved to startServer()
@@ -314,9 +317,9 @@ app.get('/api/reports/board-report', authenticateToken, isAdmin, async (req, res
 });
 
 // Compatibility Mounts (Ensures legacy frontend paths work)
-app.use('/api/admin', governanceRoutes);
-app.use('/api/risk', governanceRoutes);
-app.use('/api/audit', governanceRoutes);
+app.use('/api/admin', governanceRoutes); // Keep for legacy settings/stats
+app.use('/api/risk', governanceRoutes);  // Keep for legacy risk overview
+app.use('/api/audit', governanceRoutes); // Keep for auditing
 // Basic Health Check (Public)
 app.get('/api/status', (req, res) => {
     res.json({
@@ -575,24 +578,41 @@ app.get('/api/projects/member/:id/daily-limit', authenticateToken, (req, res) =>
 // Redundant /api/notifications/logs removed - Use /api/communication/logs instead
 
 
-// GET /api/loans - Get loans (optionally filtered by memberId)
+// GET /api/loans - Get loans (optionally filtered by memberId or status)
 app.get('/api/loans', authenticateToken, (req, res) => {
-    const { memberId } = req.query;
+    const { memberId, status } = req.query;
 
     let query = `
-        SELECT l.*, m.name as member_name, g.name as group_name
+        SELECT 
+            l.*, 
+            m.name as member_name, 
+            m.phone as member_phone,
+            g.name as group_name,
+            lm.total_repayment,
+            lm.duration_months,
+            lm.monthly_installment,
+            lm.interest_amount,
+            lm.interest_rate
         FROM loans l
         LEFT JOIN members m ON l.member_id = m.id
         LEFT JOIN groups g ON m.group_id = g.id
+        LEFT JOIN loan_matrices lm ON 
+            l.principal_amount = lm.principal_amount AND
+            l.loan_type = lm.loan_type
+        WHERE 1=1
     `;
     let params = [];
 
     if (memberId) {
-        query += ` WHERE l.member_id = ?`;
+        query += ` AND l.member_id = ?`;
         params.push(memberId);
     }
+    if (status) {
+        query += ` AND l.status = ?`;
+        params.push(status);
+    }
 
-    query += ` ORDER BY l.issued_date DESC`;
+    query += ` ORDER BY l.issued_date DESC, l.created_at DESC`;
 
     db.all(query, params, (err, loans) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -733,32 +753,7 @@ app.post('/api/transactions/preview', authenticateToken, (req, res) => {
 // ==========================================
 // MTE Engine logic moved to services/MTEEngine.js
 
-// GET /api/transactions - Get transactions (with optional filters)
-app.get('/api/transactions', authenticateToken, (req, res) => {
-    const { sessionId, memberId, type } = req.query;
-    let query = `SELECT * FROM transactions WHERE 1=1`;
-    let params = [];
-
-    if (sessionId) {
-        query += ` AND sessionId = ?`;
-        params.push(sessionId);
-    }
-    if (memberId) {
-        query += ` AND memberId = ?`;
-        params.push(memberId);
-    }
-    if (type) {
-        query += ` AND UPPER(transaction_type) = ?`;
-        params.push(type.toUpperCase());
-    }
-
-    query += ` ORDER BY created_at DESC`;
-
-    db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows || []);
-    });
-});
+// [Purged - Consolidated into main /api/transactions at line 3197]
 
 // POST /api/transactions/post - Unified Entry Point
 // POST /api/transactions - Unified MTE v2 Entry Point
@@ -2127,31 +2122,8 @@ app.get('/api/reports/officer-performance', authenticateToken, isAdmin, (req, re
 // SESSIONS API (MEETING MANAGEMENT)
 // ==========================================
 
-// Get all sessions
-app.get('/api/sessions', (req, res) => {
-    const query = `
-        SELECT s.*, g.name as group_name 
-        FROM meeting_sessions s
-        LEFT JOIN groups g ON s.groupId = g.id
-        ORDER BY s.date DESC
-    `;
-    db.all(query, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        // Parse JSON fields and Normalize for Frontend
-        const sessions = rows.map(row => ({
-            ...row,
-            meeting_date: row.date, // Map 'date' to 'meeting_date' for UI
-            session_number: `MTG-${row.id.toString().padStart(3, '0')}`,
-            members_present: row.members_present || 0,
-            members_absent: row.members_absent || 0,
-            total_collected: row.total_collected || 0,
-            attendance_percentage: row.members_present ? (row.members_present / (row.members_present + (row.members_absent || 0)) * 100) : 0,
-            totals: row.totals ? JSON.parse(row.totals) : null,
-            reversalMetadata: row.reversalMetadata ? JSON.parse(row.reversalMetadata) : null
-        }));
-        res.json(sessions);
-    });
-});
+// [Purged - Redundant. Use Unified Session API at line 2717]
+
 
 // ==========================================
 // 🏛️ CASH CONTROL & RECONCILIATION API (BANK-GRADE)
@@ -2721,10 +2693,15 @@ app.get('/api/monthly-reports/:id', authenticateToken, (req, res) => {
 
 // [Final Purge - Consolidated into /api/transactions at line 424]
 
-// GET /api/sessions - List all meeting sessions
+// GET /api/sessions - List all meeting sessions with real-time metrics
 app.get('/api/sessions', authenticateToken, (req, res) => {
     const query = `
-        SELECT ms.*, g.name as group_name, o.name as officer_name
+        SELECT 
+            ms.*, 
+            g.name as group_name, 
+            o.name as officer_name,
+            (SELECT COUNT(DISTINCT member_id) FROM attendance WHERE session_id = ms.id AND status = 'PRESENT') as actual_attendance,
+            (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE sessionId = ms.id) as total_collected
         FROM meeting_sessions ms
         LEFT JOIN groups g ON ms.groupId = g.id
         LEFT JOIN officers o ON ms.officerId = o.id
@@ -2733,7 +2710,7 @@ app.get('/api/sessions', authenticateToken, (req, res) => {
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // Parse JSON columns
+        // Parse JSON columns and normalize metrics
         const processedRows = (rows || []).map(row => {
             if (row.totals && typeof row.totals === 'string') {
                 try {
@@ -2742,10 +2719,85 @@ app.get('/api/sessions', authenticateToken, (req, res) => {
                     console.error('Error parsing session totals:', e);
                 }
             }
-            return row;
+            // Normalize for UI consistency
+            return {
+                ...row,
+                meeting_date: row.date,
+                session_number: `MTG-${row.id.toString().padStart(3, '0')}`,
+                actual_attendance: row.actual_attendance || row.members_present || 0,
+                total_collected: row.total_collected || 0
+            };
         });
 
         res.json(processedRows);
+    });
+});
+
+/**
+ * Get Session Summary (Financial Inflows/Outflows)
+ */
+app.get('/api/sessions/:id/summary', authenticateToken, (req, res) => {
+    const { id } = req.params;
+
+    // Aggregates totals directly from transactions to ensure data integrity
+    const query = `
+        SELECT 
+            transaction_type,
+            SUM(amount) as total
+        FROM transactions 
+        WHERE sessionId = ?
+        GROUP BY transaction_type
+    `;
+
+    db.all(query, [id], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const summary = {
+            total_inflow: 0,
+            total_outflow: 0,
+            breakdown: {
+                savings: 0,
+                stl_repayment: 0,
+                ltl_repayment: 0,
+                interest: 0,
+                fines: 0,
+                withdrawals: 0,
+                loans_issued: 0
+            }
+        };
+
+        rows.forEach(row => {
+            const amount = row.total || 0;
+            switch (row.transaction_type) {
+                case 'SAVINGS':
+                    summary.breakdown.savings += amount;
+                    summary.total_inflow += amount;
+                    break;
+                case 'LOAN_REPAYMENT':
+                    summary.breakdown.stl_repayment += amount; // We'll map to stl for simplicity in ledger view
+                    summary.total_inflow += amount;
+                    break;
+                case 'INTEREST_PAYMENT':
+                    summary.breakdown.interest += amount;
+                    summary.total_inflow += amount;
+                    break;
+                case 'PENALTY_PAYMENT':
+                case 'PENALTY':
+                    summary.breakdown.fines += amount;
+                    summary.total_inflow += amount;
+                    break;
+                case 'WITHDRAWAL':
+                    summary.breakdown.withdrawals += amount;
+                    summary.total_outflow += amount;
+                    break;
+                case 'LOAN_ISSUANCE':
+                    summary.breakdown.loans_issued += amount;
+                    summary.total_outflow += amount;
+                    break;
+            }
+        });
+
+        res.json(summary);
     });
 });
 
@@ -3127,34 +3179,7 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     });
 });
 
-// Get Loans (List)
-app.get('/api/loans', authenticateToken, (req, res) => {
-    const { memberId, status } = req.query;
-    let query = `
-        SELECT l.*, m.name as member_name, m.group_id 
-        FROM loans l
-        JOIN members m ON l.member_id = m.id
-        WHERE 1=1
-    `;
-    const params = [];
-
-    if (memberId) {
-        query += " AND l.member_id = ?";
-        params.push(memberId);
-    }
-
-    if (status) {
-        query += " AND l.status = ?";
-        params.push(status);
-    }
-
-    query += " ORDER BY l.created_at DESC";
-
-    db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
+// [Purged - Consolidated into main /api/loans at line 578]
 
 // Calculate STL Interest (Reducing Balance)
 app.get('/api/loans/:id/next-payment', (req, res) => {
@@ -3181,14 +3206,16 @@ app.get('/api/loans/:id/next-payment', (req, res) => {
     });
 });
 
-// Get Transactions (for Reports)
+// Get Transactions (Consolidated with Member & Group Info)
 app.get('/api/transactions', authenticateToken, (req, res) => {
-    const { sessionId, groupId, memberId, month, year } = req.query;
+    const { sessionId, groupId, memberId, month, year, type } = req.query;
 
     let query = `
-        SELECT t.*, s.date as sessionDate 
+        SELECT t.*, s.date as sessionDate, m.name as member_name, g.name as group_name
         FROM transactions t
         LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+        LEFT JOIN members m ON t.memberId = m.id
+        LEFT JOIN groups g ON m.group_id = g.id
         WHERE 1=1
     `;
     let params = [];
@@ -3204,8 +3231,13 @@ app.get('/api/transactions', authenticateToken, (req, res) => {
     }
 
     if (groupId) {
-        query += " AND s.groupId = ?";
-        params.push(groupId);
+        query += " AND (s.groupId = ? OR m.group_id = ?)";
+        params.push(groupId, groupId);
+    }
+
+    if (type) {
+        query += " AND UPPER(t.transaction_type) = ?";
+        params.push(type.toUpperCase());
     }
 
     // Date filtering would be string manipulation in SQLite
@@ -3214,6 +3246,15 @@ app.get('/api/transactions', authenticateToken, (req, res) => {
         const prefix = `${year}-${monthStr}`;
         query += " AND s.date LIKE ?";
         params.push(`${prefix}%`);
+    }
+
+    query += " ORDER BY t.created_at DESC";
+
+    // Optimization: Default limit to prevent timeouts on massive datasets
+    const limit = parseInt(req.query.limit) || (sessionId || memberId || groupId || month ? -1 : 100);
+    if (limit > 0) {
+        query += " LIMIT ?";
+        params.push(limit);
     }
 
     db.all(query, params, (err, rows) => {
@@ -7686,6 +7727,65 @@ app.get('/api/reconciliation/dashboard', authenticateToken, (req, res) => {
             }
         });
     });
+});
+
+
+// ============================================================================
+// 📊 ALLOCATION ENGINE API (PHASE 12)
+// ============================================================================
+
+// GET /api/allocation/rules/:groupId - Get allocation rules
+app.get('/api/allocation/rules/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const rules = await AllocationService.getGroupRules(req.params.groupId);
+        res.json(rules);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/allocation/rules - Update allocation rules
+app.post('/api/allocation/rules', authenticateToken, isAdmin, async (req, res) => {
+    const { groupId, rules } = req.body;
+    if (!groupId || !rules) return res.status(400).json({ error: 'Missing groupId or rules' });
+
+    try {
+        const result = await AllocationService.updateGroupRules(groupId, rules);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/allocation/preview/:sessionId - Preview allocation
+app.get('/api/allocation/preview/:sessionId', authenticateToken, async (req, res) => {
+    try {
+        const preview = await AllocationService.previewAllocation(req.params.sessionId);
+        res.json(preview);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/allocation/commit/:sessionId - Commit allocation
+app.post('/api/allocation/commit/:sessionId', authenticateToken, async (req, res) => {
+    try {
+        const result = await AllocationService.commitAllocation(req.params.sessionId, req.body);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/allocation/history - Get allocation snapshots
+app.get('/api/allocation/history', authenticateToken, async (req, res) => {
+    const limit = parseInt(req.query.limit) || 50;
+    try {
+        const history = await AllocationService.getAllocationHistory(limit);
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Start Server

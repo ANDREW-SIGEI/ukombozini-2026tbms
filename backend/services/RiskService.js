@@ -145,21 +145,29 @@ class RiskService {
                     const debt = (member.active_loan_balance || 0);
                     const ratio = debt / (savings || 1);
 
-                    if (ratio > 4) {
-                        score += 40;
+                    if (savings < 0) {
+                        score += 50;
+                        alerts.push({ type: 'NEGATIVE_BALANCE', severity: 'HIGH', msg: `Critical: Member has a negative savings balance: KES ${savings.toLocaleString()}` });
+                    } else if (ratio > 5) {
+                        score += 35;
                         alerts.push({ type: 'CREDIT_PREDICTOR', severity: 'HIGH', msg: `Critical leverage: Debt is ${ratio.toFixed(1)}x savings.` });
-                    } else if (ratio > 2.5) {
+                    } else if (ratio > 3) {
                         score += 20;
                         alerts.push({ type: 'CREDIT_PREDICTOR', severity: 'MEDIUM', msg: `High leverage: Debt is ${ratio.toFixed(1)}x savings.` });
+                    } else if (ratio > 1.5) {
+                        score += 10;
                     }
 
                     // 2. Penalty Frequency (Behavioral Risk)
                     const penalties = await new Promise(res => db.get(queries.penaltyCount, [memberId], (e, r) => res(r?.count || 0)));
-                    if (penalties >= 3) {
-                        score += 40;
-                        alerts.push({ type: 'BEHAVIORAL_RISK', severity: 'HIGH', msg: `Predictive default: ${penalties} penalties in last 6 months.` });
+                    if (penalties >= 5) {
+                        score += 30;
+                        alerts.push({ type: 'BEHAVIORAL_RISK', severity: 'HIGH', msg: `Predictive default: ${penalties} penalties observed.` });
+                    } else if (penalties >= 3) {
+                        score += 15;
+                        alerts.push({ type: 'BEHAVIORAL_RISK', severity: 'MEDIUM', msg: `Frequent penalties: ${penalties} recorded.` });
                     } else if (penalties > 0) {
-                        score += 10;
+                        score += 5;
                     }
 
                     // 3. Repayment Consistency (On-Time Rate)
@@ -168,9 +176,12 @@ class RiskService {
                         res(late || []);
                     }));
 
-                    if (lateLoans.length > 0) {
-                        score += 30;
-                        alerts.push({ type: 'DELINQUENCY', severity: 'HIGH', msg: `Active delinquency: ${lateLoans.length} loans past due.` });
+                    if (lateLoans.length > 1) {
+                        score += 35;
+                        alerts.push({ type: 'DELINQUENCY', severity: 'HIGH', msg: `Critical delinquency: ${lateLoans.length} loans past due.` });
+                    } else if (lateLoans.length === 1) {
+                        score += 15;
+                        alerts.push({ type: 'DELINQUENCY', severity: 'MEDIUM', msg: `Active delinquency: 1 loan past due.` });
                     }
 
                     score = Math.max(0, Math.min(100, score));

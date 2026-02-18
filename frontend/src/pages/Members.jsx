@@ -536,7 +536,7 @@ const Members = () => {
                                                 <div className="text-xs text-gray-500">{suggestion.phone}</div>
                                             </div>
                                             <div className="text-xs font-bold text-safaricom-green">
-                                                {suggestion.groupName}
+                                                {suggestion.group_name || 'No Group'}
                                             </div>
                                         </div>
                                     ))}
@@ -558,8 +558,7 @@ const Members = () => {
                     </div>
 
                     {/* Intelligent Buttons */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {/* Status Tabs */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex bg-gray-100 p-1 rounded-lg">
                             {['All', 'Healthy', 'Stable', 'At Risk'].map(status => (
                                 <button
@@ -575,18 +574,29 @@ const Members = () => {
                             ))}
                         </div>
 
-                        <div className="w-px h-6 bg-gray-200 mx-2 hidden md:block"></div>
+                        <div className="flex items-center gap-2">
+                            {/* Loan Toggle */}
+                            <button
+                                onClick={() => setFilterHasLoan(!filterHasLoan)}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold border-2 transition-all flex items-center gap-2 ${filterHasLoan
+                                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                    : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                                    }`}
+                            >
+                                <FaMoneyBillWave /> Has Active Loan
+                            </button>
 
-                        {/* Loan Toggle */}
-                        <button
-                            onClick={() => setFilterHasLoan(!filterHasLoan)}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold border-2 transition-all flex items-center gap-2 ${filterHasLoan
-                                ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-                                }`}
-                        >
-                            <FaMoneyBillWave /> Has Active Loan
-                        </button>
+                            {/* [NEW] START GROUP MEETING BUTTON */}
+                            {selectedGroup && (
+                                <Link
+                                    to="/daily-meeting"
+                                    state={{ preSelectedGroupId: selectedGroup }}
+                                    className="px-6 py-2 bg-safaricom-green text-white rounded-lg text-xs font-black uppercase tracking-widest shadow-lg shadow-green-900/20 hover:scale-110 active:scale-95 transition-all flex items-center gap-2 border-2 border-white/20"
+                                >
+                                    <FaCalendarDays className="animate-bounce" /> Start Bulk Entry
+                                </Link>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -643,7 +653,7 @@ const Members = () => {
                                                     </div>
                                                     <div>
                                                         <div className="font-black text-slate-800 text-sm">{member.name}</div>
-                                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{member.groupName || 'No Group'}</div>
+                                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{member.group_name || 'No Group'}</div>
                                                     </div>
                                                 </div>
                                             </td>

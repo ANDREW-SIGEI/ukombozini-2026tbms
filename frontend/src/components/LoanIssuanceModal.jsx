@@ -218,49 +218,6 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
         onClose();
     };
 
-    // ... (rendering logic remains, implicitly fixed by preserving structure if not blocked)
-    // Wait, the previous view showed errors around line 1000+. 
-    // I need to be careful. The errors were:
-    // Expected corresponding JSX closing tag for 'div'.
-    // ')' expected.
-
-    // It seems I might have messed up the structure in previous edits or the file was already broken.
-    // The previous view showed:
-    // 1010:         </div >
-    // 1011:     );
-    // 1012: };
-
-    // The error says "Expected corresponding JSX closing tag for 'div'".
-    // Let's assume I fix the logic first.
-    // Actually, I should fix the logic within the function but I can't target the function definition easily with replace_file_content if it's far away.
-    // handleFinalSubmit is around line 185.
-
-    // I will split this into two operations:
-    // 1. Fix the syntax errors at the end of the file.
-    // 2. Update handleFinalSubmit.
-
-    // This tool call will ONLY fix the syntax errors at the end of the file to restore validity.
-    // The previous view showed `LoanAdvisoryPanel` closing at 1009, then `</div>` at 1010, `);` at 1011, `};` at 1012.
-    // The error `JSX element 'form' has no corresponding closing tag` at line 348 suggests the main container might be broken.
-
-    // Let's look at line 1000-1015 again.
-    // 1000:         isOpen={showAdvisory}
-    // ...
-    // 1009:     />
-    // 1010:         </div >
-    // 1011:     );
-    // 1012: };
-
-    // If there is an unclosed form earlier, it might ripple down.
-
-    // I'll first fix `handleFinalSubmit` (around line 185) as requested by the task.
-    // Then I'll check the syntax errors.
-
-    // WAIT, I can't do logic and complex syntax fix in one go if I don't see the whole file.
-    // I'll stick to updating `handleFinalSubmit` first.
-    return; // Pseudo-return, I will write the actual ReplacementContent for handleFinalSubmit.
-
-    // Actually, I'll use the proper StartLine/EndLine for handleFinalSubmit.
 
 
     // Confirmation Dialog
@@ -1044,8 +1001,8 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                             )}
                         </div>
                     </div>
-                    </div>
                 </form>
+            </div>
 
             <LoanAdvisoryPanel
                 isOpen={showAdvisory}
@@ -1058,7 +1015,7 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                     setShowAdvisory(false);
                 }}
             />
-        </div >
+        </div>
     );
 };
 

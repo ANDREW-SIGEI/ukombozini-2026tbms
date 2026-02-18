@@ -119,7 +119,15 @@ axiosInstance.interceptors.response.use(async (response) => {
 });
 
 const handleApiError = (error) => {
-    console.error('API Error:', error.response?.data || error.message);
+    console.error('🔴 API Error:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        fullURL: error.config?.baseURL + error.config?.url
+    });
+
     const msg = error.response?.data?.error || 'An unexpected error occurred';
     toast.error(msg);
     throw error;
@@ -153,6 +161,15 @@ export const api = {
             const response = await axiosInstance.post(`/governance/sessions/${sessionId}/attendance`, { memberId, status });
             return response.data;
         } catch (error) {
+            // Check for Network Error
+            if (!error.response && error.request) {
+                console.warn('⚡ Network Error. Saving attendance offline...');
+                const offlineId = await offlineManager.saveOfflineTransaction({
+                    type: 'attendance',
+                    data: { sessionId, memberId, status }
+                });
+                return { success: true, offline: true, offlineId };
+            }
             handleApiError(error);
         }
     },
@@ -2066,8 +2083,22 @@ export const api = {
             ...data,
             amount: data.amount || (parseFloat(data.savings || 0) + parseFloat(data.welfare || 0) + parseFloat(data.project || 0) + parseFloat(data.penalty || 0))
         };
-        const response = await axiosInstance.post('/contributions/post', payload);
-        return response.data;
+
+        try {
+            const response = await axiosInstance.post('/contributions/post', payload);
+            return response.data;
+        } catch (error) {
+            // Check for Network Error
+            if (!error.response && error.request) {
+                console.warn('⚡ Network Error. Saving contribution offline...');
+                const offlineId = await offlineManager.saveOfflineTransaction({
+                    type: 'contribution',
+                    data: payload
+                });
+                return { success: true, offline: true, offlineId };
+            }
+            handleApiError(error);
+        }
     },
 
     async postWithdrawal(data) {
@@ -2077,8 +2108,7 @@ export const api = {
             transaction_type: 'WITHDRAWAL',
             amount: data.amount
         };
-        const response = await axiosInstance.post('/transactions', payload);
-        return response.data;
+        return this.postTransaction(payload);
     },
 
     async processLoanRepayment(data) {
@@ -2087,7 +2117,16 @@ export const api = {
             ...data,
             transaction_type: 'LOAN_REPAYMENT'
         };
-        const response = await axiosInstance.post('/transactions', payload);
+        return this.postTransaction(payload);
+    },
+
+    async postLoanApplication(data) {
+        const response = await axiosInstance.post('/loan-applications', data);
+        return response.data;
+    },
+
+    async updateLoanApplicationStatus(applicationId, status, comments = '') {
+        const response = await axiosInstance.patch(`/loan-applications/${applicationId}/status`, { status, comments });
         return response.data;
     },
 
@@ -2141,10 +2180,11 @@ export const api = {
         }
     },
 
-    async getTransactions(memberId = null, filters = {}) {
+    async getTransactions(memberId = null, filters = {}, limit = null) {
         const params = { ...filters };
         if (memberId) params.memberId = memberId;
-        const response = await axiosInstance.get('/transactions', { params });
+        if (limit) params.limit = limit;
+        const response = await axiosInstance.get('/transactions', { params, timeout: 15000 });
         // Map backend fields to frontend expectations for Member Profile
         return (response.data || []).map(t => {
             // Normalize transaction type for UI filters (e.g., SAVINGS -> Savings)

@@ -9,9 +9,11 @@ import { toast } from 'react-toastify';
 import {
     FaSave, FaPaperPlane, FaLock, FaCheckCircle, FaTimesCircle,
     FaExclamationTriangle, FaCalculator, FaUsers, FaCalendarAlt, FaBan, FaUserShield, FaSearch,
-    FaFileInvoice, FaBolt
+    FaFileInvoice, FaBolt, FaHandHoldingUsd
 } from 'react-icons/fa';
 import SearchableGroupSelector from '../components/SearchableGroupSelector';
+import AllocationMatrix from '../components/AllocationMatrix';
+import LoanIssuanceModal from '../components/LoanIssuanceModal';
 import offlineManager from '../services/OfflineManager';
 import OfflineIndicator from '../components/OfflineIndicator';
 
@@ -98,6 +100,10 @@ const DailyMeetingReport = () => {
     const [supervisorApprovalRequested, setSupervisorApprovalRequested] = useState(false);
     const [approvalReason, setApprovalReason] = useState('');
 
+    // Allocation Matrix States
+    const [allocationData, setAllocationData] = useState({});
+    const [isAllocationBalanced, setIsAllocationBalanced] = useState(false);
+
     // SMART MEETING STATE
     const [meetingNotes, setMeetingNotes] = useState('');
     const [showNotes, setShowNotes] = useState(false);
@@ -107,6 +113,11 @@ const DailyMeetingReport = () => {
     const [actualCashStart, setActualCashStart] = useState('');
     const [actualCashEnd, setActualCashEnd] = useState('');
     const [actualPartnerTopup, setActualPartnerTopup] = useState(0); // New: Capital Injection
+
+    // Loan Issuance State
+    const [disbursedLoans, setDisbursedLoans] = useState([]);
+    const [isLoanModalOpen, setIsLoanModalOpen] = useState(false);
+    const [selectedMemberForLoan, setSelectedMemberForLoan] = useState(null);
 
     // Receipting State
     const [sessionTransactions, setSessionTransactions] = useState([]);
@@ -743,7 +754,7 @@ const DailyMeetingReport = () => {
             ukomboziniRepayment // Add Partnership Repayment
         };
 
-        const success = postSession(sessionMetadata, memberTransactions);
+        const success = postSession(sessionMetadata, memberTransactions, allocationData, disbursedLoans);
 
         if (success) {
             setSessionStatus('POSTED');
@@ -806,6 +817,17 @@ const DailyMeetingReport = () => {
             toast.info("Session rejected and unlocked for corrections.");
         } catch (error) {
             console.error('Supervisor Rejection Failed:', error);
+        }
+    };
+
+    const handleLoanSuccess = () => {
+        setIsLoanModalOpen(false);
+        toast.success("Loan issued successfully!");
+        // Refresh session transactions
+        if (sessionId) {
+            api.getSessionTransactions(sessionId).then(data => {
+                setSessionTransactions(data || []);
+            });
         }
     };
 
@@ -1237,6 +1259,18 @@ const DailyMeetingReport = () => {
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
                                                     <div className="flex flex-col gap-1">
+                                                        {(sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedMemberForLoan(transaction);
+                                                                    setIsLoanModalOpen(true);
+                                                                }}
+                                                                className="flex items-center gap-1 mx-auto px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] hover:bg-blue-600 hover:text-white transition-all font-black uppercase tracking-widest border border-blue-200"
+                                                                title="Issue New Loan with Guarantors"
+                                                            >
+                                                                <FaHandHoldingUsd /> Issue
+                                                            </button>
+                                                        )}
                                                         {sessionStatus === 'POSTED' && memberTotal > 0 ? (
                                                             <button
                                                                 onClick={() => handlePrintReceipt(transaction.memberId)}
@@ -1245,9 +1279,9 @@ const DailyMeetingReport = () => {
                                                             >
                                                                 <FaFileInvoice /> Receipt
                                                             </button>
-                                                        ) : (
+                                                        ) : (memberTotal > 0 && !(sessionStatus === 'draft' || sessionStatus === 'ACTIVE')) && (
                                                             <span className="text-gray-300 text-xs italic">
-                                                                {sessionStatus === 'draft' || sessionStatus === 'ACTIVE' ? 'Pending Bulk...' : 'N/A'}
+                                                                N/A
                                                             </span>
                                                         )}
                                                     </div>
@@ -1413,6 +1447,68 @@ const DailyMeetingReport = () => {
             {
                 sessionId && (sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
                     <>
+                        <div className="mb-8 p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
+                            <div className="flex items-center justify-between mb-4">
+                                <h4 className="font-bold text-gray-800 flex items-center gap-2">
+                                    <FaHandHoldingUsd className="text-blue-600" /> Disbursed Loans (Session)
+                                </h4>
+                                <span className="text-[10px] bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-black uppercase tracking-widest">
+                                    {disbursedLoans.length} Loans Issued
+                                </span>
+                            </div>
+
+                            {disbursedLoans.length === 0 ? (
+                                <div className="text-center py-8 border-2 border-dashed border-gray-100 rounded-xl">
+                                    <p className="text-xs text-gray-400 italic">No loans issued in this session yet.</p>
+                                    <p className="text-[10px] text-gray-400 mt-1">Click the "Issue" button next to a member to record a loan.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {disbursedLoans.map((loan, idx) => (
+                                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 italic text-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
+                                                    {loan.memberName.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <div className="font-bold text-gray-800">{loan.memberName}</div>
+                                                    <div className="text-[10px] text-gray-500">{loan.loanType} • {loan.duration} Months</div>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-black text-gray-900">KES {loan.amount.toLocaleString()}</div>
+                                                <div className="text-[10px] text-blue-600 font-bold uppercase">Ready to Commit</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="pt-2 border-t border-gray-100 flex justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                        <span>Total Disbursed (Internal)</span>
+                                        <span className="text-blue-600">KES {disbursedLoans.reduce((s, l) => s + l.amount, 0).toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <AllocationMatrix
+                            totalCashIn={systemTotals.total_cash_in}
+                            onAllocationChange={(data, balanced) => {
+                                setAllocationData(data);
+                                setIsAllocationBalanced(balanced);
+                            }}
+                            onSubmit={handleSubmit}
+                            isSubmitting={false}
+                            preFilledAllocations={{
+                                stl_disbursed: disbursedLoans.filter(l => l.loanType.includes('STL')).reduce((s, l) => s + l.amount, 0),
+                                ltl_disbursed: disbursedLoans.filter(l => l.loanType.includes('LTL')).reduce((s, l) => s + l.amount, 0)
+                            }}
+                        />
+                    </>
+                )
+            }
+
+            {
+                sessionId && (sessionStatus === 'draft' || sessionStatus === 'ACTIVE') && (
+                    <>
                         {/* Cash Verification (Required) */}
                         {/* Cash Verification (Required) */}
                         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
@@ -1503,15 +1599,16 @@ const DailyMeetingReport = () => {
                                 </button>
 
                                 <button
-                                    onClick={handleCloseMeeting}
+                                    onClick={handleSubmit}
                                     disabled={
                                         !actualCashEnd ||
                                         (parseFloat(actualCashEnd) !== (openingBalance + systemTotals.total_cash_in - cashOut - ukomboziniRepayment) && !approvalReason) ||
-                                        closingBalance < 0
+                                        closingBalance < 0 ||
+                                        !isAllocationBalanced
                                     }
                                     className="flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-safaricom-green text-white font-bold rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-900/20"
                                 >
-                                    <FaPaperPlane /> Submit & Close Session
+                                    <FaPaperPlane /> Submit Final Report
                                 </button>
                             </div>
                         </div>
@@ -1611,7 +1708,29 @@ const DailyMeetingReport = () => {
             }
 
             <OfflineIndicator />
-        </div >
+
+            {/* LOAN ISSUANCE MODAL (UKOMBOZI STANDARD) */}
+            <LoanIssuanceModal
+                isOpen={isLoanModalOpen}
+                onClose={() => setIsLoanModalOpen(false)}
+                member={{
+                    id: selectedMemberForLoan?.memberId,
+                    name: selectedMemberForLoan?.memberName,
+                    savings: selectedMemberForLoan ? (
+                        (selectedMemberForLoan.savings_bf || 0) + (parseFloat(selectedMemberForLoan.savings_amount) || 0)
+                    ) : 0,
+                    activeLoans: selectedMemberForLoan ? (
+                        (selectedMemberForLoan.stl_bf || 0) + (selectedMemberForLoan.ltl_bf || 0)
+                    ) : 0,
+                    guaranteedAmount: 0 // Fetch from refined exposure in future
+                }}
+                onSuccess={handleLoanSuccess}
+                activeMeeting={{
+                    session_number: sessionId,
+                    status: 'OPEN'
+                }}
+            />
+        </div>
     );
 };
 
