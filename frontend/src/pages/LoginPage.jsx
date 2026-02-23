@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { api } from '../services/api';
 import {
     FaLock, FaUser, FaSpinner, FaEye, FaEyeSlash,
     FaArrowLeft, FaCheckCircle, FaEnvelope, FaIdCard
@@ -32,8 +33,27 @@ const LoginPage = () => {
 
     useEffect(() => {
         mounted.current = true;
-        return () => { mounted.current = false; };
+
+        const checkSystemHealth = async () => {
+            try {
+                const health = await api.getSystemHealth();
+                if (mounted.current) {
+                    setDebugMsg(`System: ${health.status === 'UP' ? 'Operational' : 'Issues Detected'}`);
+                }
+            } catch (e) {
+                if (mounted.current) setDebugMsg('System: Connection Error');
+            }
+        };
+
+        checkSystemHealth();
+        const healthInterval = setInterval(checkSystemHealth, 10000);
+
+        return () => {
+            mounted.current = false;
+            clearInterval(healthInterval);
+        };
     }, []);
+
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -383,9 +403,12 @@ const LoginPage = () => {
                         <div className="flex justify-center items-center space-x-3">
                             <span className="flex h-2 w-2 relative">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-safaricom-green opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-safaricom-green"></span>
+                                <span className={`relative inline-flex rounded-full h-2 w-2 ${debugMsg.includes('Operational') ? 'bg-safaricom-green' : 'bg-red-500 animate-pulse'}`}></span>
                             </span>
-                            <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Global Status: Operational</span>
+                            <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">
+                                Global Status: {debugMsg.includes('Operational') ? 'Operational' : debugMsg.replace('System: ', '')}
+                            </span>
+
                         </div>
                     </div>
                 </div>

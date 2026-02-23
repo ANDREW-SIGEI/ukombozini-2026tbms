@@ -34,12 +34,8 @@ const GroupLedger = () => {
         const loadData = async () => {
             setIsLoading(true);
             try {
-                // 1. Fetch Group Details (Need an API for this or get from list)
-                // Assuming we can filter getGroups or have a getGroup endpoint. 
-                // api.getGroups returns an array. Let's find it there or create getGroup(id).
-                // Existing api.getGroups fetches all. Let's use that for now.
-                const allGroups = await api.getGroups();
-                const groupData = allGroups.find(g => g.id === parseInt(id));
+                // 1. Fetch this group directly — O(1) instead of fetching all groups
+                const groupData = await api.getGroup(id);
 
                 if (!groupData) {
                     toast.error("Group not found");
@@ -224,8 +220,15 @@ const GroupLedger = () => {
                             <option value="All">All Transactions</option>
                             <option value="Savings">Savings</option>
                             <option value="LoanIssue">Loan Issue</option>
+                            <option value="LoanDisbursement">Loan Disbursement</option>
                             <option value="LoanRepayment">Loan Repayment</option>
                             <option value="Contribution">Contribution</option>
+                            <option value="Withdrawal">Withdrawal</option>
+                            <option value="Shares">Shares</option>
+                            <option value="Fine">Fine</option>
+                            <option value="Welfare">Welfare</option>
+                            <option value="Arrears">Arrears</option>
+                            <option value="DividendPayout">Dividend Payout</option>
                         </select>
                     </div>
 

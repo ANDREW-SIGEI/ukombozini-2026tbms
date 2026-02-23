@@ -8,6 +8,40 @@ const db = require('../db');
  */
 class RiskService {
     /**
+     * 🛡️ Batch Compliance Status: Get monthly contribution status for all members in a group.
+     */
+    static async getGroupComplianceStatus(groupId) {
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        return new Promise((resolve, reject) => {
+            const query = `
+                SELECT 
+                    m.id, 
+                    COALESCE((
+                        SELECT SUM(savings_amount) 
+                        FROM transactions 
+                        WHERE memberId = m.id 
+                        AND strftime('%Y-%m', created_at) = ?
+                    ), 0) as monthContribution
+                FROM members m
+                WHERE m.group_id = ?
+            `;
+
+            db.all(query, [currentMonth, groupId], (err, rows) => {
+                if (err) return reject(err);
+
+                const stats = {};
+                rows.forEach(r => {
+                    stats[r.id] = {
+                        compliant: r.monthContribution > 0,
+                        contribution: r.monthContribution
+                    };
+                });
+                resolve(stats);
+            });
+        });
+    }
+
+    /**
      * 🧠 Calculate dynamic risk score and trigger automated enforcement.
      * Scores: 0-40 (High/Red), 41-70 (Medium/Orange), 71-100 (Healthy/Green)
      */
@@ -249,6 +283,50 @@ class RiskService {
                         system_at_risk: riskRow?.atRiskCount || 0
                     });
                 });
+            });
+        });
+    }
+
+    /**
+     * 🛡️ Guarantor Lockdown: Prevent loans if any party has skipped contributions this month.
+     * @param {number} memberId - The applicant's ID.
+     * @param {number[]} guarantorIds - Array of linked guarantor IDs.
+     */
+    static async validateComplianceLockdown(memberId, guarantorIds = []) {
+        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const allParties = [memberId, ...guarantorIds.filter(id => id && id !== 0)];
+        const ids = allParties.join(',');
+
+        return new Promise((resolve, reject) => {
+            const query = `
+                SELECT 
+                    m.id, m.name, 
+                    COALESCE((
+                        SELECT SUM(savings_amount) 
+                        FROM transactions 
+                        WHERE memberId = m.id 
+                        AND strftime('%Y-%m', created_at) = ?
+                    ), 0) as monthContribution
+                FROM members m
+                WHERE m.id IN (${ids})
+            `;
+
+            db.all(query, [currentMonth], (err, rows) => {
+                if (err) return reject(err);
+
+                const nonCompliant = rows.filter(r => r.monthContribution <= 0);
+
+                if (nonCompliant.length > 0) {
+                    const names = nonCompliant.map(r => r.name).join(', ');
+                    const role = nonCompliant.some(r => r.id === memberId) ? 'Applicant/Guarantor' : 'Guarantor';
+                    resolve({
+                        locked: true,
+                        reason: `Compliance Lockdown: ${role} arrears detected for ${names} in ${currentMonth}. Contributions must be finalized before loan issuance.`,
+                        offenders: nonCompliant
+                    });
+                } else {
+                    resolve({ locked: false });
+                }
             });
         });
     }

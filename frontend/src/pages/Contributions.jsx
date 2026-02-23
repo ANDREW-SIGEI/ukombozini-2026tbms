@@ -114,18 +114,22 @@ const Contributions = () => {
                 api.getGroupExposure(session.group_id).catch(() => ({}))
             ]);
 
-            setRiskMetrics(riskData?.memberMetrics || {});
+            const complianceData = riskData?.complianceMetrics || {};
 
-            const initialGrid = groupMembers.map(m => ({
-                memberId: m.id,
-                memberName: m.name || m.full_name,
-                phone: m.phone,
-                savings: isStandardMode ? (groupDetails?.default_savings || 500) : 0,
-                welfare: isStandardMode ? (groupDetails?.default_welfare || 100) : 0,
-                agri: 0,
-                edu: 0,
-                committed: false
-            }));
+            const initialGrid = groupMembers.map(m => {
+                const comp = complianceData[m.id] || { compliant: false };
+                return {
+                    memberId: m.id,
+                    memberName: m.name || m.full_name,
+                    phone: m.phone,
+                    savings: isStandardMode ? (groupDetails?.default_savings || 500) : 0,
+                    welfare: isStandardMode ? (groupDetails?.default_welfare || 100) : 0,
+                    agri: 0,
+                    edu: 0,
+                    committed: false,
+                    isCompliant: comp.compliant
+                };
+            });
 
             // [NEW] Merge pending offline transactions
             const pendingTxs = await offlineManager.getPendingTransactions();
@@ -202,6 +206,7 @@ const Contributions = () => {
 
             await Promise.all(promises);
             updateGridValue(m.memberId, 'committed', true);
+            updateGridValue(m.memberId, 'isCompliant', true); // Optimistic compliance update
             toast.success(`✓ ${m.memberName} records persisted!`);
         } catch (error) {
             toast.error(`Error saving ${m.memberName}`);
@@ -352,7 +357,14 @@ const Contributions = () => {
                                         return (
                                             <tr key={m.memberId} className={`hover:bg-blue-50/20 transition-colors group ${m.committed ? 'bg-green-50/30' : ''}`}>
                                                 <td className="px-8 py-4">
-                                                    <div className="font-black text-slate-800">{m.memberName}</div>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="font-black text-slate-800">{m.memberName}</div>
+                                                        {m.isCompliant ? (
+                                                            <span className="text-[7px] bg-green-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-sm animate-pulse">COMPLIANT</span>
+                                                        ) : (
+                                                            <span className="text-[7px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-sm opacity-60">ARREARS LOCK</span>
+                                                        )}
+                                                    </div>
                                                     <div className="flex items-center gap-2 mt-0.5">
                                                         <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter ${risk.status === 'At Risk' ? 'bg-red-100 text-red-600' :
                                                             risk.status === 'Stable' ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'

@@ -617,7 +617,7 @@ const CashControlModule = () => {
                                             const res = await api.unlockSession(context.session.id, reason);
                                             if (res.success) {
                                                 toast.success("Session Unlocked. Re-syncing data...");
-                                                loadContext();
+                                                loadContext(context.session.id);
                                             }
                                         } catch (err) {
                                             toast.error("Unlock Failed: Security Constraint");

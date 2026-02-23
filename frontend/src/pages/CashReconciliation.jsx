@@ -58,10 +58,11 @@ const mockReconciliations = [
 ];
 
 const CashReconciliation = () => {
-    const [reconciliations, setReconciliations] = useState(mockReconciliations);
+    const [reconciliations, setReconciliations] = useState([]);
     const [showNewReconciliation, setShowNewReconciliation] = useState(false);
     const [selectedReconciliation, setSelectedReconciliation] = useState(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [loading, setLoading] = useState(false);
 
     // New reconciliation form
     const [newRec, setNewRec] = useState({
@@ -73,29 +74,41 @@ const CashReconciliation = () => {
         variance_explanation: ''
     });
 
-    // Mock expected cash (would come from API)
+    // Real expected cash from API
     const [expectedCash, setExpectedCash] = useState({
-        total: 125000,
-        breakdown: [
-            { session_number: 'MTG-202501-GRP-001', group_name: 'Ukombozi Group A', total_collected: 45000, members_present: 12 },
-            { session_number: 'MTG-202501-GRP-002', group_name: 'Ukombozi Group B', total_collected: 80000, members_present: 15 }
-        ]
+        total: 0,
+        breakdown: []
     });
 
     const { user } = useAuth();
 
-    // Load Real Data
+    // Load History
+    useEffect(() => {
+        fetchHistory();
+    }, []);
+
+    const fetchHistory = async () => {
+        setLoading(true);
+        try {
+            const data = await api.getReconciliations();
+            setReconciliations(data || []);
+        } catch (error) {
+            console.error("Failed to load history", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Load Daily Flow Data
     useEffect(() => {
         const fetchDailyData = async () => {
             try {
-                const today = new Date().toISOString().split('T')[0];
-                const flow = await api.getDailyCashFlow(today);
+                const date = newRec.reconciliation_date;
+                const flow = await api.getDailyCashFlow(date);
                 if (flow) {
                     setExpectedCash({
                         total: flow.cashIn.total,
-                        breakdown: [
-                            { session_number: 'SYSTEM-TOTAL', group_name: 'All Groups', total_collected: flow.cashIn.total, members_present: '-' }
-                        ]
+                        breakdown: flow.breakdown || []
                     });
                 }
             } catch (error) {
@@ -103,7 +116,7 @@ const CashReconciliation = () => {
             }
         };
         fetchDailyData();
-    }, []);
+    }, [newRec.reconciliation_date]);
 
     // Calculate variance
     const calculateVariance = () => {
@@ -130,8 +143,8 @@ const CashReconciliation = () => {
             return;
         }
 
-        if (variance !== 0 && newRec.variance_explanation.length < 20) {
-            toast.error('Variance explanation must be at least 20 characters');
+        if (variance !== 0 && newRec.variance_explanation.length < 10) {
+            toast.error('Variance explanation must be at least 10 characters');
             return;
         }
 
@@ -140,55 +153,35 @@ const CashReconciliation = () => {
             const mobile = parseFloat(newRec.declared_mobile_money) || 0;
             const banked = parseFloat(newRec.banked_amount) || 0;
 
-            const newReconciliation = {
-                id: reconciliations.length + 1,
-                reconciliation_number: `REC-${newRec.reconciliation_date.replace(/-/g, '')}-${String(reconciliations.length + 1).padStart(3, '0')}`,
+            const payload = {
                 reconciliation_date: newRec.reconciliation_date,
-                officer_name: user?.name || 'Unknown Officer',
                 expected_cash: expectedCash.total,
                 declared_physical_cash: physical,
                 declared_mobile_money: mobile,
                 banked_amount: banked,
-                total_declared: physical + mobile + banked,
                 variance: variance,
                 variance_type: varianceType,
-                variance_explanation: newRec.variance_explanation || null,
-                status: variance === 0 ? 'BALANCED' : 'VARIANCE_FLAGGED',
-                officer_notes: newRec.officer_notes,
-                meetings_breakdown: expectedCash.breakdown
+                variance_explanation: newRec.variance_explanation,
+                officer_notes: newRec.officer_notes
             };
 
-            setReconciliations([newReconciliation, ...reconciliations]);
-            setShowNewReconciliation(false);
-            setNewRec({
-                reconciliation_date: new Date().toISOString().split('T')[0],
-                declared_physical_cash: '',
-                declared_mobile_money: '',
-                banked_amount: '',
-                variance_explanation: ''
-            });
+            const res = await api.submitReconciliation(payload);
 
-            // 📧 NOTIFICATION TRIGGERS
-            // 1. Send Daily Report to Directors
-            await NotificationService.sendEmail(
-                'directors@ukombozi.co.ke', // Mock recipient
-                `Daily Reconciliation Report - ${newReconciliation.reconciliation_date}`,
-                `Reconciliation #${newReconciliation.reconciliation_number} submitted by ${newReconciliation.officer_name}. Status: ${newReconciliation.status}. Total Declared: KES ${newReconciliation.total_declared}.`
-            );
+            if (res && res.success) {
+                toast.success(variance === 0 ? '✅ Balanced!' : '⚠️ Submitted with variance');
+                setShowNewReconciliation(false);
+                fetchHistory();
 
-            // 2. Alert Admin if Variance Exists
-            if (variance !== 0) {
-                await NotificationService.sendEmail(
-                    'admin@ukombozi.co.ke', // Mock admin
-                    `⚠️ VARIANCE FLAGGED - ${newReconciliation.reconciliation_number}`,
-                    `URGENT: A variance of KES ${variance} (${varianceType}) has been detected.\n\nOfficer: ${newReconciliation.officer_name}\nExplanation: ${newReconciliation.variance_explanation}`
-                );
-            }
-
-            if (variance === 0) {
-                toast.success('✅ Reconciliation submitted - Balanced!');
-            } else {
-                toast.warning('⚠️ Reconciliation submitted - Variance flagged for review');
+                // NOTIFICATIONS (Optional - usually handled by backend but keeping logic)
+                try {
+                    if (variance !== 0) {
+                        NotificationService.sendEmail(
+                            'admin@ukombozi.co.ke',
+                            `⚠️ VARIANCE FLAGGED - ${res.reference}`,
+                            `Variance of KES ${variance} (${varianceType}) by ${user.name}`
+                        );
+                    }
+                } catch (notiErr) { console.error("Notification failed", notiErr); }
             }
         } catch (error) {
             console.error('Submit error:', error);

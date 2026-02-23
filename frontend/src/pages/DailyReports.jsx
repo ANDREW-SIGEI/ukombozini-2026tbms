@@ -38,6 +38,7 @@ export default function DailyReports() {
 
     const [status, setStatus] = useState("DRAFT");
     const [approvedBy, setApprovedBy] = useState(null);
+    const [reportId, setReportId] = useState(null); // DB id of the submitted report
     const [groups, setGroups] = useState([]);
     const [selectedGroupId, setSelectedGroupId] = useState("");
     const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
@@ -194,7 +195,8 @@ export default function DailyReports() {
 
             setIsLoading(true);
             try {
-                await api.submitDailyReport(reportData);
+                const result = await api.submitDailyReport(reportData);
+                if (result?.id) setReportId(result.id);
                 setStatus("SUBMITTED");
             } catch (error) {
                 console.error("Submission failed", error);
@@ -442,9 +444,20 @@ export default function DailyReports() {
                         </p>
                         <div className="flex gap-4">
                             <button
-                                onClick={() => {
-                                    setStatus("APPROVED");
-                                    setApprovedBy("Supervisor Jane Doe");
+                                onClick={async () => {
+                                    try {
+                                        if (reportId) {
+                                            const result = await api.approveDailyReport(reportId);
+                                            setApprovedBy(result?.approvedBy || user?.name || "Supervisor");
+                                        } else {
+                                            // Fallback: no DB id yet (offline or legacy draft)
+                                            setApprovedBy(user?.name || "Supervisor");
+                                        }
+                                        setStatus("APPROVED");
+                                    } catch (err) {
+                                        console.error("Approval failed:", err);
+                                        alert("Failed to lock report. Please try again.");
+                                    }
                                 }}
                                 className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-md"
                             >

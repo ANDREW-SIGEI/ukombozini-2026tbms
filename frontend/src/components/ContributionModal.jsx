@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { FaTimes, FaPiggyBank, FaSearch, FaCheckCircle, FaShieldAlt, FaInfoCircle, FaLock, FaBan, FaExclamationTriangle, FaCalendarAlt } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import offlineManager from '../services/offlineManager';
 
 // 🔐 CONTRIBUTION TYPE RULES ENGINE
 const CONTRIBUTION_RULES = {
@@ -179,11 +180,23 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
         try {
             setSendingSMS(true);
 
-            // Call backend API for atomic posting
-            const result = await api.postContribution(contributionData);
+            let result;
+            if (!navigator.onLine) {
+                const offlineId = await offlineManager.saveOfflineTransaction({
+                    type: 'contribution',
+                    data: contributionData
+                });
+                result = { success: true, transaction_ref: `OFFLINE-${offlineId}`, offline: true };
+                toast.warning(`⚡ Offline: Contribution queued for sync!`);
+            } else {
+                // Call backend API for atomic posting
+                result = await api.postContribution(contributionData);
+            }
 
             if (result && result.success) {
-                toast.success(`✅ Contribution posted: ${result.transaction_ref}`);
+                if (!result.offline) {
+                    toast.success(`✅ Contribution posted: ${result.transaction_ref}`);
+                }
 
                 // Build allocation object for parent callback
                 const allocation = {
@@ -194,8 +207,9 @@ const ContributionModal = ({ isOpen, onClose, selectedGroupId, selectedGroupName
                     date: new Date().toISOString().split('T')[0],
                     meetingReference: activeMeeting?.session_number,
                     reference: result.transaction_ref,
-                    ledgerId: result.ledger_id,
-                    contributionRule: currentRule
+                    ledgerId: result.ledger_id || `OFFLINE-${result.transaction_ref}`,
+                    contributionRule: currentRule,
+                    offline: result.offline
                 };
 
                 onSuccess(allocation);

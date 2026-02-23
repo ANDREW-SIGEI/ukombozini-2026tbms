@@ -9,10 +9,11 @@ const RiskHeatmapWidget = () => {
     useEffect(() => {
         const fetchRiskData = async () => {
             try {
-                const data = await api.getRiskOverview();
-                // Ensure data is an array (handle backend object or array responses)
-                const sanitizedData = Array.isArray(data) ? data : (data?.groups || data?.heatmap || []);
-                setAuditData(sanitizedData);
+                // getRiskDashboard → GET /risk/dashboard → returns {scores, alerts, heatmap[], stats}
+                // heatmap[] has the per-group shape: {id, name, riskScore, riskFactors, metrics}
+                const data = await api.getRiskDashboard();
+                const heatmap = data?.heatmap || [];
+                setAuditData(heatmap);
             } catch (error) {
                 console.error("Failed to load risk heatmap", error);
             } finally {
@@ -90,7 +91,7 @@ const RiskHeatmapWidget = () => {
             </div>
 
             <div className="mt-4 text-[10px] text-gray-400 flex gap-4 justify-end">
-                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> High Risk (>60)</div>
+                <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> High Risk (&gt;60)</div>
                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-500"></div> Medium Risk (30-60)</div>
                 <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> Low Risk (&lt;30)</div>
             </div>

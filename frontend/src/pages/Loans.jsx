@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     FaPlus, FaSearch, FaFilter, FaFileDownload,
     FaMoneyBillWave, FaExclamationTriangle, FaCheckCircle, FaSpinner,
-    FaFileExcel, FaFilePdf
+    FaFileExcel, FaFilePdf, FaExclamationCircle, FaCalendarAlt
 } from 'react-icons/fa';
 import { Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -27,6 +27,8 @@ const Loans = () => {
         countDefaulted: 0
     });
 
+    const [arrears, setArrears] = useState({ total: 0, totalAmount: 0, d30: 0, d60: 0, d90: 0 });
+
     const [scheduleModal, setScheduleModal] = useState({
         isOpen: false,
         schedule: [],
@@ -36,6 +38,7 @@ const Loans = () => {
 
     useEffect(() => {
         fetchLoans();
+        api.getLoanArrears().then(data => { if (data) setArrears(data); }).catch(() => { });
     }, []);
 
     const fetchLoans = async () => {
@@ -128,12 +131,40 @@ const Loans = () => {
         }
     };
 
+    const handleMarkDefaulted = async (loanId) => {
+        if (!window.confirm(`Mark Loan #${loanId} as DEFAULTED? This cannot be undone without admin reversal.`)) return;
+        try {
+            await api.markLoanDefaulted(loanId);
+            toast.success(`Loan #${loanId} marked as DEFAULTED.`);
+            fetchLoans();
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to mark loan as defaulted.');
+        }
+    };
+
+    const handleMarkClosed = async (loanId) => {
+        if (!window.confirm(`Mark Loan #${loanId} as CLOSED & CLEARED? This will release all guarantors and send an SMS to the member.`)) return;
+        try {
+            await api.markLoanClosed(loanId);
+            toast.success(`Loan #${loanId} closed. Guarantors released.`);
+            fetchLoans();
+            api.getLoanArrears().then(data => { if (data) setArrears(data); }).catch(() => { });
+        } catch (error) {
+            console.error(error);
+            toast.error(error?.message || 'Failed to close loan.');
+        }
+    };
+
     const getStatusStyle = (status) => {
         const styles = {
             'Active': 'bg-green-100 text-green-800 border-green-200',
+            'active': 'bg-green-100 text-green-800 border-green-200',
             'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
             'Defaulted': 'bg-red-100 text-red-800 border-red-200',
-            'Closed': 'bg-gray-100 text-gray-600 border-gray-200'
+            'defaulted': 'bg-red-100 text-red-800 border-red-200',
+            'Closed': 'bg-gray-100 text-gray-600 border-gray-200',
+            'closed': 'bg-gray-100 text-gray-600 border-gray-200'
         };
         return styles[status] || 'bg-gray-100 text-gray-800 border-gray-200';
     };
@@ -197,7 +228,7 @@ const Loans = () => {
             </div>
 
             {/* Stats Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 {/* ... stats ... */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
                     <div className="p-4 bg-green-50 text-green-600 rounded-xl">
@@ -224,6 +255,26 @@ const Loans = () => {
                     <div>
                         <div className="text-xs font-bold text-gray-400 uppercase">Defaulted</div>
                         <div className="text-2xl font-black text-red-600">{stats.countDefaulted}</div>
+                    </div>
+                </div>
+                {/* Arrears card */}
+                <div className={`bg-white p-5 rounded-2xl shadow-sm border flex items-start gap-4 ${arrears.total > 0 ? 'border-orange-200 bg-orange-50/30' : 'border-gray-100'
+                    }`}>
+                    <div className={`p-4 rounded-xl ${arrears.total > 0 ? 'bg-orange-100 text-orange-600' : 'bg-gray-50 text-gray-400'
+                        }`}>
+                        <FaExclamationCircle size={22} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-gray-400 uppercase">Overdue Loans</div>
+                        <div className={`text-2xl font-black ${arrears.total > 0 ? 'text-orange-600' : 'text-gray-800'
+                            }`}>{arrears.total}</div>
+                        {arrears.total > 0 && (
+                            <div className="flex gap-2 mt-1 flex-wrap">
+                                {arrears.d30 > 0 && <span className="text-[9px] font-black bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">≤30d: {arrears.d30}</span>}
+                                {arrears.d60 > 0 && <span className="text-[9px] font-black bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">31-60d: {arrears.d60}</span>}
+                                {arrears.d90 > 0 && <span className="text-[9px] font-black bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">&gt;60d: {arrears.d90}</span>}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -263,23 +314,24 @@ const Loans = () => {
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
                                 <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Loan Info</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Issued Date</th>
                                 <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Principal</th>
                                 <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-right">Repayable</th>
                                 <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Duration</th>
                                 <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-center">Action</th>
+                                <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-wider text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="6" className="px-6 py-12 text-center text-gray-500 font-bold">
+                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-500 font-bold">
                                         <FaSpinner className="animate-spin inline mr-2" /> Loading Portfolio...
                                     </td>
                                 </tr>
                             ) : filteredLoans.length === 0 ? (
                                 <tr>
-                                    <td colSpan="6" className="px-6 py-12 text-center text-gray-400 font-bold">
+                                    <td colSpan="7" className="px-6 py-12 text-center text-gray-400 font-bold">
                                         No loans found matching your search.
                                         <button onClick={() => navigate('/loan-advisory')} className="block mx-auto mt-2 text-blue-600 hover:underline">
                                             Start a new loan application via Advisory Panel
@@ -292,7 +344,14 @@ const Loans = () => {
                                     <tr key={loan.id} className="hover:bg-blue-50/50 transition-colors group">
                                         <td className="px-6 py-4">
                                             <div className="font-bold text-gray-800">{loan.member_name || 'Unknown Member'}</div>
-                                            <div className="text-xs font-mono text-gray-500">#{loan.id.toString().substring(0, 8)}...</div>
+                                            <div className="text-xs font-mono text-gray-400">Loan #{loan.id}</div>
+                                            {loan.group_name && <div className="text-[10px] text-gray-400 uppercase font-bold">{loan.group_name}</div>}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            <div className="flex items-center gap-1">
+                                                <FaCalendarAlt className="text-gray-400 text-xs" />
+                                                <span className="font-bold">{loan.issued_date ? new Date(loan.issued_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-right font-mono font-bold text-gray-700">
                                             KES {(loan.principal_amount || 0).toLocaleString()}
@@ -308,13 +367,33 @@ const Loans = () => {
                                                 {loan.status}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <button
-                                                onClick={() => handleViewSchedule(loan)}
-                                                className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1 mx-auto"
-                                            >
-                                                <Clock size={12} /> Schedule
-                                            </button>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center justify-center gap-2">
+                                                <button
+                                                    onClick={() => handleViewSchedule(loan)}
+                                                    className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1"
+                                                >
+                                                    <Clock size={12} /> Schedule
+                                                </button>
+                                                {(loan.status === 'active' || loan.status === 'Active') && !isAuditor && (
+                                                    <button
+                                                        onClick={() => handleMarkDefaulted(loan.id)}
+                                                        className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1"
+                                                        title="Mark as Defaulted"
+                                                    >
+                                                        <FaExclamationCircle size={11} /> Default
+                                                    </button>
+                                                )}
+                                                {(['active', 'Active', 'defaulted', 'Defaulted'].includes(loan.status)) && !isAuditor && (
+                                                    <button
+                                                        onClick={() => handleMarkClosed(loan.id)}
+                                                        className="bg-yellow-50 text-yellow-700 hover:bg-yellow-500 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1"
+                                                        title="Mark as Closed & Cleared"
+                                                    >
+                                                        ✓ Close
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))

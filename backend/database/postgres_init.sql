@@ -219,7 +219,17 @@ CREATE TABLE IF NOT EXISTS risk_alerts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 12. DIVIDEND ENGINE
+-- 12. ATTENDANCE TRACKING
+CREATE TABLE IF NOT EXISTS attendance (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES meeting_sessions(id),
+    member_id INTEGER NOT NULL REFERENCES members(id),
+    status TEXT CHECK(status IN ('PRESENT', 'ABSENT', 'LATE')) DEFAULT 'PRESENT',
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, member_id)
+);
+
+-- 13. DIVIDEND ENGINE
 CREATE TABLE IF NOT EXISTS dividend_runs(
     id SERIAL PRIMARY KEY,
     financial_year INTEGER,

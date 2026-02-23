@@ -12,6 +12,7 @@
     "axios": "^1.13.2",
     "chart.js": "^4.5.1",
     "file-saver": "^2.0.5",
+    "framer-motion": "^12.34.3",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.563.0",

@@ -264,6 +264,104 @@ router.post('/settings', authenticateToken, isAdmin, (req, res) => {
         });
 });
 
+// GET /api/admin/officers
+router.get('/officers', authenticateToken, isAdmin, (req, res) => {
+    db.all("SELECT id, name, email, phone, role, status FROM officers", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// POST /api/admin/officers (Create/Update)
+router.post('/officers', authenticateToken, isAdmin, async (req, res) => {
+    const { id, name, email, phone, role, status, password } = req.body;
+
+    if (id) {
+        // Update
+        const query = `UPDATE officers SET name=?, email=?, phone=?, role=?, status=? WHERE id=?`;
+        db.run(query, [name, email, phone, role, status, id], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            logAudit(`Update Officer: ${name}`, 'admin', { id, role });
+            res.json({ success: true });
+        });
+    } else {
+        // Create
+        const bcrypt = require('bcryptjs');
+        const hashedPassword = await bcrypt.hash(password || 'Ukombozi2026!', 10);
+        const query = `INSERT INTO officers (name, email, phone, role, status, password_hash) VALUES (?, ?, ?, ?, ?, ?)`;
+        db.run(query, [name, email, phone, role, status || 'active', hashedPassword], function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            logAudit(`Create Officer: ${name}`, 'admin', { id: this.lastID, role });
+            res.json({ success: true, id: this.lastID });
+        });
+    }
+});
+
+// DELETE /api/admin/officers/:id
+router.delete('/officers/:id', authenticateToken, isAdmin, (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM officers WHERE id = ?", [id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        logAudit(`Delete Officer: ${id}`, 'admin', { id });
+        res.json({ success: true });
+    });
+});
+
+// GET /api/admin/treasury-status
+router.get('/treasury-status', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const stats = await RiskService.getGlobalRiskStats();
+        // Add more detailed bank balance logic if needed from transactions
+        res.json([
+            { label: 'Total Savings', value: stats.total_savings, status: 'Healthy' },
+            { label: 'Active Loan Portfolio', value: stats.total_loans, status: 'Active' },
+            { label: 'Available Liquidity', value: stats.total_liquidity, status: stats.total_liquidity > 0 ? 'Normal' : 'Critical' }
+        ]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/admin/institutional-stats
+router.get('/institutional-stats', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const stats = await RiskService.getGlobalRiskStats();
+        const groupsCount = await new Promise((resolve) => db.get("SELECT COUNT(*) as count FROM groups", (err, row) => resolve(row.count)));
+        const membersCount = await new Promise((resolve) => db.get("SELECT COUNT(*) as count FROM members", (err, row) => resolve(row.count)));
+
+        res.json({
+            totalSavings: stats.total_savings,
+            activeLoans: stats.total_loans,
+            totalMembers: membersCount,
+            totalGroups: groupsCount,
+            complianceRate: 85, // Placeholder for actual calculation
+            historical: []
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/admin/board-report
+router.get('/board-report', authenticateToken, isAdmin, (req, res) => {
+    const query = `
+        SELECT 
+            g.name,
+            (SELECT COUNT(*) FROM members WHERE group_id = g.id) as member_count,
+            SUM(m.current_savings) as total_savings,
+            SUM(m.active_loan_balance) as loan_portfolio,
+            g.risk_score,
+            'ACTIVE' as session_status
+        FROM groups g
+        LEFT JOIN members m ON g.id = m.group_id
+        GROUP BY g.id
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 // GET /api/governance/officials - Officials Directory List
 router.get('/officials', authenticateToken, async (req, res) => {
     const query = `
@@ -508,4 +606,49 @@ router.post('/approvals/review', authenticateToken, isAdmin, (req, res) => {
     });
 });
 
+// GET /api/governance/exposure/:groupId
+router.get('/exposure/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const complianceMetrics = await RiskService.getGroupComplianceStatus(groupId);
+        const riskAnalysis = await RiskService.evaluateGroupRisk(groupId);
+
+        res.json({
+            complianceMetrics,
+            score: riskAnalysis.score,
+            alerts: riskAnalysis.alerts,
+            enforcement: riskAnalysis.enforcement
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/governance/officials - Consolidated Officials Directory
+router.get('/officials', authenticateToken, (req, res) => {
+    const query = `
+        SELECT 
+            go.id,
+            go.role,
+            go.term_start,
+            go.term_end,
+            go.status as status,
+            m.name as member_name,
+            m.phone as member_phone,
+            m.id as member_id,
+            g.name as group_name,
+            g.id as group_id
+        FROM group_officials go
+        JOIN members m ON go.member_id = m.id
+        JOIN groups g ON go.group_id = g.id
+        WHERE go.status = 'active'
+        ORDER BY g.name ASC, go.role ASC
+    `;
+    db.all(query, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 module.exports = router;
+

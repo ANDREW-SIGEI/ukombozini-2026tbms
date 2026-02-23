@@ -70,32 +70,64 @@ router.post('/bulk', authenticateToken, async (req, res) => {
                        m.active_loan_balance, g.meetingDay, g.name as group_name
                 FROM members m
                 JOIN groups g ON m.group_id = g.id
-                WHERE m.id IN (${targetIds.map(() => '?').join(',')}) AND m.phone IS NOT NULL`;
+                WHERE m.id IN (${targetIds.map(() => '?').join(',')})`;
             params = targetIds;
         } else if (target === 'ROLES') {
+            const placeholders = targetIds.map(() => '?').join(',');
             sql = `
-                SELECT DISTINCT phone, name, id, current_savings, project_balance, active_loan_balance, meetingDay, group_name FROM (
-                    SELECT m.phone, m.name, m.id, m.current_savings, 
-                           (m.education_savings + m.agriculture_savings) as project_balance, 
-                           m.active_loan_balance, g.meetingDay, g.name as group_name
-                    FROM members m
-                    JOIN group_officials go ON m.id = go.member_id
-                    JOIN groups g ON m.group_id = g.id
-                    WHERE go.role IN (${targetIds.map(() => '?').join(',')}) 
-                      AND go.status = 'active'
-                    UNION
-                    SELECT m.phone, m.name, m.id, m.current_savings, 
-                           (m.education_savings + m.agriculture_savings) as project_balance, 
-                           m.active_loan_balance, g.meetingDay, g.name as group_name
-                    FROM members m
-                    JOIN groups g ON (m.id = g.chairperson_id OR m.id = g.secretary_id OR m.id = g.treasurer_id)
-                    WHERE m.phone IS NOT NULL
+                SELECT m.phone, m.name, m.id, m.current_savings, 
+                       (m.education_savings + m.agriculture_savings) as project_balance, 
+                       m.active_loan_balance, g.meetingDay, g.name as group_name
+                FROM members m
+                JOIN group_officials go ON m.id = go.member_id
+                JOIN groups g ON m.group_id = g.id
+                WHERE go.role IN (${placeholders}) 
+                  AND go.status = 'active'
+                UNION
+                SELECT m.phone, m.name, m.id, m.current_savings, 
+                       (m.education_savings + m.agriculture_savings) as project_balance, 
+                       m.active_loan_balance, g.meetingDay, g.name as group_name
+                FROM members m
+                JOIN groups g ON m.group_id = g.id
+                WHERE (
+                    (m.id = g.chairperson_id AND 'Chairman' IN (${placeholders})) OR
+                    (m.id = g.secretary_id AND 'Secretary' IN (${placeholders})) OR
+                    (m.id = g.treasurer_id AND 'Treasurer' IN (${placeholders}))
                 )
             `;
-            params = targetIds;
+            params = [...targetIds, ...targetIds];
         } else if (target === 'OFFICERS') {
-            sql = `SELECT phone, name, id FROM officers WHERE role IN (${targetIds.map(() => '?').join(',')}) AND phone IS NOT NULL`;
+            sql = `SELECT phone, name, id FROM officers WHERE role IN (${targetIds.map(() => '?').join(',')})`;
             params = targetIds;
+        } else if (target === 'RELATIONS') {
+            // targetIds: ['GUARANTORS', 'NEXT_OF_KIN']
+            const requested = targetIds.map(t => t.toUpperCase());
+            let unionParts = [];
+            if (requested.includes('GUARANTORS')) {
+                unionParts.push(`
+                    SELECT DISTINCT m.phone, m.name, m.id, m.current_savings, 
+                           (m.education_savings + m.agriculture_savings) as project_balance, 
+                           m.active_loan_balance, g.meetingDay, g.name as group_name
+                    FROM members m
+                    JOIN groups g ON m.group_id = g.id
+                    JOIN loans l ON (m.id = l.guarantor1_id OR m.id = l.guarantor2_id)
+                    WHERE l.status = 'active'
+                `);
+            }
+            if (requested.includes('NEXT_OF_KIN')) {
+                unionParts.push(`
+                    SELECT DISTINCT m.phone, m.name, m.id, m.current_savings, 
+                           (m.education_savings + m.agriculture_savings) as project_balance, 
+                           m.active_loan_balance, g.meetingDay, g.name as group_name
+                    FROM members m
+                    JOIN groups g ON m.group_id = g.id
+                    JOIN members m2 ON m.id = m2.next_of_kin_member_id
+                    WHERE m2.status = 'active'
+                `);
+            }
+            if (unionParts.length > 0) {
+                sql = unionParts.join(' UNION ');
+            }
         }
 
         if (sql) {
@@ -109,31 +141,42 @@ router.post('/bulk', authenticateToken, async (req, res) => {
         }
 
         const stats = { sent: 0, failed: 0 };
+        const method = req.body.method || 'SMS';
 
         // Broadcaster Loop
         for (const person of recipients) {
-            if (!person.phone) continue;
-
             let finalMessage = message;
             if (req.body.variables) {
-                const nextMeeting = calculateNextMeeting(person.meetingDay);
+                const nextMeeting = person.meetingDay ? calculateNextMeeting(person.meetingDay) : 'N/A';
                 finalMessage = message
                     .replace(/\[NAME\]/g, person.name || 'Member')
                     .replace(/\[PHONE\]/g, person.phone || '')
                     .replace(/\[GROUP\]/g, person.group_name || 'Your Group')
-                    .replace(/\[SAVINGS\]/g, person.current_savings ? (person.current_savings).toLocaleString() : '0')
-                    .replace(/\[PROJECT_BAL\]/g, person.project_balance ? (person.project_balance).toLocaleString() : '0')
-                    .replace(/\[LOAN_BAL\]/g, person.active_loan_balance ? (person.active_loan_balance).toLocaleString() : '0')
+                    .replace(/\[SAVINGS\]/g, person.current_savings != null ? (person.current_savings).toLocaleString() : '0')
+                    .replace(/\[PROJECT_BAL\]/g, person.project_balance != null ? (person.project_balance).toLocaleString() : '0')
+                    .replace(/\[LOAN_BAL\]/g, person.active_loan_balance != null ? (person.active_loan_balance).toLocaleString() : '0')
                     .replace(/\[NEXT_MEETING\]/g, nextMeeting);
             }
 
             finalMessage += getSeasonalGreeting();
 
             try {
-                const type = `BROADCAST_${target}`;
-                const success = await logAndSendSMS(person.id || 0, finalMessage, type, null, target === 'OFFICERS' ? 'officers' : 'members');
-                if (success) stats.sent++;
-                else stats.failed++;
+                if (method === 'SMS') {
+                    const type = `BROADCAST_${target}`;
+                    const success = await logAndSendSMS(person.id || 0, finalMessage, type, null, target === 'OFFICERS' ? 'officers' : 'members');
+                    if (success) stats.sent++;
+                    else stats.failed++;
+                } else if (method === 'INAPP') {
+                    await new Promise((resolve, reject) => {
+                        db.run(`INSERT INTO in_app_notifications (recipient_id, recipient_type, title, message) VALUES (?, ?, ?, ?)`,
+                            [person.id, target === 'OFFICERS' ? 'officer' : 'member', `Broadcast: ${target}`, finalMessage],
+                            (err) => err ? reject(err) : resolve()
+                        );
+                    });
+                    stats.sent++;
+                } else {
+                    stats.failed++;
+                }
             } catch (sendErr) {
                 console.error(`Failed to send to ${person.name || person.phone}:`, sendErr);
                 stats.failed++;
@@ -142,6 +185,7 @@ router.post('/bulk', authenticateToken, async (req, res) => {
 
         logAudit(`Bulk Broadcast: ${target}`, 'communication', {
             target,
+            method,
             count: recipients.length,
             sent: stats.sent
         }, authorId, req.user.name, req);

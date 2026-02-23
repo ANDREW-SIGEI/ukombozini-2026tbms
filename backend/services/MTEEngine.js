@@ -104,13 +104,13 @@ const TRANSACTION_MAP = {
         memberField: 'risk_score', memberDelta: 0, riskDelta: -5, // Improving group risk
         entries: [
             { type: 'GROUP', account: 'CASH', direction: 'DEBIT' },
-            { type: 'SYSTEM', account: 'PARTNER_INVESTMENT', direction: 'CREDIT' }
+            { type: 'SYSTEM', account: 'INVESTMENT', direction: 'CREDIT' }
         ]
     },
     'COMMITMENT_DEPOSIT': {
         memberField: 'risk_score', memberDelta: 0, riskDelta: -2,
         entries: [
-            { type: 'SYSTEM', account: 'ESCROW_COMMITMENT', direction: 'DEBIT' },
+            { type: 'SYSTEM', account: 'ESCROW', direction: 'DEBIT' },
             { type: 'GROUP', account: 'CASH', direction: 'CREDIT' }
         ]
     },
@@ -118,14 +118,14 @@ const TRANSACTION_MAP = {
         memberField: 'active_asset_balance', memberDelta: 1, riskDelta: 5,
         entries: [
             { type: 'MEMBER', account: 'ASSET_LOAN', direction: 'DEBIT' },
-            { type: 'SYSTEM', account: 'INVENTORY', direction: 'CREDIT' }
+            { type: 'SYSTEM', account: 'INVENTORY_RELEASE', direction: 'CREDIT' }
         ]
     },
     'PARTNER_OFFSET': {
         memberField: 'active_loan_balance', memberDelta: -1, riskDelta: -5,
         entries: [
             { type: 'MEMBER', account: 'LOAN_PRINCIPAL', direction: 'CREDIT' },
-            { type: 'SYSTEM', account: 'ESCROW_COMMITMENT', direction: 'DEBIT' }
+            { type: 'SYSTEM', account: 'ESCROW', direction: 'CREDIT' }
         ]
     },
     'SAVINGS_REVERSAL': {
@@ -307,16 +307,19 @@ async function runMTELogic(client, params, officerId) {
 
     // 5. LEGACY TRANSACTIONS TABLE LOG (for UI compatibility)
     const legacyMap = {
-        'SAVINGS': 'deposits',
+        'SAVINGS': 'savings_amount',
         'WITHDRAWAL': 'withdrawals',
         'LOAN_REPAYMENT': 'stl_repayment',
+        'LOAN_INTEREST': 'loan_interest',
         'PENALTY': 'fines',
-        'EDUCATION': 'deposits',
-        'AGRICULTURE': 'deposits',
-        'DIVIDEND': 'deposits',
+        'PENALTY_PAYMENT': 'fines',
+        'WELFARE': 'welfare',
+        'EDUCATION': 'project',
+        'AGRICULTURE': 'project',
+        'DIVIDEND': 'savings_amount',
         'LOAN_ISSUANCE': 'loans_issued',
         'GROUP_LOAN': 'loans_issued',
-        'GROUP_CAPITAL': 'deposits',
+        'GROUP_CAPITAL': 'savings_amount',
         'GROUP_PRODUCT_ALLOCATION': 'loans_issued',
         'GROUP_LOAN_REPAYMENT': 'stl_repayment'
     };

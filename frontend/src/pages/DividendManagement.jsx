@@ -18,8 +18,8 @@ const DividendManagement = () => {
 
     useEffect(() => {
         loadGroups();
-        loadHistory();
     }, []);
+
 
     const loadGroups = async () => {
         try {
@@ -31,14 +31,19 @@ const DividendManagement = () => {
         }
     };
 
-    const loadHistory = async () => {
+    const loadHistory = async (groupId) => {
         try {
-            const res = await api.getDividendRuns();
+            const res = await api.getDividendRuns(groupId || null);
             setHistory(res || []);
         } catch (error) {
             console.error(error);
         }
     };
+
+    // Reload history whenever the selected group changes
+    useEffect(() => {
+        if (selectedGroupId) loadHistory(selectedGroupId);
+    }, [selectedGroupId]);
 
     const handlePreview = async () => {
         if (!selectedGroupId) return;
@@ -68,7 +73,8 @@ const DividendManagement = () => {
             });
             toast.success("✅ Dividends Distributed Successfully!");
             setPreviewData(null);
-            loadHistory();
+            loadHistory(selectedGroupId);
+
         } catch (error) {
             console.error(error);
             toast.error("Failed to post dividends.");
@@ -182,7 +188,9 @@ const DividendManagement = () => {
                                             <tr>
                                                 <th className="p-3 font-bold text-gray-500">Member</th>
                                                 <th className="p-3 font-bold text-gray-500 text-right">Avg Shares</th>
-                                                <th className="p-3 font-bold text-gray-500 text-right">Payout (KES)</th>
+                                                <th className="p-3 font-bold text-gray-500 text-right">Gross (KES)</th>
+                                                <th className="p-3 font-bold text-gray-500 text-right">WHT 5%</th>
+                                                <th className="p-3 font-bold text-gray-500 text-right">Net Payout</th>
                                                 <th className="p-3 font-bold text-gray-500 text-right">Action</th>
                                             </tr>
                                         </thead>
@@ -191,10 +199,12 @@ const DividendManagement = () => {
                                                 <tr key={i}>
                                                     <td className="p-3 font-bold text-gray-800">{alloc.name}</td>
                                                     <td className="p-3 text-gray-600 text-right">{alloc.averageShares.toLocaleString()}</td>
-                                                    <td className="p-3 font-black text-green-600 text-right">+{alloc.grossDividend.toLocaleString()}</td>
+                                                    <td className="p-3 font-bold text-gray-700 text-right">{alloc.grossDividend.toLocaleString()}</td>
+                                                    <td className="p-3 text-red-500 text-right text-xs font-bold">-{(alloc.whtAmount || 0).toLocaleString()}</td>
+                                                    <td className="p-3 font-black text-green-600 text-right">+{alloc.netDividend.toLocaleString()}</td>
                                                     <td className="p-3 text-right">
                                                         <button
-                                                            onClick={() => PdfService.generateDividendVoucher({ year, dividendRate: previewData.dividendRate }, alloc)}
+                                                            onClick={() => PdfService.generateDividendVoucher({ year, dividendRate: previewData.dividendRate, whtRate: previewData.whtRate }, alloc)}
                                                             className="text-gray-400 hover:text-red-500 transition-colors"
                                                             title="Download Voucher"
                                                         >

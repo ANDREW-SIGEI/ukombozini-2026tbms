@@ -96,6 +96,7 @@ const TransactionInput = ({ value, onChange, disabled, rowIndex, colIndex, total
 
 const MeetingSessions = () => {
     const [meetings, setMeetings] = useState([]);
+    const [officers, setOfficers] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('ALL');
     const [searchTerm, setSearchTerm] = useState('');
@@ -119,6 +120,9 @@ const MeetingSessions = () => {
     const [groupExposure, setGroupExposure] = useState(null);
     const [loansDue, setLoansDue] = useState({});
     const [riskMetrics, setRiskMetrics] = useState({});
+    const [cockpitGroupDetails, setCockpitGroupDetails] = useState(null);
+    const [showGuarantorModal, setShowGuarantorModal] = useState(false);
+    const [activeGuarantorMember, setActiveGuarantorMember] = useState(null);
 
     // Group Actions State
     const [showGroupLoanModal, setShowGroupLoanModal] = useState(false);
@@ -134,7 +138,8 @@ const MeetingSessions = () => {
         venue: '',
         agenda: '',
         meeting_type: 'Routine',
-        expected_attendance: ''
+        expected_attendance: '',
+        officer_id: user?.id || ''
     });
 
     const [isEditing, setIsEditing] = useState(false);
@@ -165,7 +170,12 @@ const MeetingSessions = () => {
     const loadMeetings = async () => {
         setIsLoading(true);
         try {
-            const data = await api.getMeetingSessions();
+            const [data, officersList] = await Promise.all([
+                api.getMeetingSessions(),
+                api.getOfficers().catch(() => [])
+            ]);
+
+            setOfficers(officersList || []);
 
             // [NEW] Merge pending offline transactions for immediate accumulation visibility in list
             const pendingTxs = await offlineManager.getPendingTransactions();
@@ -225,6 +235,7 @@ const MeetingSessions = () => {
 
             // Fetch group settings for defaults
             const groupDetails = await api.getGroupById(meeting.group_id).catch(() => null);
+            setCockpitGroupDetails(groupDetails);
 
             // Map existing transactions to member rows
             const txByMember = {};
@@ -276,6 +287,9 @@ const MeetingSessions = () => {
                 product_repay: txByMember[m.id]?.product_repay || 0,
                 agri: txByMember[m.id]?.agri || 0,
                 edu: txByMember[m.id]?.edu || 0,
+                borrow_stl: 0, // [NEW] Live borrowing trackers
+                borrow_ltl: 0,
+                guarantors: [], // [NEW] Guarantor safeguard
                 committed: !!txByMember[m.id] // Mark as done if transactions exist
             }));
 
@@ -401,6 +415,43 @@ const MeetingSessions = () => {
                 amount: parseFloat(member.edu)
             }));
 
+            // [NEW] Automatic loan issuance via Cockpit
+            if (parseFloat(member.borrow_stl) > 0) {
+                promises.push(api.issueLoan({
+                    memberId: member.id,
+                    groupId: cockpitSession.group_id,
+                    sessionId: cockpitSession.id,
+                    amount: parseFloat(member.borrow_stl),
+                    loanType: 'STL',
+                    interestRate: cockpitGroupDetails?.stlInterestRate || 10,
+                    duration: 1,
+                    purpose: 'Cockpit Fast Borrowing',
+                    monthly_installment: Math.ceil(parseFloat(member.borrow_stl) * (1 + (cockpitGroupDetails?.stlInterestRate || 10) / 100)),
+                    principal_portion: parseFloat(member.borrow_stl),
+                    interest_portion: Math.ceil(parseFloat(member.borrow_stl) * ((cockpitGroupDetails?.stlInterestRate || 10) / 100)),
+                    guarantor1_id: member.guarantors?.[0] || null,
+                    guarantor2_id: member.guarantors?.[1] || null
+                }));
+            }
+
+            if (parseFloat(member.borrow_ltl) > 0) {
+                promises.push(api.issueLoan({
+                    memberId: member.id,
+                    groupId: cockpitSession.group_id,
+                    sessionId: cockpitSession.id,
+                    amount: parseFloat(member.borrow_ltl),
+                    loanType: 'LTL',
+                    interestRate: cockpitGroupDetails?.ltlInterestRate || 12,
+                    duration: 12,
+                    purpose: 'Cockpit Fast Borrowing',
+                    monthly_installment: Math.ceil((parseFloat(member.borrow_ltl) * (1 + (cockpitGroupDetails?.ltlInterestRate || 12) / 100)) / 12),
+                    principal_portion: Math.ceil(parseFloat(member.borrow_ltl) / 12),
+                    interest_portion: Math.ceil((parseFloat(member.borrow_ltl) * ((cockpitGroupDetails?.ltlInterestRate || 12) / 100)) / 12),
+                    guarantor1_id: member.guarantors?.[0] || null,
+                    guarantor2_id: member.guarantors?.[1] || null
+                }));
+            }
+
             await Promise.all(promises);
             updateGridValue(member.id, 'committed', true);
             toast.success(`✓ Entries for ${member.name} persisted!`);
@@ -430,9 +481,17 @@ const MeetingSessions = () => {
             acc.product += parseFloat(current.product_repay || 0);
             acc.agri += parseFloat(current.agri || 0);
             acc.edu += parseFloat(current.edu || 0);
-            acc.total = acc.savings + acc.welfare + acc.stl + acc.ltl + acc.penalty + acc.product + acc.agri + acc.edu;
+
+            // Outflow tracking
+            acc.borrowSTL += parseFloat(current.borrow_stl || 0);
+            acc.borrowLTL += parseFloat(current.borrow_ltl || 0);
+
+            const totalIn = acc.savings + acc.welfare + acc.stl + acc.ltl + acc.penalty + acc.product + acc.agri + acc.edu;
+            const totalOut = acc.borrowSTL + acc.borrowLTL;
+            acc.total = totalIn; // Total collected
+            acc.net = totalIn - totalOut; // Live Liquidity balance
             return acc;
-        }, { savings: 0, welfare: 0, stl: 0, ltl: 0, penalty: 0, product: 0, agri: 0, edu: 0, total: 0 });
+        }, { savings: 0, welfare: 0, stl: 0, ltl: 0, penalty: 0, product: 0, agri: 0, edu: 0, borrowSTL: 0, borrowLTL: 0, total: 0, net: 0 });
     }, [memberTransactions]);
 
     const filteredGridRows = useMemo(() => {
@@ -456,7 +515,7 @@ const MeetingSessions = () => {
             } else {
                 await api.createMeeting({
                     groupId: parseInt(newMeeting.group_id),
-                    officerId: user.id,
+                    officerId: isElevatedRole ? parseInt(newMeeting.officer_id || user.id) : user.id,
                     date: newMeeting.meeting_date,
                     venue: newMeeting.venue,
                     agenda: newMeeting.agenda,
@@ -491,6 +550,7 @@ const MeetingSessions = () => {
         setProcessingGroupLoan(true);
         try {
             await api.postTransaction({
+                memberId: 0, // Systemic transaction lux
                 groupId: cockpitSession.group_id,
                 sessionId: cockpitSession.id,
                 transaction_type: 'GROUP_LOAN_REPAYMENT',
@@ -648,12 +708,36 @@ const MeetingSessions = () => {
                                                 <FaPlay /> Cockpit
                                             </button>
                                         ) : (
-                                            <button
-                                                onClick={() => { setSelectedMeeting(m); setShowLedger(true); }}
-                                                className="px-6 py-2 bg-gray-50 border border-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-100 transition-all ml-auto"
-                                            >
-                                                View Journal
-                                            </button>
+                                            <div className="flex flex-col gap-2 ml-auto w-fit">
+                                                <button
+                                                    onClick={() => { setSelectedMeeting(m); setShowLedger(true); }}
+                                                    className="px-6 py-2 bg-gray-50 border border-gray-200 text-gray-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-100 transition-all w-full"
+                                                >
+                                                    View Journal
+                                                </button>
+                                                {m.status === 'POSTED' && (
+                                                    <button
+                                                        onClick={() => {
+                                                            const nextDate = new Date(m.date);
+                                                            nextDate.setDate(nextDate.getDate() + 7); // Default to 7 days later
+                                                            setNewMeeting({
+                                                                group_id: m.groupId,
+                                                                meeting_date: nextDate.toISOString().split('T')[0],
+                                                                venue: m.venue || '',
+                                                                agenda: 'Routine Group Meeting',
+                                                                meeting_type: m.meeting_type || 'Routine',
+                                                                expected_attendance: m.expected_attendance || 20,
+                                                                officer_id: m.officerId || user.id
+                                                            });
+                                                            setIsEditing(false);
+                                                            setShowOpenModal(true);
+                                                        }}
+                                                        className="px-6 py-2 bg-blue-100 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-200 transition-all w-full flex items-center gap-2 justify-center"
+                                                    >
+                                                        <FaPlus size={10} /> Schedule Next
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </td>
                                 </tr>
@@ -680,8 +764,8 @@ const MeetingSessions = () => {
 
                         <div className="flex gap-4 w-full md:w-auto overflow-x-auto">
                             <div className="bg-white/5 border border-white/10 px-6 py-3 rounded-2xl">
-                                <p className="text-[10px] font-bold text-white/40 uppercase">Session Liquidity</p>
-                                <p className="text-xl font-black text-green-400">KES {cockpitTotals.total.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-white/40 uppercase">Session Liquidity (Live)</p>
+                                <p className={`text-xl font-black ${cockpitTotals.net >= 0 ? 'text-green-400' : 'text-red-400'}`}>KES {cockpitTotals.net.toLocaleString()}</p>
                             </div>
                             <button
                                 onClick={() => setIsStandardMode(!isStandardMode)}
@@ -700,15 +784,20 @@ const MeetingSessions = () => {
                     </div>
 
                     {/* Dashboard Strip */}
-                    <div className="bg-slate-800 px-6 py-3 flex items-center gap-8 shrink-0 overflow-x-auto no-scrollbar border-b border-slate-700">
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaCoins className="text-blue-400" /> SLP: <span className="text-white">KES {cockpitTotals.savings.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaShieldAlt className="text-teal-400" /> WLF: <span className="text-white">KES {cockpitTotals.welfare.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaHandHoldingDollar className="text-orange-400" /> STL: <span className="text-white">KES {cockpitTotals.stl.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaHandHoldingDollar className="text-amber-400" /> LTL: <span className="text-white">KES {cockpitTotals.ltl.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaLeaf className="text-green-400" /> AGRI: <span className="text-white">KES {cockpitTotals.agri.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaGraduationCap className="text-blue-300" /> EDU: <span className="text-white">KES {cockpitTotals.edu.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaExclamationTriangle className="text-red-400" /> FINE: <span className="text-white">KES {cockpitTotals.penalty.toLocaleString()}</span></div>
-                        <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaBox className="text-purple-400" /> ASSET: <span className="text-white">KES {cockpitTotals.product.toLocaleString()}</span></div>
+                    <div className="bg-slate-800 px-6 py-3 flex items-center justify-between shrink-0 overflow-x-auto no-scrollbar border-b border-slate-700">
+                        <div className="flex gap-8">
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaCoins className="text-blue-400" /> SLP: <span className="text-white">KES {cockpitTotals.savings.toLocaleString()}</span></div>
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaShieldAlt className="text-teal-400" /> WLF: <span className="text-white">KES {cockpitTotals.welfare.toLocaleString()}</span></div>
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaHandHoldingDollar className="text-orange-400" /> STL REPAY: <span className="text-white">KES {cockpitTotals.stl.toLocaleString()}</span></div>
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaHandHoldingDollar className="text-amber-400" /> LTL REPAY: <span className="text-white">KES {cockpitTotals.ltl.toLocaleString()}</span></div>
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400"><FaGraduationCap className="text-blue-300" /> EDU: <span className="text-white">KES {cockpitTotals.edu.toLocaleString()}</span></div>
+                        </div>
+
+                        <div className="flex gap-8 pl-8 border-l border-white/10">
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 italic">COLLECTED: <span className="text-green-400">+{cockpitTotals.total.toLocaleString()}</span></div>
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 italic">BORROWED: <span className="text-red-400">-{(cockpitTotals.borrowSTL + cockpitTotals.borrowLTL).toLocaleString()}</span></div>
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 italic">EST. FEES: <span className="text-blue-400">+{(memberTransactions.reduce((acc, m) => acc + (api.calculateServiceFee ? api.calculateServiceFee(parseFloat(m.borrow_stl) + parseFloat(m.borrow_ltl)) : 0), 0)).toLocaleString()}</span></div>
+                        </div>
                     </div>
 
                     {/* Grid Controls */}
@@ -748,15 +837,15 @@ const MeetingSessions = () => {
                                 <thead className="sticky top-0 z-20 bg-slate-50">
                                     <tr>
                                         <th className="px-4 py-4 text-center text-[10px] font-black text-slate-400 uppercase w-16 border-b border-slate-200">#</th>
-                                        <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 min-w-[200px]">Member / Risk</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-blue-500 uppercase border-b border-slate-200 w-28">SLP</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-teal-600 uppercase border-b border-slate-200 w-28">WLF</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-orange-600 uppercase border-b border-slate-200 w-28">STL</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-amber-600 uppercase border-b border-slate-200 w-28">LTL</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-green-600 uppercase border-b border-slate-200 w-28">AGRI</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-blue-400 uppercase border-b border-slate-200 w-28">EDU</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-red-600 uppercase border-b border-slate-200 w-24">FINE</th>
-                                        <th className="px-3 py-4 text-right text-[10px] font-black text-purple-600 uppercase border-b border-slate-200 w-24">ASSET</th>
+                                        <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 min-w-[180px]">Member / Risk</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-blue-500 uppercase border-b border-slate-200 w-24">SLP</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-teal-600 uppercase border-b border-slate-200 w-24">WLF</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-orange-600 uppercase border-b border-slate-200 w-24">STL RPY</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-amber-600 uppercase border-b border-slate-200 w-24">LTL RPY</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-green-600 uppercase border-b border-slate-200 w-24">AGRI</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black text-blue-400 uppercase border-b border-slate-200 w-24">EDU</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black bg-orange-50/50 text-orange-700 font-black uppercase border-b border-slate-200 w-28 italic">BO-STL</th>
+                                        <th className="px-3 py-4 text-right text-[10px] font-black bg-orange-50/50 text-orange-700 font-black uppercase border-b border-slate-200 w-28 italic">BO-LTL</th>
                                         <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase border-b border-slate-200 w-20">Commit</th>
                                     </tr>
                                 </thead>
@@ -793,59 +882,80 @@ const MeetingSessions = () => {
                                                     <TransactionInput
                                                         value={m.savings} onChange={(v) => updateGridValue(m.id, 'savings', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={0} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={0} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
                                                 <td className="px-2 py-4">
                                                     <TransactionInput
                                                         value={m.welfare} onChange={(v) => updateGridValue(m.id, 'welfare', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={1} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={1} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
-                                                <td className="px-2 py-4 relative">
+                                                <td className="px-2 py-4">
                                                     <TransactionInput
                                                         value={m.stl_repay} onChange={(v) => updateGridValue(m.id, 'stl_repay', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={2} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={2} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
-                                                    {loansDue[m.id]?.expected_installment && (
-                                                        <div className="absolute top-1 right-2 w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse" title={`Due: ${loansDue[m.id].expected_installment}`} />
-                                                    )}
                                                 </td>
                                                 <td className="px-2 py-4">
                                                     <TransactionInput
                                                         value={m.ltl_repay} onChange={(v) => updateGridValue(m.id, 'ltl_repay', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={3} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={3} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
                                                 <td className="px-2 py-4">
                                                     <TransactionInput
                                                         value={m.agri} onChange={(v) => updateGridValue(m.id, 'agri', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={4} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={4} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
                                                 <td className="px-2 py-4">
                                                     <TransactionInput
                                                         value={m.edu} onChange={(v) => updateGridValue(m.id, 'edu', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={5} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={5} totalRows={filteredGridRows.length} totalCols={10}
+                                                    />
+                                                </td>
+                                                <td className="px-2 py-4 bg-orange-50/20">
+                                                    <div className="flex flex-col gap-1">
+                                                        <TransactionInput
+                                                            value={m.borrow_stl} onChange={(v) => updateGridValue(m.id, 'borrow_stl', v)}
+                                                            disabled={isAbsent || m.committed} placeholder="BO-STL"
+                                                            rowIndex={idx} colIndex={6} totalRows={filteredGridRows.length} totalCols={10}
+                                                        />
+                                                        {(parseFloat(m.borrow_stl) > 0 || parseFloat(m.borrow_ltl) > 0) && (
+                                                            <button
+                                                                onClick={() => { setActiveGuarantorMember(m); setShowGuarantorModal(true); }}
+                                                                className={`flex items-center justify-center gap-1 text-[8px] font-black uppercase py-1 rounded transition-all ${m.guarantors?.length >= 1 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600 animate-pulse'}`}
+                                                            >
+                                                                <FaShieldAlt size={8} /> {m.guarantors?.length || 0}/2 Guarantors
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-2 py-4 bg-orange-50/20">
+                                                    <TransactionInput
+                                                        value={m.borrow_ltl} onChange={(v) => updateGridValue(m.id, 'borrow_ltl', v)}
+                                                        disabled={isAbsent || m.committed} placeholder="BO-LTL"
+                                                        rowIndex={idx} colIndex={7} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
                                                 <td className="px-2 py-4">
                                                     <TransactionInput
                                                         value={m.penalty} onChange={(v) => updateGridValue(m.id, 'penalty', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={6} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={8} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
                                                 <td className="px-2 py-4 text-purple-600">
                                                     <TransactionInput
                                                         value={m.product_repay} onChange={(v) => updateGridValue(m.id, 'product_repay', v)}
                                                         disabled={isAbsent || m.committed}
-                                                        rowIndex={idx} colIndex={7} totalRows={filteredGridRows.length} totalCols={8}
+                                                        rowIndex={idx} colIndex={9} totalRows={filteredGridRows.length} totalCols={10}
                                                     />
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
@@ -889,6 +999,26 @@ const MeetingSessions = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                                 <SearchableGroupSelector label="Group" groups={matrixFilteredGroups} selectedGroupId={newMeeting.group_id} onSelect={(id) => setNewMeeting({ ...newMeeting, group_id: id })} />
                                 <div className="space-y-4">
+                                    {isElevatedRole && (
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest flex items-center gap-1">
+                                                <FaUsers className="text-blue-500" /> Assigned Officer
+                                            </label>
+                                            <select
+                                                className="w-full mt-2 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-blue-500 outline-none"
+                                                value={newMeeting.officer_id}
+                                                onChange={(e) => setNewMeeting({ ...newMeeting, officer_id: e.target.value })}
+                                            >
+                                                <option value="">-- Select Officer --</option>
+                                                {officers.map(off => (
+                                                    <option key={off.id} value={off.id}>{off.name} ({off.role})</option>
+                                                ))}
+                                                {!officers.some(o => o.id === (user?.id)) && (
+                                                    <option value={user?.id}>{user?.name} (Current Admin)</option>
+                                                )}
+                                            </select>
+                                        </div>
+                                    )}
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Meeting Date</label>
                                         <input type="date" value={newMeeting.meeting_date} onChange={(e) => setNewMeeting({ ...newMeeting, meeting_date: e.target.value })} className="w-full mt-2 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold focus:border-blue-500 outline-none" />
@@ -978,6 +1108,62 @@ const MeetingSessions = () => {
                     </div>
                     <div className="p-10 flex-1">
                         <MeetingLedger meetingId={selectedMeeting.id} />
+                    </div>
+                </div>
+            )}
+
+            {/* Guarantor Safeguard Modal */}
+            {showGuarantorModal && activeGuarantorMember && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden max-h-[80vh]">
+                        <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xl font-black italic">GUARANTOR SAFEGUARD</h3>
+                                <p className="text-[10px] font-bold text-blue-100 uppercase tracking-widest mt-1">Select up to 2 members to guarantee {activeGuarantorMember.name}'s loan</p>
+                            </div>
+                            <button onClick={() => setShowGuarantorModal(false)} className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all"><FaTimesCircle /></button>
+                        </div>
+
+                        <div className="p-8 flex-1 overflow-auto">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {sessionMembers.filter(m => m.id !== activeGuarantorMember.id).map(m => {
+                                    const isSelected = activeGuarantorMember.guarantors?.includes(m.id);
+                                    return (
+                                        <button
+                                            key={m.id}
+                                            onClick={() => {
+                                                const current = activeGuarantorMember.guarantors || [];
+                                                let next;
+                                                if (isSelected) {
+                                                    next = current.filter(id => id !== m.id);
+                                                } else {
+                                                    if (current.length >= 2) return toast.warning("Maximum 2 guarantors allowed");
+                                                    next = [...current, m.id];
+                                                }
+                                                updateGridValue(activeGuarantorMember.id, 'guarantors', next);
+                                                setActiveGuarantorMember(prev => ({ ...prev, guarantors: next }));
+                                            }}
+                                            className={`p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between ${isSelected ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-transparent hover:bg-gray-100'}`}
+                                        >
+                                            <div>
+                                                <div className="font-black text-slate-800 text-sm">{m.name}</div>
+                                                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Member ID: {m.id}</div>
+                                            </div>
+                                            {isSelected && <FaCheckCircle className="text-blue-500" />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="p-8 bg-gray-50 border-t flex justify-end">
+                            <button
+                                onClick={() => setShowGuarantorModal(false)}
+                                className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100"
+                            >
+                                Confirm Guarantors
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

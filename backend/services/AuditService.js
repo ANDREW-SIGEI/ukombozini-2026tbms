@@ -16,7 +16,8 @@ class AuditService {
             let memberQuery = `
                 SELECT 
                     m.id, m.name, m.group_id, g.name as group_name,
-                    m.opening_balance_savings, m.opening_balance_ltl, m.opening_balance_stl
+                    m.opening_balance_savings, m.opening_balance_ltl, m.opening_balance_stl,
+                    m.current_savings, m.active_loan_balance
                 FROM members m
                 JOIN groups g ON m.group_id = g.id
             `;
@@ -87,7 +88,12 @@ class AuditService {
                                 historical_savings: savings,
                                 historical_project: project,
                                 historical_welfare: welfare,
-                                historical_loan_balance: loans
+                                historical_loan_balance: loans,
+                                // Discrepancy Detection (Only relevant if auditDate is today)
+                                actual_current_savings: m.current_savings || 0,
+                                actual_loan_balance: m.active_loan_balance || 0,
+                                savings_discrepancy: Math.abs(savings - (m.current_savings || 0)) > 0.01 ? (savings - (m.current_savings || 0)) : 0,
+                                loan_discrepancy: Math.abs(loans - (m.active_loan_balance || 0)) > 0.01 ? (loans - (m.active_loan_balance || 0)) : 0
                             };
                         });
 

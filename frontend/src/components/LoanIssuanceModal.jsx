@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FaTimes, FaHandHoldingUsd, FaCalculator, FaCalendarAlt, FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaShieldAlt, FaBan, FaLock, FaMoneyBillWave, FaChartLine } from 'react-icons/fa';
+import { FaTimes, FaHandHoldingUsd, FaCalculator, FaCalendarAlt, FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaShieldAlt, FaBan, FaLock, FaMoneyBillWave, FaChartLine, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { checkLoanEligibility, calculateMaxLoan } from '../utils/loanRules';
 import { checkLoanApprovalBlock } from '../utils/cashReportEnforcement';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import offlineManager from '../services/OfflineManager';
 import LoanAdvisoryPanel from './LoanAdvisoryPanel';
 
 // 🔐 LOAN TYPE RULES ENGINE
@@ -63,6 +64,7 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [showAdvisory, setShowAdvisory] = useState(false);
     const [selectedAdvisoryProduct, setSelectedAdvisoryProduct] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
 
     // Fetch members for guarantors
     useEffect(() => {
@@ -132,92 +134,118 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
 
     if (!isOpen || !member) return null;
 
-    const handleProceedToConfirm = (e) => {
+    const handleProceedToConfirm = async (e) => {
         e.preventDefault();
+        setSubmitting(true);
 
-        // Validation
-        if (!hasMeeting) {
-            toast.error("🔒 Cannot issue loan - No active meeting!");
-            return;
+        try {
+            // Validation
+            if (!hasMeeting) {
+                toast.error("🔒 Cannot issue loan - No active meeting!");
+                return;
+            }
+
+            const numAmount = parseFloat(loanAmount);
+            if (isNaN(numAmount) || numAmount <= 0) {
+                toast.error("⚠️ Loan amount must be greater than zero");
+                return;
+            }
+
+            if (numAmount < currentRule.minAmount) {
+                toast.error(`⚠️ Minimum loan amount for ${loanType} is KES ${currentRule.minAmount.toLocaleString()}`);
+                return;
+            }
+
+            if (numAmount > maxLoan) {
+                toast.error(`⚠️ Loan amount exceeds limit! Max possible: KES ${maxLoan.toLocaleString()}`);
+                return;
+            }
+
+            if (!purpose || purpose.trim().length < 10) {
+                toast.error("⚠️ Please provide a detailed purpose (minimum 10 characters)");
+                return;
+            }
+
+            if (currentRule.requiresGuarantors && (!guarantor1Id || !guarantor2Id)) {
+                toast.error("⚠️ This loan type requires two guarantors");
+                return;
+            }
+
+            if (guarantor1Id && guarantor2Id && guarantor1Id === guarantor2Id) {
+                toast.error("⚠️ Guarantor 1 and Guarantor 2 must be different members");
+                return;
+            }
+
+            // Check loan eligibility (Server-side validation)
+            const eligibilityResult = await api.checkLoanEligibility({
+                memberId: member.id,
+                groupId: member.group_id || member.groupId,
+                requestedAmount: numAmount,
+                loanType: loanType,
+                duration: parseInt(duration),
+                guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
+                guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null
+            });
+
+            if (!eligibilityResult.eligible) {
+                toast.error(eligibilityResult.reason || "Member is not eligible for this loan.");
+                return;
+            }
+
+            // Show confirmation
+            setShowConfirmation(true);
+        } catch (error) {
+            console.error("Eligibility check failed:", error);
+            // Error handled by api.js handleApiError or as fallback here
+            toast.error("Failed to verify loan eligibility. Please try again.");
+        } finally {
+            setSubmitting(false);
         }
-
-        const numAmount = parseFloat(loanAmount);
-        if (isNaN(numAmount) || numAmount <= 0) {
-            toast.error("⚠️ Loan amount must be greater than zero");
-            return;
-        }
-
-        if (numAmount < currentRule.minAmount) {
-            toast.error(`⚠️ Minimum loan amount for ${loanType} is KES ${currentRule.minAmount.toLocaleString()}`);
-            return;
-        }
-
-        if (numAmount > maxLoan) {
-            toast.error(`⚠️ Loan amount exceeds limit! Max possible: KES ${maxLoan.toLocaleString()}`);
-            return;
-        }
-
-        if (!purpose || purpose.trim().length < 10) {
-            toast.error("⚠️ Please provide a detailed purpose (minimum 10 characters)");
-            return;
-        }
-
-        if (currentRule.requiresGuarantors && (!guarantor1Id || !guarantor2Id)) {
-            toast.error("⚠️ This loan type requires two guarantors");
-            return;
-        }
-
-        if (guarantor1Id && guarantor2Id && guarantor1Id === guarantor2Id) {
-            toast.error("⚠️ Guarantor 1 and Guarantor 2 must be different members");
-            return;
-        }
-
-        // Check loan eligibility
-        const eligibility = checkLoanEligibility(member, numAmount, activeLoans, systemRules);
-        if (!eligibility.eligible) {
-            toast.error(eligibility.reason);
-            return;
-        }
-
-        // Show confirmation
-        setShowConfirmation(true);
     };
 
-    const handleFinalSubmit = () => {
-        const loanData = {
-            id: `L-NEW-${Math.floor(1000 + Math.random() * 9000)}`,
-            memberName: member.name,
-            memberId: member.id,
-            loanType: loanType,
-            amount: parseFloat(loanAmount),
-            interest: repaymentPreview?.totalInterest,
-            totalRepayable: repaymentPreview?.totalRepayable,
-            monthlyRepayment: repaymentPreview?.monthlyRepayment,
-            duration: parseInt(duration),
-            interestRate: interestRate,
-            purpose: purpose,
-            guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
-            guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null,
-            guarantor1_name: membersList.find(m => m.id === parseInt(guarantor1Id))?.name,
-            guarantor2_name: membersList.find(m => m.id === parseInt(guarantor2Id))?.name,
-            meetingReference: activeMeeting?.session_number || 'N/A',
-            officerId: user?.id || 1,
-            approvalStatus: currentRule.requiresApproval ? 'Pending' : 'Auto-Approved',
-            dueDate: repaymentPreview?.finalPaymentDate,
-            status: 'Active',
-            loanRule: currentRule,
-            monthly_installment: selectedAdvisoryProduct?.monthly_installment || repaymentPreview?.monthlyRepayment,
-            principal_portion: selectedAdvisoryProduct?.principal_portion || (parseFloat(loanAmount) / parseInt(duration)),
-            interest_portion: selectedAdvisoryProduct?.interest_portion || ((parseFloat(loanAmount) * (interestRate / 100))),
-            shares_contribution: selectedAdvisoryProduct?.shares_contribution || 0
-        };
 
-        toast.success(`✅ Loan of KES ${parseFloat(loanAmount).toLocaleString()} ${currentRule.requiresApproval ? 'submitted for approval' : 'issued'} to ${member.name}!`);
-        onSuccess(loanData);
-        setShowConfirmation(false);
-        onClose();
+    const handleFinalSubmit = async () => {
+        setSubmitting(true);
+        try {
+            const loanData = {
+                memberId: member.id,
+                loanType: loanType,
+                amount: parseFloat(loanAmount),
+                duration: parseInt(duration),
+                purpose: purpose,
+                guarantor1Id: guarantor1Id ? parseInt(guarantor1Id) : null,
+                guarantor2Id: guarantor2Id ? parseInt(guarantor2Id) : null,
+                sessionId: activeMeeting?.id,
+                officerId: user?.id || 1,
+                // Pre-calculated values for the ledger
+                interest: repaymentPreview?.totalInterest,
+                totalRepayable: repaymentPreview?.totalRepayable,
+                monthlyRepayment: selectedAdvisoryProduct?.monthly_installment || repaymentPreview?.monthlyRepayment,
+                principal_portion: selectedAdvisoryProduct?.principal_portion || (parseFloat(loanAmount) / parseInt(duration)),
+                interest_portion: selectedAdvisoryProduct?.interest_portion || (repaymentPreview?.totalInterest / parseInt(duration))
+            };
+
+            if (!navigator.onLine) {
+                const offlineResult = await offlineManager.saveOfflineTransaction({
+                    type: loanType.includes('Long-Term') ? 'ltl' : 'stl',
+                    data: loanData
+                });
+                toast.warning(`⚡ Offline: Loan application queued for sync!`);
+                if (onSuccess) onSuccess({ ...loanData, offline: true, id: offlineResult });
+            } else {
+                const result = await api.issueLoan(loanData);
+                toast.success(`✅ Loan of KES ${parseFloat(loanAmount).toLocaleString()} ${currentRule.requiresApproval ? 'submitted for approval' : 'issued'} successfully!`);
+                if (onSuccess) onSuccess(result);
+            }
+            setShowConfirmation(false);
+            onClose();
+        } catch (error) {
+            console.error("Loan issuance failed:", error);
+            // Error handled by api.js handleApiError
+        } finally {
+            setSubmitting(false);
+        }
     };
-
 
 
     // Confirmation Dialog
@@ -235,50 +263,36 @@ const LoanIssuanceModal = ({ isOpen, onClose, member, onSuccess, activeMeeting }
                     </div>
 
                     <div className="p-8 space-y-6">
+                        {submitting && (
+                            <div className="flex flex-col items-center gap-3 py-4">
+                                <FaSpinner className="animate-spin text-3xl text-safaricom-green" />
+                                <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Processing...</span>
+                            </div>
+                        )}
                         <div className="bg-gray-50 p-6 rounded-2xl space-y-3">
                             <ConfirmRow label="Member" value={member.name} />
                             <ConfirmRow label="Loan Type" value={loanType} />
-                            <ConfirmRow label="Meeting" value={`#${activeMeeting.session_number}`} />
                             <ConfirmRow label="Duration" value={`${duration} months`} />
                             <ConfirmRow label="Interest" value={`${interestRate}% p.m.`} />
                             <div className="h-px bg-gray-200 my-3"></div>
-                            <ConfirmRow
-                                label="Principal"
-                                value={`KES ${parseFloat(loanAmount).toLocaleString()}`}
-                                highlight={true}
-                            />
-                            <ConfirmRow
-                                label="Total Repayable"
-                                value={`KES ${repaymentPreview?.totalRepayable.toLocaleString()}`}
-                            />
-                        </div>
-
-                        {currentRule.requiresApproval && (
-                            <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-lg">
-                                <p className="text-xs text-yellow-800 font-bold flex items-center gap-2">
-                                    <FaInfoCircle /> This loan requires director approval before disbursement
-                                </p>
-                            </div>
-                        )}
-
-                        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-                            <p className="text-xs text-blue-800 font-bold">
-                                ⚠️ This action cannot be undone. Loan will be recorded in member ledger and linked to Meeting #{activeMeeting.session_number}.
-                            </p>
+                            <ConfirmRow label="Principal" value={`KES ${parseFloat(loanAmount).toLocaleString()}`} highlight={true} />
+                            <ConfirmRow label="Total Repayable" value={`KES ${repaymentPreview?.totalRepayable.toLocaleString()}`} />
                         </div>
 
                         <div className="flex gap-3">
                             <button
+                                disabled={submitting}
                                 onClick={() => setShowConfirmation(false)}
                                 className="flex-1 py-4 border-2 border-gray-200 text-gray-700 rounded-2xl font-black hover:bg-gray-50 transition-all"
                             >
                                 ← Cancel
                             </button>
                             <button
+                                disabled={submitting}
                                 onClick={handleFinalSubmit}
-                                className="flex-1 py-4 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black hover:shadow-lg transition-all"
+                                className="flex-1 py-4 bg-gradient-to-r from-safaricom-green to-green-600 text-white rounded-2xl font-black hover:shadow-lg transition-all flex items-center justify-center gap-2"
                             >
-                                ✅ Confirm & Issue
+                                {submitting ? <FaSpinner className="animate-spin" /> : '✅'} Confirm & Issue
                             </button>
                         </div>
                     </div>

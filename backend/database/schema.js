@@ -10,6 +10,18 @@ const initSchema = () => {
         db.run("ALTER TABLE groups ADD COLUMN is_frozen INTEGER DEFAULT 0", (err) => {
             if (!err) console.log("Governance: 'is_frozen' added to groups");
         });
+        db.run("ALTER TABLE groups ADD COLUMN loan_multiplier REAL DEFAULT 3", (err) => {
+            if (!err) console.log("Governance: 'loan_multiplier' added to groups");
+        });
+        db.run("ALTER TABLE groups ADD COLUMN dividend_policy REAL DEFAULT 0.75", (err) => {
+            if (!err) console.log("Governance: 'dividend_policy' added to groups");
+        });
+        db.run("ALTER TABLE groups ADD COLUMN default_savings REAL DEFAULT 500", (err) => {
+            if (!err) console.log("Governance: 'default_savings' added to groups");
+        });
+        db.run("ALTER TABLE groups ADD COLUMN default_welfare REAL DEFAULT 100", (err) => {
+            if (!err) console.log("Governance: 'default_welfare' added to groups");
+        });
         db.run("ALTER TABLE officers ADD COLUMN status TEXT DEFAULT 'active'", (err) => {
             if (!err) console.log("Governance: 'status' added to officers");
         });
@@ -226,6 +238,9 @@ const initSchema = () => {
         db.run("ALTER TABLE meeting_sessions ADD COLUMN ukombozini_repayment REAL DEFAULT 0", (err) => {
             if (!err) console.log("Finance: 'ukombozini_repayment' added to meeting_sessions");
         });
+        db.run("ALTER TABLE meeting_sessions ADD COLUMN totals TEXT", (err) => {
+            if (!err) console.log("Persistence: 'totals' added to meeting_sessions");
+        });
 
         // 8. Risk Intelligence Tables
         db.run(`CREATE TABLE IF NOT EXISTS risk_scores (
@@ -266,4 +281,200 @@ const initSchema = () => {
     });
 };
 
-module.exports = { initSchema };
+/**
+ * 📊 Database Views
+ * High-fidelity aggregations for reporting and auditing.
+ */
+const initViews = (db) => {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run(`DROP VIEW IF EXISTS member_ledger_view`, (err) => {
+                if (err) return reject(err);
+
+                db.run(`
+                    CREATE VIEW member_ledger_view AS
+                    -- Standard Savings Deposits
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Savings Deposit' as type,
+                        0 as debit,
+                        t.savings_amount as credit,
+                        COALESCE(t.description, 'Monthly Meeting Savings') as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.savings_amount > 0 AND t.transaction_type NOT IN ('ProjectSaving', 'education', 'agriculture')
+
+                    UNION ALL
+
+                    -- Education Project Savings
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Project (Education)' as type,
+                        0 as debit,
+                        t.savings_amount as credit,
+                        t.description as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.transaction_type IN ('ProjectSaving', 'education') AND t.description LIKE '%Education%'
+
+                    UNION ALL
+
+                    -- Agriculture Project Savings
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Project (Agriculture)' as type,
+                        0 as debit,
+                        t.savings_amount as credit,
+                        t.description as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.transaction_type IN ('ProjectSaving', 'agriculture') OR (t.transaction_type = 'ProjectSaving' AND t.description LIKE '%Agriculture%')
+
+                    UNION ALL
+
+                    -- Loan Repayment: Principal
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Loan Pay (Principal)' as type,
+                        0 as debit,
+                        (t.stl_repayment + t.ltl_repayment) as credit,
+                        'Principal Serving for Loan' as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE (t.stl_repayment + t.ltl_repayment) > 0
+
+                    UNION ALL
+
+                    -- Loan Repayment: Interest
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Loan Pay (Interest)' as type,
+                        0 as debit,
+                        t.loan_interest as credit,
+                        'Interest Serving' as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.loan_interest > 0
+
+                    UNION ALL
+
+                    -- Fine/Penalty Payment (Credit towards debt)
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Fine Payment' as type,
+                        0 as debit,
+                        t.fines as credit,
+                        'Penalty Clearance' as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.fines > 0 AND t.transaction_type = 'LoanRepayment'
+
+                    UNION ALL
+
+                    -- Fine/Penalty Charge (Debit - increase debt)
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Fine Charged' as type,
+                        t.fines as debit,
+                        0 as credit,
+                        COALESCE(t.description, 'Late Fee/Violation') as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.fines > 0 AND t.transaction_type IN ('Fine', 'penalty')
+
+                    UNION ALL
+
+                    -- Withdrawals
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Withdrawal' as type,
+                        t.withdrawals as debit,
+                        0 as credit,
+                        COALESCE(t.description, 'Savings Withdrawal') as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.withdrawals > 0 AND t.transaction_type NOT IN ('AssetFinancing', 'productfinancing')
+
+                    UNION ALL
+                    
+                    -- Asset Financing (Product)
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Asset Purchased' as type,
+                        t.withdrawals as debit,
+                        0 as credit,
+                        COALESCE(t.description, 'Project Asset Financing') as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.transaction_type IN ('AssetFinancing', 'productfinancing')
+
+                    UNION ALL
+
+                    -- Loan Disbursements
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Loan Issued' as type,
+                        t.loans_issued as debit,
+                        0 as credit,
+                        COALESCE(t.description, 'New Loan Disbursement') as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.loans_issued > 0
+
+                    UNION ALL
+
+                    -- Welfare Contributions
+                    SELECT 
+                        t.id, 
+                        t.memberId, 
+                        COALESCE(s.date, date(t.created_at)) as trans_date,
+                        'Welfare Fund' as type,
+                        0 as debit,
+                        t.welfare as credit,
+                        'Member Welfare Support' as description,
+                        t.created_at
+                    FROM transactions t
+                    LEFT JOIN meeting_sessions s ON t.sessionId = s.id
+                    WHERE t.welfare > 0
+                `, (err) => {
+                    if (err) return reject(err);
+                    console.log("[SCHEMA] member_ledger_view Initialized.");
+                    resolve();
+                });
+            });
+        });
+    });
+};
+
+module.exports = { initSchema, initViews };
+

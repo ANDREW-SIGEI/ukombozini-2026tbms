@@ -489,6 +489,18 @@ const init = async () => {
             FOREIGN KEY(approved_by) REFERENCES officers(id)
         )`);
 
+        // 23. IN-APP NOTIFICATIONS
+        await run(`CREATE TABLE IF NOT EXISTS in_app_notifications(
+            id ${PK},
+            recipient_id INTEGER NOT NULL,
+            recipient_type TEXT NOT NULL DEFAULT 'member', -- member or officer
+            title TEXT,
+            message TEXT NOT NULL,
+            is_read INTEGER DEFAULT 0,
+            link TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )`);
+
         // Seed default system settings
         const settingsCount = await get("SELECT count(*) as count FROM system_settings");
         if (settingsCount.count === 0) {

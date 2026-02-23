@@ -86,25 +86,33 @@ router.get('/exposure/:groupId', authenticateToken, (req, res) => {
             (SELECT COUNT(*) FROM members WHERE group_id = ?) as memberCount
     `;
 
-    db.get(query, [groupId, groupId, groupId, groupId], (err, row) => {
+    db.get(query, [groupId, groupId, groupId, groupId], async (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const netExposure = (row.totalTopUp + row.totalProductFinance) - row.totalCommitment;
 
-        db.all(`SELECT * FROM company_investments WHERE group_id = ? ORDER BY created_at DESC LIMIT 5`, [groupId], (err, investments) => {
-            res.json({
-                portfolio: {
-                    totalTopUp: row.totalTopUp,
-                    totalProductFinance: row.totalProductFinance,
-                    investments: investments
-                },
-                security: {
-                    totalCommitment: row.totalCommitment
-                },
-                netExposure: netExposure,
-                memberCount: row.memberCount
+        try {
+            const complianceStatus = await RiskService.getGroupComplianceStatus(groupId);
+
+            db.all(`SELECT * FROM company_investments WHERE group_id = ? ORDER BY created_at DESC LIMIT 5`, [groupId], (err, investments) => {
+                res.json({
+                    portfolio: {
+                        totalTopUp: row.totalTopUp,
+                        totalProductFinance: row.totalProductFinance,
+                        investments: investments
+                    },
+                    security: {
+                        totalCommitment: row.totalCommitment
+                    },
+                    netExposure: netExposure,
+                    memberCount: row.memberCount,
+                    complianceMetrics: complianceStatus
+                });
             });
-        });
+        } catch (e) {
+            console.error("Failed to fetch compliance metrics:", e);
+            res.status(500).json({ error: "Risk data aggregation failed" });
+        }
     });
 });
 
@@ -185,7 +193,8 @@ router.post('/request-topup', authenticateToken, checkFreeze('GROUP'), async (re
     if (!groupId || !commitmentAmount) return res.status(400).json({ error: "Group ID and Commitment Amount are required" });
 
     try {
-        const topupAmount = parseFloat(commitmentAmount) * 5; // STRICT 5x MULTIPLIER
+        const { multiplier, tierName } = await MatrixService.getFundingLimit(groupId);
+        const topupAmount = parseFloat(commitmentAmount) * multiplier; // DYNAMIC MULTIPLIER
 
         // Insert pending request
         await db.queryStandalone(`
@@ -193,11 +202,11 @@ router.post('/request-topup', authenticateToken, checkFreeze('GROUP'), async (re
             VALUES ($1, $2, $3, 'PENDING', $4, $5)
         `, [groupId, commitmentAmount, topupAmount, req.user.id, notes]);
 
-        logAudit(`Top-Up Request Submitted: KES ${commitmentAmount} → ${topupAmount}`, 'PARTNERSHIP', { groupId, commitmentAmount, topupAmount }, req.user.id, req.user.name, req);
+        logAudit(`Top-Up Request Submitted: KES ${commitmentAmount} → ${topupAmount} (${tierName} Tier)`, 'PARTNERSHIP', { groupId, commitmentAmount, topupAmount }, req.user.id, req.user.name, req);
 
         res.json({
             success: true,
-            message: `✅ Request submitted! Admin must approve KES ${topupAmount.toLocaleString()} top-up (5x your KES ${parseFloat(commitmentAmount).toLocaleString()} deposit).`
+            message: `✅ Request submitted! Admin must approve KES ${topupAmount.toLocaleString()} top-up (${multiplier}x your KES ${parseFloat(commitmentAmount).toLocaleString()} deposit for ${tierName} Tier).`
         });
 
     } catch (error) {
@@ -226,13 +235,16 @@ router.post('/approve-topup/:requestId', authenticateToken, isAdmin, async (req,
         client = await db.beginTransaction();
         const txRef = `TOP-APPROVED-${request.group_id}-${Date.now()}`;
 
+        // Get current tier multiplier for audit trail clarity
+        const { multiplier } = await MatrixService.getFundingLimit(request.group_id);
+
         // Credit the group's TRF via MTE
         await runMTELogic(client, {
             memberId: 0, // Company/System
             sessionId: null,
             transaction_type: 'PARTNER_TOPUP',
             amount: request.topup_amount,
-            description: `Approved Top-Up (5x KES ${request.commitment_amount})`,
+            description: `Approved Top-Up (${multiplier}x KES ${request.commitment_amount})`,
             txRef,
             groupId: request.group_id
         }, req.user.id);
@@ -455,7 +467,7 @@ router.get('/institutional-logs', authenticateToken, isAdmin, async (req, res) =
     try {
         db.all(`
             SELECT t.*, g.name as group_name, o.name as officer_name
-            FROM legacy_transactions_v2 t
+            FROM transactions t
             JOIN groups g ON t.group_id = g.id
             LEFT JOIN officers o ON t.officer_id = o.id
             WHERE t.transaction_type IN ('GROUP_LOAN', 'GROUP_CAPITAL', 'GROUP_PRODUCT_ALLOCATION', 'PARTNER_TOPUP', 'COMMITMENT_DEPOSIT')
@@ -467,6 +479,21 @@ router.get('/institutional-logs', authenticateToken, isAdmin, async (req, res) =
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+const reportService = require('../services/reportService');
+
+// GET /api/partnership/statement/:groupId - Download Institutional Statement
+router.get('/statement/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const pdfBuffer = await reportService.generatePartnershipStatement(req.params.groupId);
+        res.setHeader('Content-Disposition', `attachment; filename=partnership_statement_${req.params.groupId}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Partnership Statement PDF Error:', error);
+        res.status(500).json({ error: 'Failed to generate institutional partnership statement' });
     }
 });
 

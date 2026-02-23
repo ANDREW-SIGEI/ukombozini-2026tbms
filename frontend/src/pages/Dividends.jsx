@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     FaMoneyBillWave, FaChartLine, FaCalculator, FaSave,
     FaClockRotateLeft, FaCircleInfo, FaMagnifyingGlass, FaFileExcel, FaDownload,
@@ -13,6 +13,47 @@ import { FaHistory, FaGears, FaHandHoldingUsd, FaFileInvoiceDollar, FaChartArea 
 
 // Register ChartJS
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
+
+// ─── Sub-Components (must be defined before Dividends so JSX can reference them) ───
+
+const InputRow = ({ label, value, onChange, isDeduction }) => (
+    <div className="flex items-center justify-between">
+        <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>
+        <div className="relative w-32">
+            <input
+                type="number"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
+                    ? 'border-red-200 text-red-600 focus:ring-red-200'
+                    : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
+                    }`}
+                placeholder="0"
+            />
+            {isDeduction && <span className="absolute left-2 top-2 text-red-400 text-xs">-</span>}
+        </div>
+    </div>
+);
+
+const MatrixInput = ({ label, value, onChange }) => (
+    <div className="flex items-center justify-between group">
+        <label className="text-xs font-black text-gray-500 uppercase tracking-tight">{label}</label>
+        <div className="relative w-28">
+            <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={value}
+                onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+                className="w-full text-right pr-8 pl-3 py-2 border-2 border-gray-100 rounded-xl font-black text-gray-700 outline-none focus:border-blue-500/50 transition-all bg-gray-50/50 group-hover:bg-white"
+            />
+            <span className="absolute right-3 top-2.5 text-[10px] font-black text-gray-400 pointer-events-none">%</span>
+        </div>
+    </div>
+);
+
+// ────────────────────────────────────────────────────────────────────────────────
 
 const Dividends = () => {
     // State for financial inputs
@@ -50,6 +91,8 @@ const Dividends = () => {
     const [allocationHistory, setAllocationHistory] = useState([]);
     const [allocationRules, setAllocationRules] = useState(null);
     const [rulesLoading, setRulesLoading] = useState(false);
+    const [rulesSaving, setRulesSaving] = useState(false);
+    const rulesDebounceRef = useRef(null);
 
     const [calculations, setCalculations] = useState({
         trf: 0,
@@ -123,14 +166,23 @@ const Dividends = () => {
         }
     };
 
-    const handleUpdateRules = async (rules) => {
-        try {
-            await api.updateAllocationRules(selectedGroupId, rules);
-            setAllocationRules(rules);
-            toast.success("Allocation Matrix Updated!");
-        } catch (error) {
-            toast.error("Failed to update rules");
-        }
+    const handleUpdateRules = (rules) => {
+        // Optimistic local update for live preview feel
+        setAllocationRules(rules);
+
+        // Debounce: only persist 800ms after user stops typing
+        if (rulesDebounceRef.current) clearTimeout(rulesDebounceRef.current);
+        rulesDebounceRef.current = setTimeout(async () => {
+            setRulesSaving(true);
+            try {
+                await api.updateAllocationRules(selectedGroupId, rules);
+                toast.success('Allocation Matrix Saved!', { autoClose: 1500 });
+            } catch (error) {
+                toast.error('Failed to save allocation rules');
+            } finally {
+                setRulesSaving(false);
+            }
+        }, 800);
     };
 
     const handleGenerateReport = async () => {
@@ -303,11 +355,17 @@ const Dividends = () => {
 
         setLoading(true);
         try {
-            // In a real flow, we would need a runId. 
-            // For now, let's assume we use a placeholder or the last run for this group
-            // For the sake of this task, I'll call a generic endpoint or use a dummy runId
-            await api.downloadDividendReport(selectedGroupId);
-            toast.success("PDF Report Generated from Server!");
+            // Fetch the latest dividend run for this group to get a valid runId
+            const runs = await api.getDividendRuns(selectedGroupId);
+            const latestRun = runs && runs.length > 0 ? runs[0] : null; // already sorted DESC
+
+            if (!latestRun) {
+                toast.warning("No dividend run found for this group. Declare dividends first.");
+                return;
+            }
+
+            await api.downloadDividendReport(latestRun.id); // pass runId, not groupId
+            toast.success("PDF Report Generated!");
         } catch (error) {
             toast.error("Failed to generate PDF from server");
         } finally {
@@ -367,34 +425,52 @@ const Dividends = () => {
 
         setLoading(true);
         try {
-            const totalTRF = Number(financials.bankInterest) + Number(financials.stlInterest) + Number(financials.ltlInterest) + Number(financials.penalties) + Number(financials.otherIncome);
+            const totalTRF = Number(financials.bankInterest) + Number(financials.stlInterest)
+                + Number(financials.ltlInterest) + Number(financials.penalties) + Number(financials.otherIncome);
 
-            const payoutPayload = members.map(m => {
+            const availableProfit = totalTRF - Number(financials.expenses) - Number(financials.reinvestedLoans);
+            const ratio = financials.groupAgeYears >= 1 ? 0.75 : 0.50;
+            const profitToShare = Math.max(0, availableProfit * ratio);
+
+            // Build allocations in the shape postDividends / dividendRules expects
+            const WHT_RATE = 0.05;
+            const allocations = members.map(m => {
                 const avgShares = Object.values(m.balances).reduce((a, b) => a + b, 0) / 6;
-                const dividend = avgShares * calculations.dividendRate;
+                const gross = avgShares * calculations.dividendRate;
                 return {
-                    member_id: m.id,
-                    avg_shares: avgShares,
-                    amount: dividend
+                    memberId: m.id,
+                    name: m.name,
+                    averageShares: avgShares,
+                    grossDividend: gross,
+                    whtAmount: gross * WHT_RATE,
+                    netDividend: gross * (1 - WHT_RATE)
                 };
-            }).filter(p => p.amount > 0);
+            }).filter(a => a.averageShares > 0);
 
-            await api.postDividends({
-                groupId: selectedGroupId,
+            // Construct runData matching postDividends expected signature
+            const runData = {
                 year: dividendState.year,
-                financials: {
-                    trf: totalTRF,
-                    expenses: financials.expenses,
-                    reinvested: financials.reinvestedLoans,
-                    total_payout: calculations.profitToShareOut,
-                    rate: calculations.dividendRate
+                groupId: selectedGroupId,
+                trf: totalTRF,
+                interestBreakdown: {
+                    loanInterest: Number(financials.stlInterest) + Number(financials.ltlInterest),
+                    finesAndPenalties: Number(financials.penalties)
                 },
-                payouts: payoutPayload.filter(p => p.member_id) // Ensure ID exists
-            });
+                expenses: Number(financials.expenses),
+                ap: availableProfit,
+                ratio,
+                profitToShare,
+                totalAvgShares: allocations.reduce((s, a) => s + a.averageShares, 0),
+                dividendRate: calculations.dividendRate,
+                whtRate: WHT_RATE,
+                allocations
+            };
+
+            await api.postDividends({ runData, officerId: null }); // officerId resolved server-side from token
 
             toast.success("✅ Dividends Posted and Credited Successfully!");
 
-            // Optional: Reset or Lock UI
+            // Reset UI after successful post
             setMembers([]);
             setFinancials({
                 bankInterest: '', stlInterest: '', ltlInterest: '', penalties: '', otherIncome: '',
@@ -408,6 +484,7 @@ const Dividends = () => {
             setLoading(false);
         }
     };
+
 
     // Chart Data Configs (Same as before)
     const trfData = {
@@ -710,145 +787,117 @@ const Dividends = () => {
                                 </div>
                             </div>
                         )}
+                    </>
+                )}
 
-                        {/* --- INSTITUTIONAL SURPLUS VIEW (PHASE 12) --- */}
-                        {activeTab === 'surplus' && (
-                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <div className="grid grid-cols-12 gap-8">
-                                    {/* Matrix Controls */}
-                                    <div className="col-span-12 lg:col-span-4">
-                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                                            <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                                                <h3 className="font-black text-gray-800 flex items-center gap-2">
-                                                    <FaGears className="text-blue-600" /> Allocation Matrix
-                                                </h3>
-                                                <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-black uppercase">Rules</span>
-                                            </div>
-                                            <div className="p-6 space-y-4">
-                                                {rulesLoading ? (
-                                                    <div className="py-20 text-center"><FaSpinner className="animate-spin text-4xl text-blue-600 mx-auto" /></div>
-                                                ) : !selectedGroupId ? (
-                                                    <div className="py-10 text-center text-gray-400 font-bold">Select a group to see rules</div>
-                                                ) : allocationRules && (
-                                                    <>
-                                                        <MatrixInput label="STL Allocation" value={allocationRules.stl_pct} onChange={v => handleUpdateRules({ ...allocationRules, stl_pct: v })} />
-                                                        <MatrixInput label="LTL Allocation" value={allocationRules.ltl_pct} onChange={v => handleUpdateRules({ ...allocationRules, ltl_pct: v })} />
-                                                        <MatrixInput label="Member Dividend" value={allocationRules.dividend_pct} onChange={v => handleUpdateRules({ ...allocationRules, dividend_pct: v })} />
-                                                        <MatrixInput label="Refund Reserve" value={allocationRules.refund_reserve_pct} onChange={v => handleUpdateRules({ ...allocationRules, refund_reserve_pct: v })} />
-                                                        <MatrixInput label="Education Project" value={allocationRules.edu_project_pct} onChange={v => handleUpdateRules({ ...allocationRules, edu_project_pct: v })} />
-                                                        <MatrixInput label="Agriculture Project" value={allocationRules.agri_project_pct} onChange={v => handleUpdateRules({ ...allocationRules, agri_project_pct: v })} />
-
-                                                        <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                                                            <p className="text-[11px] text-blue-800 font-medium leading-relaxed italic">
-                                                                These percentages are applied to the "Net Surplus" of every session posting.
-                                                                Changes apply to future sessions.
-                                                            </p>
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
+                {/* --- INSTITUTIONAL SURPLUS VIEW (PHASE 12) --- */}
+                {activeTab === 'surplus' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="grid grid-cols-12 gap-8">
+                            {/* Matrix Controls */}
+                            <div className="col-span-12 lg:col-span-4">
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                    <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                        <h3 className="font-black text-gray-800 flex items-center gap-2">
+                                            <FaGears className="text-blue-600" /> Allocation Matrix
+                                        </h3>
+                                        {rulesSaving ? (
+                                            <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-black uppercase flex items-center gap-1">
+                                                <FaSpinner className="animate-spin" /> Saving...
+                                            </span>
+                                        ) : (
+                                            <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black uppercase">Auto-Save ✓</span>
+                                        )}
                                     </div>
+                                    <div className="p-6 space-y-4">
+                                        {rulesLoading ? (
+                                            <div className="py-20 text-center"><FaSpinner className="animate-spin text-4xl text-blue-600 mx-auto" /></div>
+                                        ) : !selectedGroupId ? (
+                                            <div className="py-10 text-center text-gray-400 font-bold">Select a group to see rules</div>
+                                        ) : allocationRules && (
+                                            <>
+                                                <MatrixInput label="STL Allocation" value={allocationRules.stl_pct} onChange={v => handleUpdateRules({ ...allocationRules, stl_pct: v })} />
+                                                <MatrixInput label="LTL Allocation" value={allocationRules.ltl_pct} onChange={v => handleUpdateRules({ ...allocationRules, ltl_pct: v })} />
+                                                <MatrixInput label="Member Dividend" value={allocationRules.dividend_pct} onChange={v => handleUpdateRules({ ...allocationRules, dividend_pct: v })} />
+                                                <MatrixInput label="Refund Reserve" value={allocationRules.refund_reserve_pct} onChange={v => handleUpdateRules({ ...allocationRules, refund_reserve_pct: v })} />
+                                                <MatrixInput label="Education Project" value={allocationRules.edu_project_pct} onChange={v => handleUpdateRules({ ...allocationRules, edu_project_pct: v })} />
+                                                <MatrixInput label="Agriculture Project" value={allocationRules.agri_project_pct} onChange={v => handleUpdateRules({ ...allocationRules, agri_project_pct: v })} />
 
-                                    {/* History Table */}
-                                    <div className="col-span-12 lg:col-span-8">
-                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full">
-                                            <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                                                <h3 className="font-black text-gray-800 flex items-center gap-2">
-                                                    <FaHistory className="text-safaricom-green" /> Collection Records
-                                                </h3>
-                                                <button onClick={loadAllocationHistory} className="text-blue-600 font-bold text-xs hover:underline flex items-center gap-1">
-                                                    <FaClockRotateLeft /> Refresh History
-                                                </button>
-                                            </div>
-                                            <div className="flex-1 overflow-auto max-h-[600px]">
-                                                <table className="w-full text-left border-collapse">
-                                                    <thead>
-                                                        <tr className="bg-gray-50 text-[11px] text-gray-500 uppercase font-black tracking-wider">
-                                                            <th className="p-4 border-b border-gray-200">Date & Group</th>
-                                                            <th className="p-4 border-b border-gray-200 text-right">Cash In</th>
-                                                            <th className="p-4 border-b border-gray-200 text-right">Cash Out</th>
-                                                            <th className="p-4 border-b border-gray-200 text-right">Net Surplus</th>
-                                                            <th className="p-4 border-b border-gray-200 text-center">Status</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="text-sm">
-                                                        {allocationHistory.length === 0 ? (
-                                                            <tr><td colSpan={5} className="p-20 text-center text-gray-400 font-bold italic">No allocation history found.</td></tr>
-                                                        ) : allocationHistory.map((row) => (
-                                                            <tr key={row.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                                                <td className="p-4">
-                                                                    <div className="font-black text-gray-800">{row.group_name}</div>
-                                                                    <div className="text-[10px] text-gray-500 font-bold uppercase">Session on {row.session_date ? new Date(row.session_date).toLocaleDateString() : 'Unknown Date'}</div>
-                                                                </td>
-                                                                <td className="p-4 text-right font-mono font-bold text-gray-600">
-                                                                    {row.total_cash_in.toLocaleString()}
-                                                                </td>
-                                                                <td className="p-4 text-right font-mono font-bold text-gray-600">
-                                                                    -{row.total_cash_out.toLocaleString()}
-                                                                </td>
-                                                                <td className="p-4 text-right">
-                                                                    <span className={`font-black text-base ${row.net_surplus >= 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
-                                                                        KES {row.net_surplus.toLocaleString()}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="p-4 text-center">
-                                                                    <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">
-                                                                        {row.status}
-                                                                    </span>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
+                                                <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                                                    <p className="text-[11px] text-blue-800 font-medium leading-relaxed italic">
+                                                        These percentages are applied to the "Net Surplus" of every session posting.
+                                                        Changes apply to future sessions.
+                                                    </p>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
-                        )}
+
+                            {/* History Table */}
+                            <div className="col-span-12 lg:col-span-8">
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full">
+                                    <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                                        <h3 className="font-black text-gray-800 flex items-center gap-2">
+                                            <FaHistory className="text-safaricom-green" /> Collection Records
+                                        </h3>
+                                        <button onClick={loadAllocationHistory} className="text-blue-600 font-bold text-xs hover:underline flex items-center gap-1">
+                                            <FaClockRotateLeft /> Refresh History
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-auto max-h-[600px]">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead>
+                                                <tr className="bg-gray-50 text-[11px] text-gray-500 uppercase font-black tracking-wider">
+                                                    <th className="p-4 border-b border-gray-200">Date & Group</th>
+                                                    <th className="p-4 border-b border-gray-200 text-right">Cash In</th>
+                                                    <th className="p-4 border-b border-gray-200 text-right">Cash Out</th>
+                                                    <th className="p-4 border-b border-gray-200 text-right">Net Surplus</th>
+                                                    <th className="p-4 border-b border-gray-200 text-center">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="text-sm">
+                                                {allocationHistory.length === 0 ? (
+                                                    <tr><td colSpan={5} className="p-20 text-center text-gray-400 font-bold italic">No allocation history found.</td></tr>
+                                                ) : allocationHistory.map((row) => (
+                                                    <tr key={row.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                                                        <td className="p-4">
+                                                            <div className="font-black text-gray-800">{row.group_name}</div>
+                                                            <div className="text-[10px] text-gray-500 font-bold uppercase">Session on {row.session_date ? new Date(row.session_date).toLocaleDateString() : 'Unknown Date'}</div>
+                                                        </td>
+                                                        <td className="p-4 text-right font-mono font-bold text-gray-600">
+                                                            {row.total_cash_in.toLocaleString()}
+                                                        </td>
+                                                        <td className="p-4 text-right font-mono font-bold text-gray-600">
+                                                            -{row.total_cash_out.toLocaleString()}
+                                                        </td>
+                                                        <td className="p-4 text-right">
+                                                            <span className={`font-black text-base ${row.net_surplus >= 0 ? 'text-safaricom-green' : 'text-red-600'}`}>
+                                                                KES {row.net_surplus.toLocaleString()}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-center">
+                                                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                                                                {row.status}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                )}
             </div>
-            );
+                )}
+        </div>
+        </div >
+    );
 };
 
-            // ... existing InputRow ...
 
-            const MatrixInput = ({label, value, onChange}) => (
-            <div className="flex items-center justify-between group">
-                <label className="text-xs font-black text-gray-500 uppercase tracking-tight">{label}</label>
-                <div className="relative w-28">
-                    <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max="1"
-                        value={value}
-                        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-                        className="w-full text-right pr-8 pl-3 py-2 border-2 border-gray-100 rounded-xl font-black text-gray-700 outline-none focus:border-blue-500/50 transition-all bg-gray-50/50 group-hover:bg-white"
-                    />
-                    <span className="absolute right-3 top-2.5 text-[10px] font-black text-gray-400 pointer-events-none">%</span>
-                </div>
-            </div>
-            );
-
-            const InputRow = ({label, value, onChange, isDeduction}) => (
-            <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>
-                <div className="relative w-32">
-                    <input
-                        type="number"
-                        value={value}
-                        onChange={(e) => onChange(e.target.value)}
-                        className={`w-full text-right px-3 py-2 border rounded-lg font-bold outline-none focus:ring-2 ${isDeduction
-                            ? 'border-red-200 text-red-600 focus:ring-red-200'
-                            : 'border-gray-200 text-gray-800 focus:ring-safaricom-green/20'
-                            }`}
-                        placeholder="0"
-                    />
-                    {isDeduction && <span className="absolute left-2 top-2 text-red-400 text-xs">-</span>}
-                </div>
-            </div>
-            );
-
-            export default Dividends;
+export default Dividends;

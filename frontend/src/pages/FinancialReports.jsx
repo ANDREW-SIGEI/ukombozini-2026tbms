@@ -6,34 +6,49 @@ import { toast } from 'react-toastify';
 
 const FinancialReports = () => {
     const [loading, setLoading] = useState(true);
+    const [riskLoading, setRiskLoading] = useState(true); // separate flag for risk card
+    const [pdfLoading, setPdfLoading] = useState(null); // tracks which PDF button is loading
     const [balanceSheet, setBalanceSheet] = useState(null);
     const [incomeData, setIncomeData] = useState(null);
     const [cashFlow, setCashFlow] = useState(null);
+    const [riskData, setRiskData] = useState({ parAmount: 0, highRiskGroups: 0 });
 
     useEffect(() => {
-        const fetchData = async () => {
+        // Fetch financial cards (balance sheet, income, cash flow) — controls main spinner
+        const fetchFinancials = async () => {
             try {
                 const today = new Date().toISOString().split('T')[0];
                 const startOfYear = `${new Date().getFullYear()}-01-01`;
-
                 const [bs, is, cf] = await Promise.all([
                     api.getBalanceSheet(today),
                     api.getIncomeStatement(startOfYear, today),
                     api.getDailyCashFlow(today)
                 ]);
-
                 setBalanceSheet(bs);
                 setIncomeData(is);
                 setCashFlow(cf);
             } catch (error) {
-                console.error("Financial Data Error", error);
-                toast.error("Failed to load financial data");
+                console.error('Financial Data Error', error);
+                toast.error('Failed to load financial data');
             } finally {
-                setLoading(false);
+                setLoading(false); // unblocks main cards immediately
             }
         };
 
-        fetchData();
+        // Fetch risk card independently — does NOT block main spinner
+        const fetchRisk = async () => {
+            try {
+                const risk = await api.getRiskOverview();
+                setRiskData({ parAmount: risk.parAmount || 0, highRiskGroups: risk.highRiskGroups || 0 });
+            } catch (error) {
+                console.error('Risk Overview Error', error);
+            } finally {
+                setRiskLoading(false);
+            }
+        };
+
+        fetchFinancials();
+        fetchRisk(); // runs in parallel, independently
     }, []);
 
     if (loading) {
@@ -81,9 +96,17 @@ const FinancialReports = () => {
                                 <span>Projects Deposits</span>
                                 <span className="font-bold">KES {balanceSheet?.liabilities.projectSavings?.toLocaleString() || '0'}</span>
                             </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span>Escrow Commitments</span>
+                                <span className="font-bold">KES {balanceSheet?.liabilities.escrowDeposits?.toLocaleString() || '0'}</span>
+                            </div>
                             <div className="flex justify-between text-gray-600 pt-1 border-t border-gray-100">
-                                <span>Loans Portfolio</span>
+                                <span>Loan Portfolio</span>
                                 <span className="font-bold">KES {balanceSheet?.assets.loansPortfolio.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span>Asset Financing</span>
+                                <span className="font-bold">KES {balanceSheet?.assets.assetPortfolio?.toLocaleString() || '0'}</span>
                             </div>
                         </div>
                     </div>
@@ -101,8 +124,12 @@ const FinancialReports = () => {
                         </p>
                         <div className="mt-4 flex flex-col gap-1 text-sm">
                             <div className="flex justify-between text-gray-600">
-                                <span>Interest Income</span>
+                                <span>Operational Interest</span>
                                 <span className="font-bold">KES {incomeData?.revenue.interestIncome.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span>Partner Capital</span>
+                                <span className="font-bold">KES {balanceSheet?.equity.partnerCapital?.toLocaleString() || '0'}</span>
                             </div>
                             <div className="flex justify-between text-gray-600">
                                 <span>Fees & Other Revenue</span>
@@ -160,19 +187,36 @@ const FinancialReports = () => {
                         Export Standard Reports
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
-                        <button className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group">
-                            <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">Balance Sheet</p>
+                        <button
+                            onClick={async () => { setPdfLoading('bs'); try { await api.downloadBalanceSheetPDF(); } catch { toast.error('Failed to export'); } finally { setPdfLoading(null); } }}
+                            disabled={pdfLoading === 'bs'}
+                            className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group disabled:opacity-60">
+                            <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">
+                                {pdfLoading === 'bs' ? 'Generating...' : 'Balance Sheet'}
+                            </p>
                             <p className="text-xs text-gray-500 mt-1">Statement of Financial Position</p>
                         </button>
-                        <button className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group">
-                            <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">Income Statement</p>
-                            <p className="text-xs text-gray-500 mt-1">Profit & Loss Statement</p>
+                        <button
+                            onClick={async () => { setPdfLoading('is'); try { await api.downloadIncomeStatementPDF(); } catch { toast.error('Failed to export'); } finally { setPdfLoading(null); } }}
+                            disabled={pdfLoading === 'is'}
+                            className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group disabled:opacity-60">
+                            <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">
+                                {pdfLoading === 'is' ? 'Generating...' : 'Income Statement'}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">Profit &amp; Loss Statement</p>
                         </button>
-                        <button className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group">
-                            <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">Cash Flow</p>
+                        <button
+                            onClick={async () => { setPdfLoading('cf'); try { await api.downloadCashFlowPDF(); } catch { toast.error('Failed to export'); } finally { setPdfLoading(null); } }}
+                            disabled={pdfLoading === 'cf'}
+                            className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group disabled:opacity-60">
+                            <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">
+                                {pdfLoading === 'cf' ? 'Generating...' : 'Cash Flow'}
+                            </p>
                             <p className="text-xs text-gray-500 mt-1">Statement of Cash Flows</p>
                         </button>
-                        <button className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group">
+                        <button
+                            onClick={() => { window.location.href = '/members'; }}
+                            className="p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors text-left group">
                             <p className="font-bold text-gray-800 group-hover:text-safaricom-green transition-colors">Member Ledger</p>
                             <p className="text-xs text-gray-500 mt-1">Individual Account Statement</p>
                         </button>
@@ -193,11 +237,15 @@ const FinancialReports = () => {
                     <div className="space-y-3 mb-8">
                         <div className="flex justify-between items-center text-sm font-bold border-b border-red-200 pb-2">
                             <span className="text-red-800">Portfolio at Risk (PAR)</span>
-                            <span className="text-red-900">KES 450,000 (Estimate)</span>
+                            <span className="text-red-900">
+                                {riskLoading ? '...' : `KES ${(riskData.parAmount || 0).toLocaleString()}`}
+                            </span>
                         </div>
                         <div className="flex justify-between items-center text-sm font-bold border-b border-red-200 pb-2">
                             <span className="text-red-800">High Risk Groups</span>
-                            <span className="text-red-900">2 Groups Flagged</span>
+                            <span className="text-red-900">
+                                {riskLoading ? '...' : `${riskData.highRiskGroups} Group${riskData.highRiskGroups !== 1 ? 's' : ''} Flagged`}
+                            </span>
                         </div>
                     </div>
 

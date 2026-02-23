@@ -169,7 +169,7 @@ const LoanApprovals = () => {
             await api.submitLoanApplication(payload);
             toast.success("Application Submitted Successfully!");
             setShowCreateModal(false);
-            setFormData({ memberId: '', groupId: '', loanType: 'STL', amount: '', duration: '', purpose: '' });
+            setFormData({ memberId: '', groupId: '', loanType: 'STL', amount: '', duration: '', purpose: '', selectedProduct: null });
             fetchApplications();
         } catch (error) {
             console.error(error);
@@ -248,7 +248,7 @@ const LoanApprovals = () => {
             {/* Filters */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 overflow-x-auto">
                 <div className="flex flex-nowrap gap-2">
-                    {['ALL', 'APPLIED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'APPROVED', 'REJECTED'].map(status => (
+                    {['ALL', 'APPLIED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'APPROVED', 'REJECTED', 'DISBURSED'].map(status => (
                         <button
                             key={status}
                             onClick={() => setFilterStatus(status)}
@@ -328,13 +328,22 @@ const LoanApprovals = () => {
                                                     <FaEye />
                                                 </button>
                                                 {canApprove(app) && !isAuditor && (
-                                                    <button
-                                                        onClick={() => { setSelectedApplication(app); setActionType('APPROVE'); setShowApprovalModal(true); }}
-                                                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
-                                                        title="Approve"
-                                                    >
-                                                        <FaCircleCheck />
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            onClick={() => { setSelectedApplication(app); setActionType('APPROVE'); setShowApprovalModal(true); }}
+                                                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                                                            title="Approve"
+                                                        >
+                                                            <FaCircleCheck />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => { setSelectedApplication(app); setActionType('REJECT'); setShowApprovalModal(true); }}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                                                            title="Reject"
+                                                        >
+                                                            <FaCircleXmark />
+                                                        </button>
+                                                    </>
                                                 )}
                                             </div>
                                         </td>
@@ -544,6 +553,48 @@ const LoanApprovals = () => {
                                 <p className="text-sm font-mono text-gray-500">{selectedApplication.application_number}</p>
                             </div>
                             <button onClick={() => setShowDetailModal(false)}><FaCircleXmark className="text-gray-400 hover:text-red-500 text-2xl" /></button>
+                        </div>
+
+                        {/* APPROVAL PROGRESS STEPPER */}
+                        <div className="mb-6 bg-gray-50 rounded-xl p-4 border border-gray-100">
+                            <p className="text-xs font-bold text-gray-400 uppercase mb-3">Approval Progress</p>
+                            <div className="flex items-center gap-1">
+                                {[
+                                    { label: 'Applied', statuses: ['APPLIED'] },
+                                    { label: 'Officer', statuses: ['OFFICER_SUBMITTED'] },
+                                    { label: 'Admin', statuses: ['ADMIN_REVIEW', 'ADMIN_APPROVED'] },
+                                    { label: 'Director', statuses: ['APPROVED', 'DISBURSED'] }
+                                ].map((step, idx, arr) => {
+                                    const allDone = ['APPROVED', 'DISBURSED'];
+                                    const rejected = ['REJECTED', 'ADMIN_REJECTED', 'CANCELLED'];
+                                    const appStatus = selectedApplication.status;
+                                    const stepOrder = ['APPLIED', 'OFFICER_SUBMITTED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'APPROVED', 'DISBURSED'];
+                                    const currentStep = stepOrder.indexOf(appStatus);
+                                    const thisStep = Math.max(...step.statuses.map(s => stepOrder.indexOf(s)));
+                                    const isActive = step.statuses.includes(appStatus);
+                                    const isDone = currentStep > thisStep && !rejected.includes(appStatus);
+                                    const isRejected = rejected.includes(appStatus) && idx === arr.length - 1;
+                                    return (
+                                        <React.Fragment key={step.label}>
+                                            <div className="flex flex-col items-center">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 transition-all ${isDone ? 'bg-green-500 border-green-500 text-white' :
+                                                        isActive ? 'bg-blue-500 border-blue-500 text-white animate-pulse' :
+                                                            isRejected ? 'bg-red-500 border-red-500 text-white' :
+                                                                'bg-white border-gray-200 text-gray-400'
+                                                    }`}>
+                                                    {isDone ? <FaCircleCheck className="text-xs" /> : idx + 1}
+                                                </div>
+                                                <span className={`text-[9px] font-bold mt-1 ${isDone ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-400'
+                                                    }`}>{step.label}</span>
+                                            </div>
+                                            {idx < arr.length - 1 && (
+                                                <div className={`flex-1 h-0.5 mb-4 ${isDone ? 'bg-green-400' : 'bg-gray-200'
+                                                    }`} />
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-6 mb-6">

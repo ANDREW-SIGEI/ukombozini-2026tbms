@@ -596,8 +596,8 @@ const DailyMeetingReport = () => {
         }
 
         // Use context to start (persisted)
-        // Mock Officer
-        const officer = { id: user?.id || 1, name: user?.name || 'Hilda Sigei' };
+        // Use assigned officer if session was pre-created, otherwise current user
+        const officer = { id: user?.id || 1, name: user?.name || 'Officer' };
         startSession(selectedGroup, officer);
     };
 
@@ -743,7 +743,7 @@ const DailyMeetingReport = () => {
             groupId: selectedGroup.id,
             groupName: selectedGroup.name,
             date: meetingDate,
-            officerId: user?.id || '4052', // Mock ID if user not fully loaded
+            officerId: activeSession?.officer_id || activeSession?.officerId || user?.id,
             status: 'POSTED',
             totals: systemTotals,
             openingBalance,
@@ -784,7 +784,7 @@ const DailyMeetingReport = () => {
                 groupId: selectedGroup.id,
                 groupName: selectedGroup.name,
                 date: meetingDate,
-                officerId: user?.id || '4052',
+                officerId: activeSession?.officer_id || activeSession?.officerId || user?.id,
                 status: 'POSTED',
                 totals: systemTotals,
                 openingBalance,

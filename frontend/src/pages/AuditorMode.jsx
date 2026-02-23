@@ -39,16 +39,16 @@ const AuditorMode = () => {
 
     const handleExportCSV = () => {
         if (!snapshot) return;
-        const headers = ['Member', 'Group', 'Savings', 'Project', 'Welfare', 'Loan Balance'];
+        const headers = ['Member', 'Group', 'Savings (Audit)', 'Savings Discrepancy', 'Loan Balance (Audit)', 'Loan Discrepancy'];
         const csvRows = [
             headers.join(','),
             ...snapshot.map(row => [
                 `"${row.name}"`,
                 `"${row.group_name}"`,
                 row.historical_savings,
-                row.historical_project,
-                row.historical_welfare,
-                row.historical_loan_balance
+                row.savings_discrepancy,
+                row.historical_loan_balance,
+                row.loan_discrepancy
             ].join(','))
         ].join('\n');
 
@@ -164,26 +164,35 @@ const AuditorMode = () => {
                                     <tr>
                                         <th className="px-6 py-3">Member</th>
                                         <th className="px-6 py-3">Group</th>
-                                        <th className="px-6 py-3 text-right">Savings</th>
-                                        <th className="px-6 py-3 text-right">Project</th>
-                                        <th className="px-6 py-3 text-right">Welfare</th>
-                                        <th className="px-6 py-3 text-right">Loan Bal</th>
+                                        <th className="px-6 py-3 text-right">Savings (Audit)</th>
+                                        <th className="px-6 py-3 text-right text-blue-600">Discrepancy</th>
+                                        <th className="px-6 py-3 text-right">Loan Bal (Audit)</th>
+                                        <th className="px-6 py-3 text-right text-red-600">Discrepancy</th>
                                         <th className="px-6 py-3">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {filteredData.map((row) => (
-                                        <tr key={row.id} className="hover:bg-gray-50 group">
-                                            <td className="px-6 py-3 font-medium text-gray-900">{row.name}</td>
+                                        <tr key={row.id} className={`hover:bg-gray-50 group ${Math.abs(row.savings_discrepancy || 0) > 0.1 || Math.abs(row.loan_discrepancy || 0) > 0.1 ? 'bg-red-50/50' : ''}`}>
+                                            <td className="px-6 py-3 font-medium text-gray-900">
+                                                {row.name}
+                                                {(Math.abs(row.savings_discrepancy || 0) > 0.1 || Math.abs(row.loan_discrepancy || 0) > 0.1) && (
+                                                    <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded uppercase">Ledger Mismatch</span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-3 text-gray-500">{row.group_name}</td>
                                             <td className="px-6 py-3 text-right font-mono">{formatCurrency(row.historical_savings)}</td>
-                                            <td className="px-6 py-3 text-right font-mono">{formatCurrency(row.historical_project)}</td>
-                                            <td className="px-6 py-3 text-right font-mono">{formatCurrency(row.historical_welfare)}</td>
-                                            <td className="px-6 py-3 text-right font-mono text-red-600">{formatCurrency(row.historical_loan_balance)}</td>
+                                            <td className={`px-6 py-3 text-right font-mono font-bold ${row.savings_discrepancy !== 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                                                {row.savings_discrepancy !== 0 ? formatCurrency(row.savings_discrepancy) : '—'}
+                                            </td>
+                                            <td className="px-6 py-3 text-right font-mono text-gray-700">{formatCurrency(row.historical_loan_balance)}</td>
+                                            <td className={`px-6 py-3 text-right font-mono font-bold ${row.loan_discrepancy !== 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                                                {row.loan_discrepancy !== 0 ? formatCurrency(row.loan_discrepancy) : '—'}
+                                            </td>
                                             <td className="px-6 py-3">
                                                 <button
                                                     onClick={() => handleDrillDown(row)}
-                                                    className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 opacity-100 transition-opacity"
                                                 >
                                                     Audit Trail <ArrowRight className="w-3 h-3" />
                                                 </button>
@@ -194,7 +203,8 @@ const AuditorMode = () => {
                             </table>
                         </div>
                         <div className="p-4 border-t bg-gray-50 text-xs text-gray-400 text-center">
-                            * Balances are reconstructed by summing all transactions on or before {date}. This is a read-only audit view.
+                            * Balances are reconstructed by summing all transactions on or before {date}.
+                            <span className="text-red-400 ml-1 font-medium">"Ledger Mismatch"</span> indicates a discrepancy between reconstructed balances and the live ledger.
                         </div>
                     </div>
                 </div>
@@ -231,22 +241,30 @@ const AuditorMode = () => {
                                             <th className="px-4 py-2 text-left">Date</th>
                                             <th className="px-4 py-2 text-left">Type</th>
                                             <th className="px-4 py-2 text-right">Amount</th>
+                                            <th className="px-4 py-2 text-right text-blue-600">Savings Δ</th>
+                                            <th className="px-4 py-2 text-right text-red-600">Loan Δ</th>
                                             <th className="px-4 py-2 text-left">Description</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {trail.map((t, idx) => (
                                             <tr key={idx} className="hover:bg-blue-50/50">
-                                                <td className="px-4 py-3 whitespace-nowrap text-gray-600">{t.date}</td>
+                                                <td className="px-4 py-3 whitespace-nowrap text-gray-600 font-mono text-[10px]">{t.date}</td>
                                                 <td className="px-4 py-3">
                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${t.type.includes('WITHDRAWAL') ? 'bg-red-100 text-red-700' :
-                                                            t.type.includes('LOAN') ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
+                                                        t.type.includes('LOAN') ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'
                                                         }`}>
                                                         {t.type.replace('_', ' ')}
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3 text-right font-mono font-bold">{formatCurrency(t.amount)}</td>
-                                                <td className="px-4 py-3 text-gray-500 text-xs">{t.description}</td>
+                                                <td className={`px-4 py-3 text-right font-mono text-[11px] ${t.impact.savings > 0 ? 'text-green-600' : t.impact.savings < 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                                                    {t.impact.savings !== 0 ? formatCurrency(t.impact.savings) : '—'}
+                                                </td>
+                                                <td className={`px-4 py-3 text-right font-mono text-[11px] ${t.impact.loans > 0 ? 'text-red-600' : t.impact.loans < 0 ? 'text-green-600' : 'text-gray-300'}`}>
+                                                    {t.impact.loans !== 0 ? formatCurrency(t.impact.loans) : '—'}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-500 text-xs italic">{t.description}</td>
                                             </tr>
                                         ))}
                                     </tbody>

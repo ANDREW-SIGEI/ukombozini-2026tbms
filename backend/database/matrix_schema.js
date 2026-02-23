@@ -37,7 +37,8 @@ const initMatrixSchema = async (db) => {
                             { tier_name: 'Probation', min_score: 0, multiplier: 1.0, interest_rate: 15.0, auto_approval_limit: 0, color_code: 'gray', description: 'New partnership under review' },
                             { tier_name: 'Bronze', min_score: 40, multiplier: 1.5, interest_rate: 12.0, auto_approval_limit: 50000, color_code: 'brown', description: 'Standard partnership tier' },
                             { tier_name: 'Silver', min_score: 70, multiplier: 2.5, interest_rate: 10.0, auto_approval_limit: 100000, color_code: 'blue', description: 'Trusted partnership tier' },
-                            { tier_name: 'Gold', min_score: 90, multiplier: 4.0, interest_rate: 8.0, auto_approval_limit: 500000, color_code: 'gold', description: 'Elite partnership tier' }
+                            { tier_name: 'Gold', min_score: 90, multiplier: 4.0, interest_rate: 8.0, auto_approval_limit: 500000, color_code: 'gold', description: 'Elite partnership tier' },
+                            { tier_name: 'Platinum', min_score: 95, multiplier: 5.0, interest_rate: 6.0, auto_approval_limit: 1000000, color_code: 'indigo', description: 'Institutional-grade maximum leverage' }
                         ];
 
                         const stmt = db.prepare(`INSERT INTO partnership_tiers 

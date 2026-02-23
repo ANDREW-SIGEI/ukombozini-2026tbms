@@ -4,8 +4,10 @@ import {
     FaTriangleExclamation, FaTable, FaCircleInfo, FaCalendarDays, FaCircleCheck, FaFilePdf
 } from 'react-icons/fa6';
 import { FaShieldAlt, FaInfoCircle } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
 /**
@@ -36,7 +38,10 @@ const LOAN_TYPE_RULES = {
 };
 
 const LoanAdvisory = () => {
+    const { user } = useAuth();
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('STL'); // STL or LTL
+    const [submitSuccess, setSubmitSuccess] = useState(false);
 
     // ==========================================
     // CORE SYSTEM DATA
@@ -199,6 +204,11 @@ const LoanAdvisory = () => {
             return;
         }
 
+        if (!selectedMember?.group_id) {
+            toast.warn("Please select a group first.");
+            return;
+        }
+
         if (activeTab === 'LTL' && (!guarantor1Id || !guarantor2Id)) {
             toast.warn("Long Term Loans require at least 2 guarantors.");
             return;
@@ -213,22 +223,22 @@ const LoanAdvisory = () => {
         try {
             const loanData = activeTab === 'STL' ? {
                 memberId: parseInt(selectedMemberId),
-                groupId: selectedMember?.group_id || 1,
+                groupId: selectedMember?.group_id,
                 loanType: 'STL',
                 amount: parseFloat(stlAmount),
                 interestRate: activeProduct?.interest_rate || 10,
                 duration: parseInt(stlDuration),
-                officerId: 1,
+                officerId: user?.id,
                 guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
                 guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null
             } : {
                 memberId: parseInt(selectedMemberId),
-                groupId: selectedMember?.group_id || 1,
+                groupId: selectedMember?.group_id,
                 loanType: 'LTL',
                 amount: ltlSelection.amount,
                 interestRate: activeProduct?.interest_rate || 15,
                 duration: parseInt(ltlSelection.period.split(' ')[0]),
-                officerId: 1,
+                officerId: user?.id,
                 guarantor1_id: guarantor1Id ? parseInt(guarantor1Id) : null,
                 guarantor2_id: guarantor2Id ? parseInt(guarantor2Id) : null,
                 // Pass Schedule Parameters for Automated Backend Generation
@@ -238,9 +248,10 @@ const LoanAdvisory = () => {
                 shares_contribution: ltlSelection.shares
             };
 
-            await api.issueLoan(loanData);
-            toast.success("✅ Loan Application Submitted!");
-            setTimeout(() => window.location.href = '/loans', 1500);
+            await api.submitLoanApplication(loanData);
+            toast.success("✅ Loan Application Submitted! Pending Approval.");
+            setSubmitSuccess(true);
+            setTimeout(() => navigate('/loan-approvals'), 3000);
         } catch (error) {
             console.error(error);
             toast.error("Failed to submit application");
@@ -415,6 +426,12 @@ const LoanAdvisory = () => {
                                         )}
                                         <span>LIENS: -KES {memberEligibility.guaranteed.toLocaleString()}</span>
                                     </div>
+                                    {(selectedMember?.active_loan_balance > 0) && (
+                                        <div className="mt-2 flex items-center gap-1 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                                            <FaTriangleExclamation className="text-red-500 text-xs" />
+                                            <span className="text-[10px] text-red-700 font-black uppercase">Outstanding Loan: KES {selectedMember.active_loan_balance.toLocaleString()} — Review before applying</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ) : (
@@ -657,6 +674,25 @@ const LoanAdvisory = () => {
                         {/* Decor */}
                         <div className="absolute right-0 top-0 w-64 h-64 bg-safaricom-green/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
                     </div>
+
+                    {/* SUCCESS BANNER — shows for 3s after submission */}
+                    {submitSuccess && (
+                        <div className="mx-0 mb-4 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl p-4 text-white flex items-center justify-between shadow-lg animate-pulse">
+                            <div className="flex items-center gap-3">
+                                <FaCircleCheck className="text-2xl flex-shrink-0" />
+                                <div>
+                                    <p className="font-black text-sm">Application Submitted Successfully!</p>
+                                    <p className="text-xs text-green-100">Redirecting to Loan Approvals in 3 seconds...</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => navigate('/loan-approvals')}
+                                className="bg-white text-green-700 font-black text-xs px-4 py-2 rounded-lg hover:bg-green-50 transition-all flex-shrink-0"
+                            >
+                                Track Application →
+                            </button>
+                        </div>
+                    )}
 
                     {/* DETAILED SCHEDULE */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">

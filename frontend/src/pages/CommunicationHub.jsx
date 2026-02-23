@@ -12,6 +12,8 @@ const CommunicationHub = () => {
     const [activeTab, setActiveTab] = useState('LOGS'); // LOGS, COMPOSE
     const [filter, setFilter] = useState('ALL');
     const [balance, setBalance] = useState(null);
+    const [groupMatrix, setGroupMatrix] = useState([]);
+    const [tierFilter, setTierFilter] = useState('ALL');
 
     // Composer State
     const [targetType, setTargetType] = useState('ROLES'); // ROLES, GROUPS
@@ -19,6 +21,7 @@ const CommunicationHub = () => {
     const [selectedRoles, setSelectedRoles] = useState([]);
     const [selectedGroups, setSelectedGroups] = useState([]);
     const [selectedMembers, setSelectedMembers] = useState([]);
+    const [selectedRelations, setSelectedRelations] = useState([]);
     const [message, setMessage] = useState('');
     const [method, setMethod] = useState('SMS');
     const [memberSearch, setMemberSearch] = useState('');
@@ -31,6 +34,7 @@ const CommunicationHub = () => {
 
     const VARIABLES = [
         { name: 'Name', tag: '[NAME]' },
+        { name: 'Group', tag: '[GROUP]' },
         { name: 'Savings', tag: '[SAVINGS]' },
         { name: 'Projects', tag: '[PROJECT_BAL]' },
         { name: 'Loan Bal', tag: '[LOAN_BAL]' },
@@ -44,16 +48,18 @@ const CommunicationHub = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [logData, groupData, memberData, balanceData] = await Promise.all([
+            const [logData, groupData, memberData, balanceData, riskData] = await Promise.all([
                 NotificationService.getLogs(100),
                 api.getGroups(),
                 api.getMembers(),
-                api.getSMSBalance().catch(() => ({ balance: 'Error' }))
+                api.getSMSBalance().catch(() => ({ balance: 'Error' })),
+                api.getRiskOverview().catch(() => ({ groups: [] }))
             ]);
             setLogs(logData || []);
             setGroups(groupData || []);
             setMembers(memberData || []);
             setBalance(balanceData?.balance);
+            setGroupMatrix(riskData?.groups || []);
         } catch (err) {
             console.error("fetchData error:", err);
         } finally {
@@ -74,12 +80,16 @@ const CommunicationHub = () => {
         if (targetType === 'MEMBERS' && selectedMembers.length === 0) {
             return toast.error("Please select at least one member.");
         }
+        if (targetType === 'RELATIONS' && selectedRelations.length === 0) {
+            return toast.error("Please select at least one relation type.");
+        }
 
         setSending(true);
         try {
             let targetIds = [];
             if (targetType === 'GROUPS') targetIds = selectedGroups;
             else if (targetType === 'MEMBERS') targetIds = selectedMembers;
+            else if (targetType === 'RELATIONS') targetIds = selectedRelations;
             else targetIds = selectedRoles;
 
             const res = await NotificationService.sendBulk({
@@ -87,7 +97,7 @@ const CommunicationHub = () => {
                 targetIds: targetIds,
                 message,
                 method,
-                variables: true // Flag for backend to perform injection
+                variables: true
             });
             if (res.success) {
                 toast.success(res.message);
@@ -95,6 +105,7 @@ const CommunicationHub = () => {
                 setSelectedRoles([]);
                 setSelectedGroups([]);
                 setSelectedMembers([]);
+                setSelectedRelations([]);
                 setActiveTab('LOGS');
                 fetchData();
             }
@@ -120,6 +131,12 @@ const CommunicationHub = () => {
     const toggleMember = (memberId) => {
         setSelectedMembers(prev =>
             prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId]
+        );
+    };
+
+    const toggleRelation = (rel) => {
+        setSelectedRelations(prev =>
+            prev.includes(rel) ? prev.filter(r => r !== rel) : [...prev, rel]
         );
     };
 
@@ -158,10 +175,13 @@ const CommunicationHub = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-                        <FaBell className="text-safaricom-green h-6 w-6" />
+                        <div className="relative">
+                            <FaBell className="text-safaricom-green h-6 w-6" />
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full animate-ping" />
+                        </div>
                         Communication Hub
                     </h2>
-                    <p className="text-sm text-gray-500 font-medium">Director-level control for official communications.</p>
+                    <p className="text-xs text-gray-400 font-bold uppercase tracking-[0.2em] mt-1">Institutional Broadcast Center</p>
                 </div>
                 <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200">
                     <button
@@ -187,7 +207,6 @@ const CommunicationHub = () => {
 
             {activeTab === 'COMPOSE' ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {/* Audience Selection */}
                     <div className="lg:col-span-1 space-y-6">
                         <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
                             <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2 uppercase tracking-tight">
@@ -199,19 +218,13 @@ const CommunicationHub = () => {
                                     onClick={() => setTargetType('ROLES')}
                                     className={`flex-1 py-3 rounded-2xl text-[10px] font-black transition-all border ${targetType === 'ROLES' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-100 text-gray-500'}`}
                                 >
-                                    GROUP OFFICIALS
-                                </button>
-                                <button
-                                    onClick={() => setTargetType('OFFICERS')}
-                                    className={`flex-1 py-3 rounded-2xl text-[10px] font-black transition-all border ${targetType === 'OFFICERS' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-white border-gray-100 text-gray-500'}`}
-                                >
-                                    FIELD STAFF
+                                    ROLES
                                 </button>
                                 <button
                                     onClick={() => setTargetType('GROUPS')}
                                     className={`flex-1 py-3 rounded-2xl text-[10px] font-black transition-all border ${targetType === 'GROUPS' ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-white border-gray-100 text-gray-500'}`}
                                 >
-                                    BY GROUP
+                                    GROUPS
                                 </button>
                                 <button
                                     onClick={() => setTargetType('MEMBERS')}
@@ -219,11 +232,17 @@ const CommunicationHub = () => {
                                 >
                                     MEMBERS
                                 </button>
+                                <button
+                                    onClick={() => setTargetType('RELATIONS')}
+                                    className={`flex-1 py-3 rounded-2xl text-[10px] font-black transition-all border ${targetType === 'RELATIONS' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-gray-100 text-gray-500'}`}
+                                >
+                                    RELATIONS
+                                </button>
                             </div>
 
                             {targetType === 'ROLES' ? (
                                 <div className="space-y-2">
-                                    {['Chairman', 'Secretary', 'Treasurer'].map(role => (
+                                    {['Chairman', 'Secretary', 'Treasurer', 'Field Officer', 'Director', 'Admin'].map(role => (
                                         <label key={role} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
                                             <input
                                                 type="checkbox"
@@ -232,45 +251,41 @@ const CommunicationHub = () => {
                                                 className="w-5 h-5 rounded-lg border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
                                             />
                                             <div>
-                                                <div className="text-sm font-black text-gray-900">{role === 'Chairman' ? 'Chairpersons' : role + 's'}</div>
-                                                <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Active {role}s in system</div>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
-                            ) : targetType === 'OFFICERS' ? (
-                                <div className="space-y-2">
-                                    {['Field Officer', 'Director', 'Admin'].map(role => (
-                                        <label key={role} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedRoles.includes(role)}
-                                                onChange={() => toggleRole(role)}
-                                                className="w-5 h-5 rounded-lg border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
-                                            />
-                                            <div>
-                                                <div className="text-sm font-black text-gray-900">{role}s</div>
-                                                <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">System level {role}s</div>
+                                                <div className="text-sm font-black text-gray-900">{role}</div>
+                                                <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Target all {role}s</div>
                                             </div>
                                         </label>
                                     ))}
                                 </div>
                             ) : targetType === 'GROUPS' ? (
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                                    {groups.map(g => (
-                                        <label key={g.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedGroups.includes(g.id)}
-                                                onChange={() => toggleGroup(g.id)}
-                                                className="w-5 h-5 rounded-lg border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
-                                            />
-                                            <div className="truncate">
-                                                <div className="text-sm font-black text-gray-900 truncate">{g.name}</div>
-                                                <div className="text-[10px] text-gray-400 font-bold">{g.location || 'No Location'}</div>
-                                            </div>
-                                        </label>
-                                    ))}
+                                <div className="space-y-4">
+                                    <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
+                                        {['ALL', 'Bronze', 'Silver', 'Gold', 'Platinum'].map(tier => (
+                                            <button
+                                                key={tier}
+                                                onClick={() => setTierFilter(tier)}
+                                                className={`px-3 py-1.5 rounded-xl text-[9px] font-black transition-all border ${tierFilter === tier ? 'bg-safaricom-green text-white border-safaricom-green shadow-md' : 'bg-gray-50 text-gray-400 border-gray-100 hover:bg-gray-100'}`}
+                                            >
+                                                {tier}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {groups.map(g => (
+                                            <label key={g.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedGroups.includes(g.id)}
+                                                    onChange={() => toggleGroup(g.id)}
+                                                    className="w-5 h-5 rounded-lg border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
+                                                />
+                                                <div className="truncate">
+                                                    <div className="text-sm font-black text-gray-900 truncate">{g.name}</div>
+                                                    <div className="text-[10px] text-gray-400 font-bold">{g.location || 'No Location'}</div>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
                                 </div>
                             ) : targetType === 'MEMBERS' ? (
                                 <div className="space-y-4">
@@ -284,35 +299,44 @@ const CommunicationHub = () => {
                                         />
                                         <FaUsers className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
                                     </div>
-
-                                    <button
-                                        onClick={handleSelectAllFiltered}
-                                        className="w-full py-2 bg-gray-50 text-[10px] font-black text-gray-500 rounded-xl border border-gray-100 hover:bg-gray-100 transition-all uppercase"
-                                    >
-                                        {filteredMembers.every(m => selectedMembers.includes(m.id)) ? 'Deselect All Visible' : 'Select All Visible'}
-                                    </button>
-
                                     <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {filteredMembers.length > 0 ? (
-                                            filteredMembers.map(m => (
-                                                <label key={m.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedMembers.includes(m.id)}
-                                                        onChange={() => toggleMember(m.id)}
-                                                        className="w-4 h-4 rounded border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
-                                                    />
-                                                    <div className="truncate">
-                                                        <div className="text-xs font-black text-gray-900 truncate">{m.name}</div>
-                                                        <div className="text-[9px] text-gray-400 font-bold">{m.phone}</div>
-                                                    </div>
-                                                </label>
-                                            ))
-                                        ) : (
-                                            <div className="py-10 text-center text-gray-400 text-[10px] font-bold uppercase tracking-widest">
-                                                No matches identified
-                                            </div>
-                                        )}
+                                        {filteredMembers.map(m => (
+                                            <label key={m.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedMembers.includes(m.id)}
+                                                    onChange={() => toggleMember(m.id)}
+                                                    className="w-4 h-4 rounded border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
+                                                />
+                                                <div className="truncate">
+                                                    <div className="text-xs font-black text-gray-900 truncate">{m.name}</div>
+                                                    <div className="text-[9px] text-gray-400 font-bold">{m.phone}</div>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : targetType === 'RELATIONS' ? (
+                                <div className="space-y-4">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight mb-2">Target linked network</p>
+                                    <div className="space-y-2">
+                                        {[
+                                            { id: 'GUARANTORS', label: 'Loan Guarantors', desc: 'Members guaranteeing active loans' },
+                                            { id: 'NEXT_OF_KIN', label: 'Next of Kin', desc: 'Registered primary relatives' }
+                                        ].map(rel => (
+                                            <label key={rel.id} className="flex items-center gap-3 p-3 rounded-2xl hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedRelations.includes(rel.id)}
+                                                    onChange={() => toggleRelation(rel.id)}
+                                                    className="w-5 h-5 rounded-lg border-2 border-gray-200 text-safaricom-green focus:ring-safaricom-green"
+                                                />
+                                                <div>
+                                                    <div className="text-sm font-black text-gray-900">{rel.label}</div>
+                                                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{rel.desc}</div>
+                                                </div>
+                                            </label>
+                                        ))}
                                     </div>
                                 </div>
                             ) : null}
@@ -323,26 +347,27 @@ const CommunicationHub = () => {
                             <div className="flex justify-around text-center">
                                 <div>
                                     <div className="text-2xl font-black text-safaricom-green">
-                                        {targetType === 'GROUPS' ? selectedGroups.length : (targetType === 'MEMBERS' ? selectedMembers.length : selectedRoles.length)}
+                                        {targetType === 'GROUPS' ? selectedGroups.length :
+                                            targetType === 'MEMBERS' ? selectedMembers.length :
+                                                targetType === 'RELATIONS' ? selectedRelations.length :
+                                                    selectedRoles.length}
                                     </div>
-                                    <h1 className="text-xl font-bold text-gray-800">UKOMBOZINI <span className="text-blue-600">HUB</span></h1>
+                                    <div className="text-[8px] font-bold text-gray-500 uppercase">Selected</div>
                                 </div>
                                 <div>
-                                    <div className="text-2xl font-black text-blue-400">{method}</div>
+                                    <div className="text-2xl font-black text-blue-400 uppercase">{method}</div>
                                     <div className="text-[8px] font-bold text-gray-500 uppercase">Method</div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Message Editor */}
                     <div className="lg:col-span-2 space-y-6">
                         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100 h-full flex flex-col">
                             <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2 uppercase tracking-tight">
                                 <FaComment className="text-safaricom-green" /> 2. Compose Message
                             </h3>
 
-                            {/* Template Quick Select */}
                             <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
                                 {TEMPLATES.map(t => (
                                     <button
@@ -355,7 +380,6 @@ const CommunicationHub = () => {
                                 ))}
                             </div>
 
-                            {/* Dynamic Variables Selector */}
                             <div className="mb-6">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Insert Dynamic Variable</label>
                                 <div className="flex flex-wrap gap-2">
@@ -365,7 +389,7 @@ const CommunicationHub = () => {
                                             onClick={() => setMessage(prev => prev + v.tag)}
                                             className="px-3 py-1.5 bg-blue-50 text-[10px] font-black text-blue-600 rounded-xl border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
                                         >
-                                            {v.name} {v.tag}
+                                            {v.name}
                                         </button>
                                     ))}
                                 </div>
@@ -380,10 +404,9 @@ const CommunicationHub = () => {
                                 </button>
                                 <button
                                     onClick={() => setMethod('INAPP')}
-                                    disabled
-                                    className="flex-1 p-3 rounded-2xl border-2 border-gray-50 text-gray-200 flex items-center justify-center gap-2 font-black text-sm cursor-not-allowed"
+                                    className={`flex-1 p-3 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-sm ${method === 'INAPP' ? 'border-amber-500 bg-amber-50 text-amber-600' : 'border-gray-100 text-gray-400 hover:border-gray-200'}`}
                                 >
-                                    <FaBell /> IN-APP (Soon)
+                                    <FaBell /> IN-APP
                                 </button>
                             </div>
 
@@ -406,23 +429,19 @@ const CommunicationHub = () => {
                             >
                                 {sending ? (
                                     <>
-                                        <FaPaperPlane className="animate-pulse" /> SENDING BULK TRANSMISSION...
+                                        <FaPaperPlane className="animate-pulse" /> SENDING...
                                     </>
                                 ) : (
                                     <>
-                                        <FaPaperPlane /> BROADCAST MESSAGE
+                                        <FaPaperPlane /> BROADCAST
                                     </>
                                 )}
                             </button>
-                            <p className="mt-4 text-[10px] text-gray-400 font-bold text-center uppercase tracking-widest">
-                                Transaction logs will be generated automatically for audit.
-                            </p>
                         </div>
                     </div>
                 </div>
             ) : (
                 <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {/* Filters */}
                     <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
                         <div className="flex gap-2">
                             {['ALL', 'SMS', 'EMAIL'].map(f => (
@@ -443,7 +462,6 @@ const CommunicationHub = () => {
                         </button>
                     </div>
 
-                    {/* Logs List */}
                     <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden border border-gray-100">
                         {loading ? (
                             <div className="p-20 text-center flex flex-col items-center gap-4">
@@ -478,7 +496,6 @@ const CommunicationHub = () => {
                                                 </div>
                                                 <span className="text-[10px] text-gray-400 font-bold whitespace-nowrap">{timeAgo(log.created_at)}</span>
                                             </div>
-
                                             <p className="text-sm text-gray-600 leading-relaxed font-medium bg-gray-50/80 p-4 rounded-3xl border border-gray-50">
                                                 {log.message || log.body}
                                             </p>
@@ -489,9 +506,8 @@ const CommunicationHub = () => {
                         )}
                     </div>
                 </div>
-            )
-            }
-        </div >
+            )}
+        </div>
     );
 };
 

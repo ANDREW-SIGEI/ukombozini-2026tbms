@@ -53,16 +53,10 @@ const dividendRules = {
         const start = `${year}-01-01`;
         const end = `${year}-12-31`;
 
-        // Check internal structure of transactions
-        // We look for 'loan_interest' (covers STL/LTL usually) and 'fines'
-        // And 'banking_interest' if separate column exists (schema check needed)
-        // Schema has: loan_interest, fines. 
-        // We might need to sum 'transaction_type' = 'BankInterest' if applicable.
-
         const query = `
             SELECT 
                 SUM(loan_interest) as total_interest,
-                SUM(fines) as total_fines
+                SUM(fines)        as total_fines
             FROM transactions t
             JOIN meeting_sessions s ON t.sessionId = s.id
             WHERE s.groupId = ?
@@ -76,13 +70,11 @@ const dividendRules = {
             });
         });
 
-        const interest = result.total_interest || 0;
-        const fines = result.total_fines || 0;
+        const interest = result ? (result.total_interest || 0) : 0;
+        const fines = result ? (result.total_fines || 0) : 0;
 
-        // Banking Interest usually comes from Bank Statements entered as transactions
-        // Assuming desc or type logic. For now, we rely on 'loan_interest' covering member interactions.
-
-        return interest + fines;
+        // Return breakdown so postDividends can populate the correct DB columns
+        return { total: interest + fines, interest, fines };
     },
 
     /**
@@ -120,19 +112,20 @@ const dividendRules = {
      * MAIN ENGINE: Run Calculation
      */
     async generatePreview(db, year, groupId, expenses = 0) {
-        // 1. Get TRF
-        const trf = await this.calculateTRF(db, year, groupId);
+        // 1. Get TRF (returns { total, interest, fines })
+        const trfBreakdown = await this.calculateTRF(db, year, groupId);
+        const trf = trfBreakdown.total;
 
-        // 2. Get Profit
+        // 2. Allocable Profit
         const ap = await this.calculateProfit(trf, expenses);
 
-        // 3. Ratio
+        // 3. Payout ratio (75% if group >= 1 year old, 50% otherwise)
         const ratio = await this.determinePayoutRatio(db, groupId);
 
-        // 4. Profit to Share
+        // 4. Profit to share with members
         const profitToShare = ap * ratio;
 
-        // 5. Get Members and Calc Average Shares
+        // 5. Get members and calculate average shares
         const membersQuery = `SELECT id, name FROM members WHERE group_id = ?`;
         const members = await new Promise((resolve, reject) => {
             db.all(membersQuery, [groupId], (err, rows) => {
@@ -148,35 +141,43 @@ const dividendRules = {
             const avgShares = await this.calculateAverageShares(db, m.id, year);
             if (avgShares > 0) {
                 totalAvgShares += avgShares;
-                allocations.push({
-                    memberId: m.id,
-                    name: m.name,
-                    averageShares: avgShares
-                });
+                allocations.push({ memberId: m.id, name: m.name, averageShares: avgShares });
             }
         }
 
-        // 6. Dividend Rate
-        // Avoid division by zero
+        // 6. Dividend rate per share
         const dividendRate = totalAvgShares > 0 ? (profitToShare / totalAvgShares) : 0;
 
-        // 7. Finalize Member Allocations
-        const finalAllocations = allocations.map(a => ({
-            ...a,
-            grossDividend: a.averageShares * dividendRate,
-            netDividend: a.averageShares * dividendRate // Deduct tax here if needed later
-        })).sort((a, b) => b.grossDividend - a.grossDividend);
+        // 7. Withholding Tax (5% — standard Kenya rate for resident shareholders)
+        const WHT_RATE = 0.05;
+
+        // 8. Finalize allocations: grossDividend = pre-tax, netDividend = after 5% WHT
+        const finalAllocations = allocations.map(a => {
+            const gross = a.averageShares * dividendRate;
+            return {
+                ...a,
+                grossDividend: gross,
+                whtAmount: gross * WHT_RATE,
+                netDividend: gross * (1 - WHT_RATE)
+            };
+        }).sort((a, b) => b.grossDividend - a.grossDividend);
 
         return {
             year,
             groupId,
             trf,
+            // Breakdown for accurate DB storage
+            interestBreakdown: {
+                loanInterest: trfBreakdown.interest,
+                finesAndPenalties: trfBreakdown.fines
+            },
             expenses,
             ap,
             ratio,
             profitToShare,
             totalAvgShares,
             dividendRate,
+            whtRate: WHT_RATE,
             allocations: finalAllocations
         };
     }

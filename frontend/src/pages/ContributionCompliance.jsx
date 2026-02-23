@@ -1,390 +1,367 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaUsers, FaChartLine, FaBell, FaDownload } from 'react-icons/fa';
+import { FaCheckCircle, FaExclamationTriangle, FaTimesCircle, FaUsers, FaChartLine, FaBell, FaDownload, FaShieldAlt, FaPhoneAlt, FaUserShield, FaSitemap, FaHistory, FaArrowRight, FaTimes } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import NotificationService from '../services/NotificationService';
 import SearchableGroupSelector from '../components/SearchableGroupSelector';
 
-const ContributionCompliance = () => {
-    const [selectedMonth, setSelectedMonth] = useState('2026-01');
+const InstitutionalCompliance = () => {
+    // Generate last 6 months
+    const months = useMemo(() => {
+        const result = [];
+        const date = new Date();
+        for (let i = 0; i < 6; i++) {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const label = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+            result.push({ value: `${year}-${month}`, label });
+            date.setMonth(date.getMonth() - 1);
+        }
+        return result;
+    }, []);
+
+    const [selectedMonth, setSelectedMonth] = useState(months[0].value);
     const [selectedGroup, setSelectedGroup] = useState('all');
     const [loading, setLoading] = useState(true);
     const [memberCompliance, setMemberCompliance] = useState([]);
     const [groups, setGroups] = useState([]);
-    const [activeTab, setActiveTab] = useState('paid'); // 'paid', 'partial', 'skipped'
+    const [activeTab, setActiveTab] = useState('paid');
+    const [groupMatrix, setGroupMatrix] = useState(null);
+    const [selectedMember, setSelectedMember] = useState(null); // For Relationship Profile
 
-    // 1. Fetch initial data (Groups)
     useEffect(() => {
         const fetchGroups = async () => {
             try {
                 const data = await api.getGroups();
                 setGroups(data || []);
-            } catch (error) {
-                console.error('Fetch groups error:', error);
-            }
+            } catch (error) { console.error(error); }
         };
         fetchGroups();
     }, []);
 
-    // 2. Fetch compliance data when filters change
     useEffect(() => {
-        const fetchCompliance = async () => {
+        const fetchData = async () => {
             setLoading(true);
             try {
                 const data = await api.getContributionCompliance(selectedMonth, selectedGroup);
                 setMemberCompliance(data || []);
+                if (selectedGroup !== 'all') {
+                    const matrix = await api.getGroupMatrixStatus(selectedGroup);
+                    setGroupMatrix(matrix);
+                } else { setGroupMatrix(null); }
             } catch (error) {
-                toast.error("Failed to load compliance data");
+                toast.error("Dashboard Sync Failed");
                 console.error(error);
-            } finally {
-                setLoading(false);
-            }
+            } finally { setLoading(false); }
         };
-        fetchCompliance();
+        fetchData();
     }, [selectedMonth, selectedGroup]);
 
-    // 3. Derived Statistics
-    const complianceStats = useMemo(() => {
-        const totalCount = memberCompliance.length || 1;
-        const paidCount = memberCompliance.filter(m => m.contributionStatus === 'Paid').length;
-        const partialCount = memberCompliance.filter(m => m.contributionStatus === 'Partial').length;
-        const skippedCount = memberCompliance.filter(m => m.contributionStatus === 'Skipped').length;
-
-        const totalCollected = memberCompliance.reduce((sum, m) => sum + m.contributionAmount, 0);
-        const expectedAmount = memberCompliance.reduce((sum, m) => sum + m.expectedAmount, 0);
+    const stats = useMemo(() => {
+        const total = memberCompliance.length || 1;
+        const paid = memberCompliance.filter(m => m.contributionStatus === 'Paid').length;
+        const arrears = memberCompliance.filter(m => m.contributionStatus === 'Partial').length;
+        const defaults = memberCompliance.filter(m => m.contributionStatus === 'Skipped').length;
+        const totalFinancialRisk = memberCompliance.reduce((sum, m) => sum + (m.activeLoanBalance || 0), 0);
 
         return {
-            total: memberCompliance.length,
-            paid: paidCount,
-            partial: partialCount,
-            skipped: skippedCount,
-            complianceRate: ((paidCount / totalCount) * 100).toFixed(1),
-            totalCollected,
-            expectedAmount,
-            shortfall: Math.max(0, expectedAmount - totalCollected)
+            paid, arrears, defaults,
+            rate: ((paid / total) * 100).toFixed(1),
+            totalFinancialRisk
         };
     }, [memberCompliance]);
 
-    // Group by status
-    const paidMembers = memberCompliance.filter(m => m.contributionStatus === 'Paid');
-    const partialMembers = memberCompliance.filter(m => m.contributionStatus === 'Partial');
-    const skippedMembers = memberCompliance.filter(m => m.contributionStatus === 'Skipped');
+    const handleNotifyGuarantors = async (member) => {
+        if (!member.g1Phone && !member.g2Phone) {
+            toast.warning("No linked guarantors identified for this entity.");
+            return;
+        }
+        try {
+            const msg = `INSTITUTIONAL ALERT: Member ${member.name} has defaulted on contributions for ${selectedMonth}. As a linked guarantor, your exposure is affected. Please intervene. [UKOMBOZINI]`;
+            const recipients = [];
+            if (member.g1Phone) recipients.push({ phone: member.g1Phone, message: msg });
+            if (member.g2Phone) recipients.push({ phone: member.g2Phone, message: msg });
 
-    // PDF Export Handler
+            await api.sendBulkNotification({
+                target: 'CUSTOM',
+                recipients: recipients,
+                method: 'SMS'
+            });
+            toast.success(`Guarantor Escalation Triggered for ${member.name}`);
+        } catch (error) { toast.error("Escalation Failed"); }
+    };
+
     const handleExportPDF = async () => {
         try {
-            toast.info('📄 Generating Compliance PDF...');
+            toast.info('📄 Generating Institutional Compliance Report...');
             await api.downloadContributionComplianceReport(selectedMonth, selectedGroup);
-            toast.success('✅ PDF report generated successfully!');
-        } catch (error) {
-            toast.error(`❌ Failed to generate PDF from server`);
-        }
+            toast.success('✅ PDF Report Downloaded');
+        } catch (error) { toast.error("PDF Export Failed"); }
     };
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h2 className="text-2xl font-black text-gray-800">Contribution Compliance Dashboard</h2>
-                    <p className="text-sm text-gray-500 mt-1">Track member payment status and identify non-compliance</p>
+        <div className="space-y-6 relative overflow-hidden min-h-screen">
+            {/* Header Area */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-safaricom-dark rounded-2xl flex items-center justify-center text-safaricom-green text-2xl shadow-2xl ring-4 ring-safaricom-green/5">
+                        <FaUserShield />
+                    </div>
+                    <div>
+                        <h2 className="text-3xl font-black text-gray-900 tracking-tight">Institutional Compliance</h2>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-black bg-safaricom-green/10 text-safaricom-green px-2 py-0.5 rounded uppercase tracking-widest">Live Registry</span>
+                            <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">{groupMatrix?.currentTier?.tier_name || 'Global'} Performance Layer</span>
+                        </div>
+                    </div>
                 </div>
-                <button
-                    onClick={handleExportPDF}
-                    className="flex items-center gap-2 px-6 py-3 bg-safaricom-green text-white rounded-xl font-bold hover:bg-safaricom-dark transition-all shadow-lg"
-                >
-                    <FaDownload />
-                    Export PDF Report
+                <button onClick={handleExportPDF} className="px-6 py-3 bg-white border-2 border-gray-100 rounded-2xl font-black hover:border-safaricom-green hover:text-safaricom-green transition-all shadow-sm active:scale-95">
+                    <FaDownload className="inline mr-2" /> EXPORT AUDIT LOG
                 </button>
             </div>
 
-            {/* Filters */}
-            <div className="flex gap-4">
-                <div className="flex-1">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Period</label>
-                    <select
-                        value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl font-bold focus:ring-2 focus:ring-safaricom-green/20 outline-none"
-                    >
-                        <option value="2026-01">January 2026</option>
-                        <option value="2025-12">December 2025</option>
-                        <option value="2025-11">November 2025</option>
-                    </select>
-                </div>
-                <div className="flex-1">
-                    <SearchableGroupSelector
-                        groups={groups}
-                        selectedGroupId={selectedGroup === 'all' ? '' : selectedGroup}
-                        onSelect={(id) => setSelectedGroup(id || 'all')}
-                        label="Group Entity"
-                        placeholder="All Groups"
-                    />
-                </div>
-            </div>
-
-            {/* Statistics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard
-                    icon={<FaCheckCircle className="text-green-600" />}
-                    label="Fully Paid"
-                    value={complianceStats.paid}
-                    total={complianceStats.total}
-                    percentage={complianceStats.total > 0 ? ((complianceStats.paid / complianceStats.total) * 100).toFixed(0) : 0}
-                    color="green"
-                />
-                <StatCard
-                    icon={<FaExclamationTriangle className="text-yellow-600" />}
-                    label="Partial Payment"
-                    value={complianceStats.partial}
-                    total={complianceStats.total}
-                    percentage={complianceStats.total > 0 ? ((complianceStats.partial / complianceStats.total) * 100).toFixed(0) : 0}
-                    color="yellow"
-                />
-                <StatCard
-                    icon={<FaTimesCircle className="text-red-600" />}
-                    label="Skipped"
-                    value={complianceStats.skipped}
-                    total={complianceStats.total}
-                    percentage={complianceStats.total > 0 ? ((complianceStats.skipped / complianceStats.total) * 100).toFixed(0) : 0}
-                    color="red"
-                />
-                <StatCard
-                    icon={<FaChartLine className="text-blue-600" />}
-                    label="Compliance Rate"
-                    value={`${complianceStats.complianceRate}%`}
-                    subtitle={`${complianceStats.paid}/${complianceStats.total} members`}
-                    color="blue"
-                />
-            </div>
-
-            {/* Financial Summary */}
-            <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-2xl border-2 border-blue-200">
-                <h3 className="text-sm font-black text-blue-900 uppercase mb-4 flex items-center gap-2">
-                    <FaUsers /> Financial Summary - {new Date(selectedMonth + '-01').toLocaleString('en-GB', { month: 'long', year: 'numeric' })}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-white p-4 rounded-xl">
-                        <div className="text-xs text-gray-500 font-bold uppercase">Total Collected</div>
-                        <div className="text-2xl font-black text-green-600 mt-1">
-                            KES {complianceStats.totalCollected.toLocaleString()}
+            {/* Matrix & Period Selection */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                <div className="lg:col-span-1 bg-safaricom-dark p-6 rounded-3xl text-white relative overflow-hidden group">
+                    <div className="absolute -right-10 -top-10 text-9xl text-white/5 rotate-12 group-hover:rotate-45 transition-all duration-700"><FaShieldAlt /></div>
+                    <div className="relative z-10">
+                        <div className="flex justify-between items-start">
+                            <span className="text-[10px] font-black opacity-50 uppercase tracking-[0.2em]">Institutional Health</span>
+                            {stats.rate < 85 && (
+                                <span className="bg-red-500 text-[8px] font-black px-2 py-0.5 rounded-full animate-pulse">PENALTY ACTIVE</span>
+                            )}
+                        </div>
+                        <div className="text-5xl font-black my-2">{groupMatrix ? groupMatrix.score.toFixed(0) : '—'}<span className="text-xl opacity-40">%</span></div>
+                        <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                <div className="h-full bg-safaricom-green shadow-[0_0_15px_#76bc21]" style={{ width: `${groupMatrix?.score || 0}%` }}></div>
+                            </div>
+                            <span className="text-[10px] font-black text-safaricom-green">{groupMatrix?.currentTier?.tier_name || 'PENDING'}</span>
                         </div>
                     </div>
-                    <div className="bg-white p-4 rounded-xl">
-                        <div className="text-xs text-gray-500 font-bold uppercase">Expected Amount</div>
-                        <div className="text-2xl font-black text-gray-900 mt-1">
-                            KES {complianceStats.expectedAmount.toLocaleString()}
-                        </div>
-                    </div>
-                    <div className="bg-white p-4 rounded-xl">
-                        <div className="text-xs text-gray-500 font-bold uppercase">Shortfall</div>
-                        <div className={`text-2xl font-black mt-1 ${complianceStats.shortfall > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            KES {complianceStats.shortfall.toLocaleString()}
-                        </div>
+                </div>
+
+                <KPICard color="safaricom" label="Compliance Rate" value={`${stats.rate}%`} icon={<FaChartLine />} trend="+2.4%" />
+                <KPICard color="red" label="Default Exposure" value={`KES ${stats.totalFinancialRisk.toLocaleString()}`} icon={<FaExclamationTriangle />} subtitle="Institutional Capital At Risk" />
+
+                <div className="bg-white p-6 rounded-3xl border-2 border-gray-100 shadow-sm flex flex-col justify-between">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Audit Window</label>
+                    <div className="space-y-3">
+                        <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full bg-gray-50 border-none rounded-xl font-bold py-3 px-4 outline-none focus:ring-2 focus:ring-safaricom-green/20">
+                            {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        </select>
+                        <SearchableGroupSelector
+                            groups={groups}
+                            selectedGroupId={selectedGroup === 'all' ? '' : selectedGroup}
+                            onSelect={(id) => setSelectedGroup(id || 'all')}
+                            label=""
+                            placeholder="All Group Entities"
+                        />
                     </div>
                 </div>
             </div>
 
-            {/* Alerts Section */}
-            {(partialMembers.length > 0 || skippedMembers.length > 0) && (
-                <div className="bg-red-50 border-l-4 border-red-500 p-5 rounded-r-xl">
-                    <div className="flex items-start gap-3">
-                        <FaBell className="text-red-600 mt-1" />
-                        <div>
-                            <h4 className="font-black text-red-900">Action Required</h4>
-                            <ul className="text-sm text-red-800 mt-2 space-y-1">
-                                {partialMembers.length > 0 && (
-                                    <li>• {partialMembers.length} member(s) made partial payment - follow up required</li>
-                                )}
-                                {skippedMembers.length > 0 && (
-                                    <li>• {skippedMembers.length} member(s) skipped this month - immediate action needed</li>
-                                )}
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Filter Tabs */}
+            <div className="flex gap-4 p-1 bg-gray-100 rounded-2xl overflow-x-auto scroller-hidden">
+                <FilterTab active={activeTab === 'paid'} onClick={() => setActiveTab('paid')} label="CONSISTENT" count={stats.paid} color="green" />
+                <FilterTab active={activeTab === 'partial'} onClick={() => setActiveTab('partial')} label="AT RISK" count={stats.arrears} color="orange" />
+                <FilterTab active={activeTab === 'skipped'} onClick={() => setActiveTab('skipped')} label="DEFAULTED" count={stats.defaults} color="red" />
+            </div>
 
-            {/* Tabbed Member Lists */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="border-b border-gray-200">
-                    <div className="flex">
-                        <TabButton
-                            label={`✅ Paid (${paidMembers.length})`}
-                            active={activeTab === 'paid'}
-                            onClick={() => setActiveTab('paid')}
-                            color="green"
-                        />
-                        <TabButton
-                            label={`⚠️ Partial (${partialMembers.length})`}
-                            active={activeTab === 'partial'}
-                            onClick={() => setActiveTab('partial')}
-                            color="yellow"
-                        />
-                        <TabButton
-                            label={`❌ Skipped (${skippedMembers.length})`}
-                            active={activeTab === 'skipped'}
-                            onClick={() => setActiveTab('skipped')}
-                            color="red"
-                        />
-                    </div>
-                </div>
-
-                <div className="p-6">
+            {/* Main Registry */}
+            <div className="bg-white rounded-[2.5rem] border-2 border-gray-50 shadow-2xl overflow-hidden min-h-[400px]">
+                <div className="p-8">
                     {loading ? (
-                        <div className="py-12 text-center">
-                            <div className="animate-spin w-8 h-8 border-4 border-safaricom-green border-t-transparent rounded-full mx-auto mb-4"></div>
-                            <p className="text-sm text-gray-400 font-bold uppercase tracking-widest">Fetching Compliance Data...</p>
+                        <div className="py-20 text-center">
+                            <div className="animate-spin w-12 h-12 border-4 border-safaricom-green border-t-transparent rounded-full mx-auto mb-4"></div>
+                            <p className="text-sm font-black text-gray-400 uppercase tracking-widest animate-pulse">Scanning Governance Ledger...</p>
                         </div>
                     ) : (
-                        <>
-                            {activeTab === 'paid' && (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm">
-                                        <thead className="bg-gradient-to-r from-green-50 to-green-100 border-b-2 border-green-200">
-                                            <tr>
-                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase">Member</th>
-                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase">Group</th>
-                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase text-right">Amount Paid</th>
-                                                <th className="px-4 py-3 text-xs font-black text-green-900 uppercase text-center">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {paidMembers.length > 0 ? paidMembers.map(member => (
-                                                <tr key={member.id} className="hover:bg-green-50/30 transition-colors">
-                                                    <td className="px-4 py-3">
-                                                        <div className="font-bold text-gray-900">{member.name}</div>
-                                                        <div className="text-xs text-gray-500">{member.phone}</div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="border-b-2 border-gray-50">
+                                        <th className="pb-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Institutional Entity</th>
+                                        <th className="pb-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Risk Propagation</th>
+                                        <th className="pb-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Commitment KES</th>
+                                        <th className="pb-6 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Intervention</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y-2 divide-gray-50">
+                                    {(activeTab === 'paid' ? memberCompliance.filter(m => m.contributionStatus === 'Paid') :
+                                        activeTab === 'partial' ? memberCompliance.filter(m => m.contributionStatus === 'Partial') :
+                                            memberCompliance.filter(m => m.contributionStatus === 'Skipped')).map(member => (
+                                                <tr key={member.id} className="group hover:bg-safaricom-green/5 transition-all cursor-pointer" onClick={() => setSelectedMember(member)}>
+                                                    <td className="py-6">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black ${member.aging.riskLevel === 'CRITICAL' ? 'bg-red-600 text-white animate-pulse' :
+                                                                member.aging.riskLevel === 'HIGH' ? 'bg-red-100 text-red-600' :
+                                                                    member.aging.riskLevel === 'MEDIUM' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-400'
+                                                                }`}>
+                                                                {member.name.charAt(0)}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-black text-gray-900 group-hover:text-safaricom-green transition-colors">{member.name}</div>
+                                                                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{member.groupName}</div>
+                                                            </div>
+                                                        </div>
                                                     </td>
-                                                    <td className="px-4 py-3 text-gray-700">{member.groupName}</td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <span className="font-black text-green-600">
-                                                            KES {member.contributionAmount.toLocaleString()}
-                                                        </span>
+                                                    <td className="py-6">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={`w-2 h-2 rounded-full ${member.aging.isDelinquent ? 'bg-red-500 animate-ping' : 'bg-green-500'}`}></div>
+                                                            <span className="text-[10px] font-black text-gray-700 uppercase tracking-tighter">
+                                                                {member.aging.riskLevel} EXPOSURE
+                                                            </span>
+                                                        </div>
+                                                        {member.guaranteedExposure > 0 && (
+                                                            <div className="text-[9px] font-bold text-red-400 mt-1">Guarantor for KES {member.guaranteedExposure.toLocaleString()}</div>
+                                                        )}
                                                     </td>
-                                                    <td className="px-4 py-3 text-center">
-                                                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-black uppercase rounded-full">
-                                                            <FaCheckCircle /> Paid
-                                                        </span>
+                                                    <td className="py-6 text-right">
+                                                        <div className="font-black text-gray-900">KES {member.contributionAmount.toLocaleString()}</div>
+                                                        <div className="text-[10px] font-bold opacity-40">TARGET: KES {member.expectedAmount.toLocaleString()}</div>
+                                                    </td>
+                                                    <td className="py-6">
+                                                        <div className="flex justify-center gap-2" onClick={e => e.stopPropagation()}>
+                                                            <button onClick={() => handleNotifyGuarantors(member)} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all transform active:scale-95" title="Escalate to Guarantors">
+                                                                <FaUserShield />
+                                                            </button>
+                                                            <button onClick={() => toast.info(`Push notification sent to ${member.name}`)} className="p-3 bg-safaricom-green/10 text-safaricom-green rounded-xl hover:bg-safaricom-green hover:text-white transition-all transform active:scale-95" title="Direct Reminder">
+                                                                <FaBell />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
-                                            )) : (
-                                                <tr>
-                                                    <td colSpan="4" className="text-center py-10 text-gray-400 italic">No fully paid members found.</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-
-                            {activeTab === 'partial' && (
-                                <div className="grid gap-3">
-                                    {partialMembers.length > 0 ? partialMembers.map(member => (
-                                        <div key={member.id} className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-xl">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <div className="font-bold text-gray-900">{member.name}</div>
-                                                    <div className="text-sm text-gray-600">
-                                                        Paid: KES {member.contributionAmount.toLocaleString()} |
-                                                        Shortfall: KES {member.shortfall.toLocaleString()}
-                                                    </div>
-                                                </div>
-                                                <button className="px-4 py-2 bg-yellow-600 text-white text-sm font-bold rounded-lg hover:bg-yellow-700 transition-all">
-                                                    Send Reminder
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )) : (
-                                        <div className="text-center py-10">
-                                            <p className="text-gray-400 italic">No partial payments for this period.</p>
-                                        </div>
+                                            ))}
+                                    {memberCompliance.length === 0 && !loading && (
+                                        <tr>
+                                            <td colSpan="4" className="py-20 text-center">
+                                                <div className="text-gray-100 text-7xl font-black mb-4 uppercase select-none opacity-20">No Integrity Gap</div>
+                                                <p className="text-xs font-black text-gray-300 uppercase tracking-widest">All records satisfy performance criteria</p>
+                                            </td>
+                                        </tr>
                                     )}
-                                </div>
-                            )}
-
-                            {activeTab === 'skipped' && (
-                                <div className="grid gap-3">
-                                    {skippedMembers.length > 0 ? skippedMembers.map(member => (
-                                        <div key={member.id} className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <div className="font-bold text-gray-900">{member.name}</div>
-                                                    <div className="text-sm text-gray-600">
-                                                        Expected: KES {member.expectedAmount.toLocaleString()} | Paid: KES 0
-                                                    </div>
-                                                </div>
-                                                <button className="px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-lg hover:bg-red-700 transition-all">
-                                                    Contact Member
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )) : (
-                                        <div className="text-center py-10">
-                                            <p className="text-gray-400 italic">No skipped payments for this period! 🎉</p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </>
+                                </tbody>
+                            </table>
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Trend Analysis (Placeholder) */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">
-                    <FaChartLine /> Compliance Trend (Last 6 Months)
-                </h3>
-                <div className="h-64 flex items-center justify-center bg-gray-50 rounded-xl">
-                    <p className="text-gray-400 text-sm">Chart visualization coming soon...</p>
-                </div>
-            </div>
-        </div>
-    );
-};
+            {/* Relationship Profile Drawer */}
+            {selectedMember && (
+                <>
+                    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] transition-opacity" onClick={() => setSelectedMember(null)}></div>
+                    <div className="fixed right-0 top-0 h-screen w-full max-w-md bg-white z-[110] shadow-[0_0_100px_rgba(0,0,0,0.4)] animate-slide-left p-8 overflow-y-auto">
+                        <div className="flex justify-between items-center mb-8">
+                            <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Institutional Profile</h3>
+                            <button onClick={() => setSelectedMember(null)} className="p-2 hover:bg-gray-100 rounded-full transition-all"><FaTimes /></button>
+                        </div>
 
-// Helper Components
-const StatCard = ({ icon, label, value, total, percentage, subtitle, color }) => {
-    const colorClasses = {
-        green: 'from-green-500 to-green-600',
-        yellow: 'from-yellow-500 to-yellow-600',
-        red: 'from-red-500 to-red-600',
-        blue: 'from-blue-500 to-blue-600'
-    };
+                        {/* Profile Summary */}
+                        <div className="bg-gray-50 rounded-3xl p-6 mb-8 border border-gray-100">
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-16 h-16 bg-safaricom-dark rounded-2xl flex items-center justify-center text-white text-2xl font-black">{selectedMember.name.charAt(0)}</div>
+                                <div>
+                                    <div className="text-2xl font-black text-gray-900 leading-tight">{selectedMember.name}</div>
+                                    <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedMember.phone}</div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase mb-1">Active Loan</div>
+                                    <div className="text-sm font-black text-red-600">KES {selectedMember.activeLoanBalance.toLocaleString()}</div>
+                                </div>
+                                <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase mb-1">Risk Weight</div>
+                                    <div className="text-sm font-black text-gray-800">{selectedMember.aging.riskLevel}</div>
+                                </div>
+                            </div>
+                        </div>
 
-    return (
-        <div className={`bg-gradient-to-br ${colorClasses[color]} p-5 rounded-2xl text-white shadow-lg`}>
-            <div className="flex items-center justify-between mb-3">
-                <div className="p-3 bg-white/20 rounded-xl">
-                    {icon}
-                </div>
-                {percentage !== undefined && (
-                    <div className="text-2xl font-black">{percentage}%</div>
-                )}
-            </div>
-            <div className="text-xs opacity-90 uppercase font-bold">{label}</div>
-            <div className="text-3xl font-black mt-1">
-                {typeof value === 'number' ? value.toLocaleString() : value}
-            </div>
-            {subtitle && (
-                <div className="text-xs opacity-80 mt-1">{subtitle}</div>
+                        {/* Network Map */}
+                        <div className="space-y-8">
+                            <div>
+                                <label className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">
+                                    <FaUserShield className="text-safaricom-green" /> Linked Guarantors
+                                </label>
+                                <div className="space-y-2">
+                                    <RelationshipItem name={selectedMember.g1Name || 'Unlinked'} phone={selectedMember.g1Phone} role="Primary Guarantor" />
+                                    <RelationshipItem name={selectedMember.g2Name || 'Unlinked'} phone={selectedMember.g2Phone} role="Secondary Guarantor" />
+                                </div>
+                                <button onClick={() => handleNotifyGuarantors(selectedMember)} className="w-full mt-4 py-4 bg-red-600 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-red-700 transition-all active:scale-95 shadow-xl shadow-red-100">Notify Guarantor Network</button>
+                            </div>
+
+                            <div>
+                                <label className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">
+                                    <FaHistory className="text-blue-500" /> Recovery Asset (Next-of-Kin)
+                                </label>
+                                <RelationshipItem name={selectedMember.nokName || 'Missing'} phone={selectedMember.nokPhone} role={`NOK (${selectedMember.nokRelation || 'n/a'})`} />
+                            </div>
+
+                            <div className="p-6 bg-orange-50 border border-orange-100 rounded-3xl relative overflow-hidden group">
+                                <FaSitemap className="absolute -right-4 -bottom-4 text-6xl text-orange-200 group-hover:scale-110 transition-transform" />
+                                <label className="flex items-center gap-2 text-[10px] font-black text-orange-700 uppercase tracking-widest mb-2"><FaArrowRight /> Risk Propagation</label>
+                                <p className="text-[11px] font-bold text-orange-900/70 leading-relaxed uppercase">
+                                    Institutional exposure alert: This entity guarantees <strong>KES {selectedMember.guaranteedExposure.toLocaleString()}</strong> in active group capital.
+                                    Failure to comply triggers multi-party risk across the group profile.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </>
             )}
+
+            <style>{`
+                @keyframes slide-left { from { transform: translateX(100%); } to { transform: translateX(0); } }
+                .animate-slide-left { animation: slide-left 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+                .scroller-hidden::-webkit-scrollbar { display: none; }
+            `}</style>
         </div>
     );
 };
 
-const TabButton = ({ label, active, color, onClick }) => {
-    const activeClasses = active
-        ? `border-b-4 border-${color}-500 text-${color}-700 bg-${color}-50`
-        : 'border-b-4 border-transparent text-gray-500 hover:bg-gray-50';
-
+const KPICard = ({ label, value, icon, trend, color, subtitle }) => {
+    const accent = color === 'red' ? 'text-red-500 bg-red-50' : 'text-safaricom-green bg-safaricom-green/5';
     return (
-        <button
-            onClick={onClick}
-            className={`px-6 py-3 font-bold text-sm transition-all ${activeClasses}`}>
-            {label}
+        <div className="bg-white p-6 rounded-[2rem] border-2 border-gray-100 shadow-sm relative group hover:scale-[1.02] transition-all">
+            <div className={`absolute top-6 right-6 p-3 rounded-2xl transition-all ${accent} group-hover:bg-safaricom-dark group-hover:text-white`}>
+                {icon}
+            </div>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</span>
+            <div className="text-3xl font-black text-gray-900 mt-2 mb-1 tracking-tighter">{value}</div>
+            {trend && <div className="text-xs font-black text-safaricom-green">{trend} <span className="text-gray-300 font-bold ml-1 uppercase">improvement</span></div>}
+            {subtitle && <div className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">{subtitle}</div>}
+        </div>
+    );
+};
+
+const FilterTab = ({ active, label, count, color, onClick }) => {
+    const colors = {
+        green: 'text-safaricom-green bg-safaricom-green/10',
+        orange: 'text-orange-600 bg-orange-50',
+        red: 'text-red-600 bg-red-50'
+    };
+    return (
+        <button onClick={onClick} className={`flex-1 flex items-center justify-between px-6 py-5 rounded-2xl transition-all whitespace-nowrap ${active ? 'bg-white shadow-xl ring-2 ring-gray-200/20' : 'opacity-40 grayscale hover:opacity-100 hover:grayscale-0'}`}>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">{label}</span>
+            <div className={`px-4 py-1.5 rounded-xl font-black text-base ${colors[color]}`}>{count}</div>
         </button>
     );
 };
 
-export default ContributionCompliance;
+const RelationshipItem = ({ name, phone, role }) => (
+    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 transition-all hover:bg-white hover:border-safaricom-green/20">
+        <div>
+            <div className="text-[10px] font-black text-gray-400 uppercase mb-0.5 tracking-tighter">{role}</div>
+            <div className="text-sm font-black text-gray-800">{name}</div>
+        </div>
+        {phone && (
+            <button onClick={() => toast.info(`Direct Dial Attempt: ${phone}`)} className="p-3 bg-white text-safaricom-green rounded-xl shadow-lg border border-gray-100 hover:bg-safaricom-green hover:text-white transition-all active:scale-90">
+                <FaPhoneAlt size={14} />
+            </button>
+        )}
+    </div>
+);
+
+export default InstitutionalCompliance;

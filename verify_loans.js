@@ -1,49 +1,68 @@
-const axios = require('axios');
-const fs = require('fs');
+const http = require('http');
 
-const BASE_URL = 'http://127.0.0.1:5000/api';
-
-async function verifyLoans() {
-    try {
-        console.log('🔄 1. Authenticating...');
-        const loginRes = await axios.post(`${BASE_URL}/auth/login`, {
-            email: 'director@ukombozi.com',
-            password: 'password123'
-        });
-        const token = loginRes.data.token;
-        console.log('✅ Authenticated. Token received.');
-
-        console.log('🔄 2. Fetching Loans...');
-        const loansRes = await axios.get(`${BASE_URL}/loans`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        const loans = loansRes.data;
-        console.log(`✅ Found ${loans.length} loans.`);
-
-        if (loans.length === 0) {
-            console.warn('⚠️ No loans found to verify schedule against.');
-            return;
-        }
-
-        const loanId = loans[0].id;
-        console.log(`🔄 3. Fetching Schedule for Loan ID ${loanId}...`);
-
-        try {
-            const scheduleRes = await axios.get(`${BASE_URL}/loans/${loanId}/schedule`, {
-                headers: { Authorization: `Bearer ${token}` }
+function request(options, data = null) {
+    return new Promise((resolve, reject) => {
+        const req = http.request(options, (res) => {
+            let body = '';
+            res.on('data', (chunk) => body += chunk);
+            res.on('end', () => {
+                try {
+                    const parsed = body ? JSON.parse(body) : {};
+                    resolve({ status: res.statusCode, data: parsed });
+                } catch (e) {
+                    resolve({ status: res.statusCode, data: body });
+                }
             });
-            console.log('✅ Schedule received!');
-            console.log(`📅 Schedule Entries: ${scheduleRes.data.length}`);
-            if (scheduleRes.data.length > 0) {
-                console.log('Sample Entry:', scheduleRes.data[0]);
-            }
-        } catch (scheduleErr) {
-            console.error('❌ Failed to fetch schedule:', scheduleErr.response?.data || scheduleErr.message);
-        }
+        });
+        req.on('error', reject);
+        if (data) req.write(JSON.stringify(data));
+        req.end();
+    });
+}
 
-    } catch (error) {
-        console.error('❌ Verification Failed:', error.response?.data || error.message);
+async function testLoanEnforcement() {
+    // 1. Login
+    const loginRes = await request({
+        hostname: 'localhost',
+        port: 5000,
+        path: '/api/auth/login',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    }, {
+        email: 'test@admin.com',
+        password: 'testadmin'
+    });
+
+    const token = loginRes.data.token;
+    console.log('✅ Logged in');
+
+    // 2. Try to issue loan of 1000 to Judy (Member ID 29, Savings 0, Multiplier 3)
+    console.log('Submitting loan of 1000 (Limit should be 0)...');
+    const loanRes = await request({
+        hostname: 'localhost',
+        port: 5000,
+        path: '/api/loans',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        }
+    }, {
+        memberId: 29,
+        groupId: 4,
+        loanType: 'STL',
+        amount: 1000,
+        interestRate: 10,
+        duration: 3,
+        officerId: 1
+    });
+
+    if (loanRes.status === 400 && loanRes.data.error.includes('limit exceeded')) {
+        console.log('✅ Loan enforcement success: Rejection as expected.');
+        console.log('Message:', loanRes.data.error);
+    } else {
+        console.error('❌ Loan enforcement FAILED:', loanRes.status, loanRes.data);
     }
 }
 
-verifyLoans();
+testLoanEnforcement();

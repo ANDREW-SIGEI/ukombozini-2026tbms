@@ -549,16 +549,21 @@ const reportService = {
             }
 
             const query = `
-                SELECT m.name, 
-                       g.minMonthlySaving as expected,
-                       COALESCE(SUM(t.savings_amount), 0) as amount,
-                       CASE 
-                           WHEN COALESCE(SUM(t.savings_amount), 0) >= g.minMonthlySaving THEN 'Paid'
-                           WHEN COALESCE(SUM(t.savings_amount), 0) > 0 THEN 'Partial'
-                           ELSE 'Skipped'
-                       END as status
+                SELECT 
+                    m.name, 
+                    g.minMonthlySaving as expected,
+                    COALESCE(SUM(t.savings_amount), 0) as amount,
+                    CASE 
+                        WHEN COALESCE(SUM(t.savings_amount), 0) >= g.minMonthlySaving THEN 'Paid'
+                        WHEN COALESCE(SUM(t.savings_amount), 0) > 0 THEN 'Partial'
+                        ELSE 'Skipped'
+                    END as status,
+                    (SELECT m1.name FROM members m1 WHERE m1.id = l.guarantor1_id) as g1,
+                    (SELECT m2.name FROM members m2 WHERE m2.id = l.guarantor2_id) as g2,
+                    COALESCE(m.active_loan_balance, 0) as loanBalance
                 FROM members m
                 JOIN groups g ON m.group_id = g.id
+                LEFT JOIN loans l ON m.id = l.member_id AND l.status = 'active'
                 LEFT JOIN transactions t ON m.id = t.memberId 
                     AND strftime('%m', t.created_at) = ? 
                     AND strftime('%Y', t.created_at) = ?
@@ -586,14 +591,27 @@ const reportService = {
                     // Watermark setup
                     const pages = doc.bufferedPageRange();
 
-                    const rows = data.map(d => [d.name, d.status, d.amount.toLocaleString(), d.expected.toLocaleString()]);
+                    const rows = data.map(d => {
+                        const guarantors = [d.g1, d.g2].filter(Boolean).join(', ') || 'N/A';
+                        return [
+                            d.name,
+                            d.status,
+                            d.amount.toLocaleString(),
+                            d.expected.toLocaleString(),
+                            guarantors,
+                            d.loanBalance.toLocaleString()
+                        ];
+                    });
+
                     const table = {
-                        title: `Compliance Status (${data.length} Members)`,
-                        headers: ["Member", "Status", "Paid (KES)", "Expected (KES)"],
+                        title: `Governance Performance Registry (${data.length} Entities)`,
+                        headers: ["Entity", "Status", "Paid", "Target", "Guarantors", "Exposure"],
                         rows: rows
                     };
                     doc.table(table, {
+                        prepareHeader: () => doc.font('Helvetica-Bold').fontSize(8),
                         prepareRow: (row, indexColumn, indexRow, rectRow, rectCell) => {
+                            doc.font('Helvetica').fontSize(7);
                             if (row[1] === 'Skipped') doc.fillColor('red');
                             else if (row[1] === 'Partial') doc.fillColor('orange');
                             else doc.fillColor('black');
@@ -822,7 +840,386 @@ const reportService = {
                 reject(e);
             }
         });
+    },
+
+    /**
+     * Generate Partnership Statement PDF (Institutional Grade)
+     */
+    generatePartnershipStatement: async (groupId) => {
+        return new Promise(async (resolve, reject) => {
+            try {
+                // 1. Fetch Group & Financial Context
+                const groupRes = await new Promise((res, rej) => {
+                    db.get(`
+                        SELECT g.name, g.id,
+                        (SELECT COALESCE(SUM(amount), 0) FROM company_investments WHERE group_id = g.id AND status = 'ACTIVE') as totalTopUp,
+                        (SELECT COALESCE(SUM(amount), 0) FROM group_commitments WHERE group_id = g.id AND status = 'LOCKED') as totalCommitment,
+                        (SELECT COALESCE(SUM(total_value), 0) FROM financed_products fp JOIN members m ON fp.member_id = m.id WHERE m.group_id = g.id AND fp.status = 'ACTIVE') as totalProductFinance
+                        FROM groups g WHERE g.id = ?
+                    `, [groupId], (err, row) => err ? rej(err) : res(row));
+                });
+
+                if (!groupRes) return reject(new Error('Group not found'));
+
+                // 2. Fetch History
+                const investments = await new Promise((res, rej) => {
+                    db.all(`SELECT * FROM company_investments WHERE group_id = ? ORDER BY created_at DESC`, [groupId], (err, rows) => err ? rej(err) : res(rows));
+                });
+
+                const commitments = await new Promise((res, rej) => {
+                    db.all(`SELECT * FROM group_commitments WHERE group_id = ? ORDER BY created_at DESC`, [groupId], (err, rows) => err ? rej(err) : res(rows));
+                });
+
+                const products = await new Promise((res, rej) => {
+                    db.all(`
+                        SELECT fp.*, m.name as member_name 
+                        FROM financed_products fp
+                        JOIN members m ON fp.member_id = m.id
+                        WHERE m.group_id = ? 
+                        ORDER BY fp.created_at DESC
+                    `, [groupId], (err, rows) => err ? rej(err) : res(rows));
+                });
+
+                const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
+                let buffers = [];
+                doc.on('data', buffers.push.bind(buffers));
+                doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+                // --- HEADER ---
+                const logoPath = path.join(__dirname, '../assets/logo.png');
+                if (fs.existsSync(logoPath)) {
+                    doc.image(logoPath, 40, 35, { width: 180 });
+                }
+                doc.fillColor('#666666').fontSize(10).font('Helvetica-Bold').text('PARTNERSHIP FINANCIAL STATEMENT', 40, 85, { align: 'right' });
+                doc.moveDown(3);
+
+                // --- GROUP INFO ---
+                doc.fillColor('#111827').fontSize(14).font('Helvetica-Bold').text(`GROUP: ${groupRes.name.toUpperCase()}`);
+                doc.fontSize(10).font('Helvetica').text(`Group ID: UK-GRP-${groupRes.id.toString().padStart(3, '0')}`);
+                doc.text(`Run Date: ${new Date().toLocaleString()}`);
+                doc.moveDown(2);
+
+                // --- EXECUTIVE SUMMARY ---
+                const netExposure = (groupRes.totalTopUp + groupRes.totalProductFinance) - groupRes.totalCommitment;
+
+                const summaryTable = {
+                    title: "Institutional Portfolio Summary",
+                    headers: ["Financial Category", "Value (KES)"],
+                    rows: [
+                        ["Total Company Injections (Top-Ups)", groupRes.totalTopUp.toLocaleString()],
+                        ["Asset Financing Volume", groupRes.totalProductFinance.toLocaleString()],
+                        ["Group Security Pool (Escrow)", groupRes.totalCommitment.toLocaleString()],
+                        ["NET INSTITUTIONAL EXPOSURE", netExposure.toLocaleString()]
+                    ]
+                };
+                await doc.table(summaryTable, {
+                    prepareHeader: () => doc.font("Helvetica-Bold").fontSize(10).fillColor('#374151'),
+                    prepareRow: (row, i) => {
+                        doc.font("Helvetica").fontSize(10).fillColor('#4b5563');
+                        if (row[0].includes("NET")) doc.font("Helvetica-Bold").fillColor(netExposure > 0 ? '#b91c1c' : '#059669');
+                    }
+                });
+
+                doc.moveDown(2);
+
+                // --- TRANSACTION HISTORIES (TABULAR) ---
+
+                // 1. Deposits
+                if (commitments.length > 0) {
+                    const depositRows = commitments.map(c => [
+                        new Date(c.created_at).toLocaleDateString(),
+                        `KES ${c.amount.toLocaleString()}`,
+                        c.status,
+                        c.notes || '-'
+                    ]);
+                    const depositTable = {
+                        title: "Security Deposit History (Escrow)",
+                        headers: ["Date", "Amount", "Status", "Notes"],
+                        rows: depositRows
+                    };
+                    await doc.table(depositTable, { width: 515 });
+                    doc.moveDown();
+                }
+
+                // 2. Portfolio Issues
+                if (products.length > 0) {
+                    const productRows = products.map(p => [
+                        p.member_name,
+                        p.product_name,
+                        `KES ${p.total_value.toLocaleString()}`,
+                        p.status
+                    ]);
+                    const productTable = {
+                        title: "Asset Financing Dispatch History",
+                        headers: ["Member", "Product", "Value", "Status"],
+                        rows: productRows
+                    };
+                    await doc.table(productTable, { width: 515 });
+                }
+
+                // --- FOOTER ---
+                doc.fontSize(8).fillColor('#999999').text('UKOMBOZINI INSTITUTIONAL PARTNERSHIP | SYSTEM GENERATED RECORD', 40, doc.page.height - 50, { align: 'center' });
+
+                doc.end();
+            } catch (e) {
+                reject(e);
+            }
+        });
     }
 };
 
+/**
+ * Institutional Monthly Cash Report PDF
+ */
+reportService.generateMonthlyCashReportPDF = async (reportId) => {
+    return new Promise((resolve, reject) => {
+        db.get(`
+            SELECT m.*, g.name as groupName 
+            FROM monthly_cash_reports m
+            JOIN groups g ON m.group_id = g.id
+            WHERE m.id = ?
+        `, [reportId], (err, report) => {
+            if (err || !report) return reject(err || new Error('Monthly report not found'));
+
+            const dailyQuery = `
+                SELECT meeting_date, opening_balance, expected_closing_balance, physical_cash_count, variance, status
+                FROM cash_sessions
+                WHERE group_id = ? 
+                AND strftime('%m', meeting_date) = ? 
+                AND strftime('%Y', meeting_date) = ?
+                AND status = 'LOCKED'
+                ORDER BY meeting_date ASC
+            `;
+            const monthStr = report.month.toString().padStart(2, '0');
+
+            db.all(dailyQuery, [report.group_id, monthStr, report.year.toString()], async (err, sessions) => {
+                if (err) return reject(err);
+
+                try {
+                    const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
+                    let buffers = [];
+                    doc.on('data', buffers.push.bind(buffers));
+                    doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+                    // --- HEADER ---
+                    const logoPath = path.join(__dirname, '../assets/logo.png');
+                    if (fs.existsSync(logoPath)) {
+                        doc.image(logoPath, 40, 35, { width: 140 });
+                    }
+                    doc.fillColor('#666666').fontSize(10).font('Helvetica-Bold').text('MONTHLY INSTITUTIONAL CASH AUDIT', 40, 65, { align: 'right' });
+                    doc.moveDown(2);
+
+                    // --- SUMMARY ---
+                    doc.rect(40, doc.y, 515, 60).fill('#f9fafb').stroke('#e5e7eb');
+                    doc.fillColor('#111827').fontSize(12).font('Helvetica-Bold').text(report.groupName, 55, doc.y - 50);
+                    doc.fontSize(10).font('Helvetica').text(`Period: ${monthStr}/${report.year}`, 55, doc.y + 15);
+                    doc.moveDown(3);
+
+                    const summaryTable = {
+                        title: "Institutional Rollup Summary",
+                        headers: ["Category", "Value (KES)"],
+                        rows: [
+                            ["Monthly Opening Pool", report.opening_balance.toLocaleString()],
+                            ["Session Cash Inflows", report.total_cash_in.toLocaleString()],
+                            ["Session Cash Outflows", report.total_cash_out.toLocaleString()],
+                            ["Institutional Closing Pool", report.closing_balance.toLocaleString()]
+                        ]
+                    };
+                    await doc.table(summaryTable, { width: 300 });
+                    doc.moveDown(2);
+
+                    // --- DAILY AUDIT TRAIL ---
+                    const sessionRows = sessions.map(s => [
+                        new Date(s.meeting_date).toLocaleDateString(),
+                        s.opening_balance.toLocaleString(),
+                        s.physical_cash_count.toLocaleString(),
+                        (s.variance || 0).toLocaleString(),
+                        s.status
+                    ]);
+
+                    const sessionTable = {
+                        title: "Daily Verification Audit Trail",
+                        headers: ["Date", "Opening", "Physical Count", "Variance", "Status"],
+                        rows: sessionRows
+                    };
+                    await doc.table(sessionTable, {
+                        prepareHeader: () => doc.font('Helvetica-Bold').fontSize(8),
+                        prepareRow: () => doc.font('Helvetica').fontSize(8)
+                    });
+
+                    // --- FOOTER ---
+                    doc.fontSize(8).fillColor('#9ca3af').text(`UKOMBOZINI AUDIT REFERENCE: ${report.id}`, 40, doc.page.height - 40, { align: 'center' });
+                    doc.end();
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    });
+};
+
+/**
+ * Institutional Monthly Cash Report Excel
+ */
+reportService.generateMonthlyCashReportExcel = async (reportId) => {
+    return new Promise((resolve, reject) => {
+        db.get(`
+            SELECT m.*, g.name as groupName 
+            FROM monthly_cash_reports m
+            JOIN groups g ON m.group_id = g.id
+            WHERE m.id = ?
+        `, [reportId], (err, report) => {
+            if (err || !report) return reject(err || new Error('Monthly report not found'));
+
+            const dailyQuery = `
+                SELECT meeting_date, opening_balance, expected_closing_balance, physical_cash_count, variance, status, variance_explanation
+                FROM cash_sessions
+                WHERE group_id = ? 
+                AND strftime('%m', meeting_date) = ? 
+                AND strftime('%Y', meeting_date) = ?
+                AND status = 'LOCKED'
+                ORDER BY meeting_date ASC
+            `;
+            const monthStr = report.month.toString().padStart(2, '0');
+
+            db.all(dailyQuery, [report.group_id, monthStr, report.year.toString()], async (err, sessions) => {
+                if (err) return reject(err);
+
+                try {
+                    const workbook = new ExcelJS.Workbook();
+                    const sheet = workbook.addWorksheet('Monthly Cash Audit');
+
+                    sheet.addRow(['UKOMBOZINI MONTHLY CASH AUDIT']);
+                    sheet.addRow(['Group', report.groupName]);
+                    sheet.addRow(['Period', `${monthStr}/${report.year}`]);
+                    sheet.addRow([]);
+
+                    sheet.addRow(['Rollup Summary']);
+                    sheet.addRow(['Monthly Opening Pool', report.opening_balance]);
+                    sheet.addRow(['Session Inflows', report.total_cash_in]);
+                    sheet.addRow(['Session Outflows', report.total_cash_out]);
+                    sheet.addRow(['Institutional Closing', report.closing_balance]);
+                    sheet.addRow([]);
+
+                    sheet.addRow(['Daily Audit Trail']);
+                    const headerRow = sheet.addRow(['Date', 'Opening', 'Physical Count', 'Variance', 'Status', 'Explanation']);
+                    headerRow.font = { bold: true };
+
+                    sessions.forEach(s => {
+                        sheet.addRow([
+                            s.meeting_date,
+                            s.opening_balance,
+                            s.physical_cash_count,
+                            s.variance,
+                            s.status,
+                            s.variance_explanation || ''
+                        ]);
+                    });
+
+                    const buffer = await workbook.xlsx.writeBuffer();
+                    resolve(buffer);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    });
+};
+
+/**
+ * Generate Group Statement PDF (Institutional Grade)
+ */
+reportService.generateGroupStatement = async (groupId, startDate, endDate) => {
+    return new Promise((resolve, reject) => {
+        // 1. Fetch Group Details
+        db.get(`SELECT * FROM groups WHERE id = ?`, [groupId], (err, group) => {
+            if (err || !group) return reject(err || new Error('Group not found'));
+
+            // 2. Fetch all member transactions linked to this group
+            // Note: This is an institutional overview.
+            let query = `
+                    SELECT t.*, m.name as memberName, m. national_id
+                    FROM transactions t
+                    JOIN members m ON t.memberId = m.id
+                    JOIN groups g ON m.groupId = g.id
+                    WHERE g.id = ?
+                `;
+            const params = [groupId];
+
+            if (startDate) {
+                query += ` AND t.created_at >= ?`;
+                params.push(startDate);
+            }
+            if (endDate) {
+                query += ` AND t.created_at <= ?`;
+                params.push(endDate);
+            }
+
+            query += ` ORDER BY t.created_at DESC`;
+
+            db.all(query, params, async (err, transactions) => {
+                if (err) return reject(err);
+
+                try {
+                    const doc = new PDFDocument({ margin: 30, size: 'A4', bufferPages: true });
+                    let buffers = [];
+                    doc.on('data', buffers.push.bind(buffers));
+                    doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+                    // --- HEADER ---
+                    const logoPath = path.join(__dirname, '../assets/logo.png');
+                    if (fs.existsSync(logoPath)) {
+                        doc.image(logoPath, 30, 25, { width: 140 });
+                    }
+                    doc.fillColor('#666666').fontSize(10).font('Helvetica-Bold').text('GROUP CONSOLIDATED STATEMENT', 30, 65, { align: 'right' });
+                    doc.moveDown(2);
+
+                    // --- SUMMARY ---
+                    doc.fillColor('#111827').fontSize(14).font('Helvetica-Bold').text(`GROUP: ${group.name.toUpperCase()}`);
+                    doc.fontSize(10).font('Helvetica').text(`Group ID: UK-GRP-${group.id.toString().padStart(3, '0')}`);
+                    doc.text(`Period: ${startDate || 'All Time'} to ${endDate || 'Present'}`);
+                    doc.moveDown();
+
+                    // --- TRANSACTION TABLE ---
+                    const txRows = transactions.map(t => [
+                        new Date(t.created_at).toLocaleDateString(),
+                        t.memberName || "Unknown",
+                        t.transaction_type,
+                        (t.amount || 0).toLocaleString(),
+                        t.description || "-"
+                    ]);
+
+                    const table = {
+                        title: "Recent Active Transactions",
+                        headers: ["Date", "Member", "Type", "Amount (KES)", "Description"],
+                        rows: txRows
+                    };
+
+                    await doc.table(table, {
+                        prepareHeader: () => doc.font("Helvetica-Bold").fontSize(8),
+                        prepareRow: () => doc.font("Helvetica").fontSize(7)
+                    });
+
+                    // Watermark & Footer
+                    const pages = doc.bufferedPageRange();
+                    for (let i = 0; i < pages.count; i++) {
+                        doc.switchToPage(i);
+                        doc.save();
+                        doc.opacity(0.05);
+                        if (fs.existsSync(logoPath)) doc.image(logoPath, (doc.page.width - 250) / 2, (doc.page.height - 80) / 2, { width: 250 });
+                        doc.restore();
+                    }
+
+                    doc.end();
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    });
+}
+
+
+
 module.exports = reportService;
+

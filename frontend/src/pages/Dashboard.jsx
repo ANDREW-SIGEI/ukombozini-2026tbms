@@ -179,14 +179,12 @@ const Dashboard = () => {
         }
     };
 
-    // Mock data for alerts - In production, fetch from API
-    const negativeBalanceReports = [
-        { officer: 'Hilda Sigei', group: 'Victory Women Group', balance: -19460, date: '2026-01-15' },
-    ];
-
-    const pendingApprovals = 3;
-    const todayMeetings = 24;
-    const dailyTransactions = 156;
+    // Live stats from GET /api/dashboard/stats (fetched in useEffect above)
+    const negativeBalanceReports = realStats?.negativeBalanceReports || [];
+    const pendingApprovals = realStats?.pendingApprovals ?? '--';
+    const todayMeetings = realStats?.todayMeetings ?? '--';
+    const dailyTransactions = realStats?.dailyTransactions ?? '--';
+    const officersLabel = realStats ? `${realStats.activeOfficers}/${realStats.totalOfficers}` : '--';
 
     // Stats Cards Data
     const stats = [
@@ -371,7 +369,7 @@ const Dashboard = () => {
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-xs text-gray-500 font-bold uppercase">Field Officers Active</p>
-                            <p className="text-2xl font-bold text-gray-800 mt-1">8/12</p>
+                            <p className="text-2xl font-bold text-gray-800 mt-1">{officersLabel}</p>
                         </div>
                         <div className="p-3 bg-purple-100 rounded-lg">
                             <FaUsers className="text-purple-600" />
