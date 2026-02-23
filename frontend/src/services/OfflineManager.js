@@ -32,12 +32,12 @@ class OfflineManager {
             await this.syncPendingTransactions();
         }
 
-        // Periodic Sync Loop (Every 30 seconds)
+        // Periodic Sync Loop (Every 60 seconds)
         setInterval(async () => {
             if (this.isOnline && !this.isSyncing) {
                 await this.syncPendingTransactions();
             }
-        }, 30000);
+        }, 60000); // Increased from 30s to 60s lux
     }
 
     /**
@@ -192,6 +192,7 @@ class OfflineManager {
 
         let synced = 0;
         let failed = 0;
+        let discarded = 0; // Ensure discarded is declared
 
         for (const transaction of pending) {
             try {
@@ -237,20 +238,57 @@ class OfflineManager {
                 synced++;
                 console.log('✅ Synced:', transaction);
 
-
+                // [PHASE-DEBUG] Add throttle to prevent saturating backend
+                await new Promise(resolve => setTimeout(resolve, 500));
             } catch (error) {
-                console.error('❌ Sync failed for transaction:', transaction, error);
-                await this.incrementAttempts(transaction.localId);
-                failed++;
+                const errorMsg = error.response?.data?.error || error.message || '';
+
+                // HANDLE FATAL ERRORS (400 Bad Request / Validation Errors / Missing Data / Duplicates)
+                const isFatal =
+                    (error.response && [400, 401, 403, 422, 429].includes(error.response.status)) ||
+                    errorMsg.includes('Missing mandatory fields') ||
+                    errorMsg.includes('Unsupported transaction type') ||
+                    errorMsg.includes('DUPLICATE TRANSACTION') ||
+                    !transaction.data ||
+                    (transaction.data.memberId === undefined && !['meeting_session', 'post_meeting'].includes(transaction.type));
+
+                const isNetworkError = error.message === 'Network Error' || error.code === 'ERR_NETWORK' || !error.response;
+
+                if (isFatal) {
+                    console.warn('❌ Fatal Validation Error - Discarding invalid transaction:', transaction.localId, errorMsg);
+                    await this.deleteTransaction(transaction.localId);
+                    discarded++;
+                } else {
+                    if (isNetworkError) {
+                        console.warn('📡 Network Error during sync - Silent retry scheduled');
+                    } else {
+                        console.error('❌ Sync failed (Retryable) for transaction:', transaction, error);
+                    }
+                    await this.incrementAttempts(transaction.localId);
+                    failed++;
+                }
+
+
+                // Small sleep even on failure to recover resources
+                await new Promise(resolve => setTimeout(resolve, 200));
             }
         }
 
         this.isSyncing = false;
 
-        const message = `Synced ${synced} transactions${failed > 0 ? `, ${failed} failed` : ''}`;
-        this.showNotification(message, failed > 0 ? 'warning' : 'success');
+        // ONLY SHOW SUMMARY NOTIFICATION
+        if (synced > 0 || failed > 0 || discarded > 0) {
+            const parts = [];
+            if (synced > 0) parts.push(`${synced} synced`);
+            if (failed > 0) parts.push(`${failed} failed`);
+            if (discarded > 0) parts.push(`${discarded} invalid discarded`);
 
-        return { success: true, synced, failed };
+            const message = `Sync Complete: ${parts.join(', ')}`;
+            const type = failed > 0 ? 'warning' : 'success';
+            this.showNotification(message, type);
+        }
+
+        return { success: true, synced, failed, discarded };
     }
 
     /**
@@ -271,6 +309,24 @@ class OfflineManager {
                 const updateRequest = store.put(data);
                 updateRequest.onsuccess = () => resolve();
                 updateRequest.onerror = () => reject(updateRequest.error);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Delete transaction (for cleanup/invalid items)
+     */
+    async deleteTransaction(localId) {
+        if (!this.db) return;
+        const tx = this.db.transaction(['pendingTransactions'], 'readwrite');
+        const store = tx.objectStore('pendingTransactions');
+
+        return new Promise((resolve, reject) => {
+            const request = store.delete(localId);
+            request.onsuccess = () => {
+                console.log(`🗑️ Deleted transaction ${localId}`);
+                resolve();
             };
             request.onerror = () => reject(request.error);
         });

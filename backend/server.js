@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const db = require('./db');
 
 // Modular Imports ("Well Arranged")
-const { initSchema } = require('./database/schema');
+const { initSchema, initViews } = require('./database/schema');
 const { initLedgerSchema } = require('./database/ledger_schema');
 const { initAllocationSchema } = require('./database/allocation_schema');
 const { initMatrixSchema } = require('./database/matrix_schema');
@@ -19,6 +19,7 @@ const { logAudit, logAndSendSMS } = require('./utils/logger');
 const { initCashControl } = require('./database/cash_control_schema');
 const CashControlService = require('./services/CashControlService');
 const RiskService = require('./services/RiskService');
+const AuditService = require('./services/AuditService');
 const MonthlyReportService = require('./services/MonthlyReportService');
 const reportService = require('./services/reportService');
 const dividendRules = require('./services/dividendRules');
@@ -32,6 +33,7 @@ const communicationRoutes = require('./routes/communication');
 const receiptRoutes = require('./routes/receipts');
 const projectRoutes = require('./routes/projects');
 const reportRoutes = require('./routes/reports');
+const statementRoutes = require('./routes/statements');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ukombozini-secret-key-2026';
 
@@ -72,9 +74,9 @@ app.use((req, res, next) => {
 });
 
 // ==========================================
-// 🏥 HEALTH CHECK ENDPOINT (Phase 31)
+// 🏥 HEALTH CHECK ENDPOINT (Standardized)
 // ==========================================
-app.get('/health', async (req, res) => {
+app.get('/api/health', async (req, res) => {
     const healthStatus = {
         status: 'UP',
         timestamp: new Date().toISOString(),
@@ -96,7 +98,7 @@ app.get('/health', async (req, res) => {
         healthStatus.services.database = `ERROR: ${e.message}`;
     }
 
-    // 2. Check SMS Gateway Availability (Mock check based on config)
+    // 2. Check SMS Gateway Availability
     if (process.env.AT_API_KEY || process.env.AT_USERNAME === 'sandbox') {
         healthStatus.services.sms_gateway = 'CONFIGURED';
     } else {
@@ -106,6 +108,7 @@ app.get('/health', async (req, res) => {
     const statusCode = healthStatus.status === 'UP' ? 200 : 503;
     res.status(statusCode).json(healthStatus);
 });
+
 
 /**
  * 👤 OFFICER SELF-SERVICE
@@ -147,6 +150,7 @@ app.use('/api/communication', communicationRoutes);
 app.use('/api/sms', communicationRoutes); // Compatibility alias
 app.use('/api/reports/receipt', receiptRoutes); // Keep specific receipt route
 app.use('/api/reports', reportRoutes); // General reports (matches /loan-tracking)
+app.use('/api/statements', statementRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/communication', communicationRoutes);
 // 📊 ALLOCATION MATRIX ROUTES (PHASE 12)
@@ -161,7 +165,7 @@ app.get('/api/allocation/preview/:sessionId', authenticateToken, async (req, res
 
 app.post('/api/allocation/commit/:sessionId', authenticateToken, async (req, res) => {
     try {
-        const result = await AllocationService.commitAllocation(req.params.sessionId);
+        const result = await AllocationService.commitAllocation(req.params.sessionId, req.body);
         res.json({ success: true, ...result });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -440,9 +444,10 @@ app.post('/api/auth/login', (req, res) => {
                 id: officer.id,
                 email: officer.email,
                 name: officer.name,
-                role: officer.role.toLowerCase()
+                role: officer.role.toLowerCase().replace(' ', '_')
             }
         });
+
     });
 });
 
@@ -460,10 +465,11 @@ app.get('/api/auth/me', (req, res) => {
             if (!officer) return res.status(404).json({ error: 'User not found' });
             res.json({
                 ...officer,
-                role: officer.role.toLowerCase(),
+                role: officer.role.toLowerCase().replace(' ', '_'),
                 full_name: officer.name, // Mapping for frontend
                 member_since: officer.created_at
             });
+
         });
     } catch (err) {
         res.status(400).json({ error: 'Invalid token' });
@@ -475,23 +481,224 @@ app.get('/api/auth/me', (req, res) => {
 // ==========================================
 
 // GET /api/members/:id - Get single member by ID
+app.get('/api/members/:id', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    db.get(`
+        SELECT m.*,
+               g.name as group_name,
+               g.id   as group_id,
+               m.created_at as joined_at
+        FROM members m
+        LEFT JOIN groups g ON m.group_id = g.id
+        WHERE m.id = ?
+    `, [id], (err, member) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!member) return res.status(404).json({ error: 'Member not found' });
+        res.json(member);
+    });
+});
 
-// GET /api/groups - Get all groups
+// GET /api/members/:id/summary - Financial summary for a member
+app.get('/api/members/:id/summary', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const getAsync = (sql, params = []) => new Promise((resolve, reject) =>
+        db.get(sql, params, (err, row) => err ? reject(err) : resolve(row))
+    );
+
+    Promise.all([
+        getAsync(`SELECT current_savings, active_loan_balance, loan_arrears, risk_score FROM members WHERE id = ?`, [id]),
+        getAsync(`SELECT COUNT(*) as total_loans FROM loans WHERE member_id = ? AND status IN ('active', 'Active')`, [id]),
+        getAsync(`SELECT COALESCE(SUM(savings_amount),0) as total_savings_posted FROM transactions WHERE memberId = ?`, [id])
+    ]).then(([member, loansRow, txRow]) => {
+        if (!member) return res.status(404).json({ error: 'Member not found' });
+        res.json({
+            current_savings: member.current_savings || 0,
+            active_loan_balance: member.active_loan_balance || 0,
+            loan_arrears: member.loan_arrears || 0,
+            risk_score: member.risk_score || 0,
+            active_loans_count: loansRow?.total_loans || 0,
+            total_savings_posted: txRow?.total_savings_posted || 0,
+            net_position: (member.current_savings || 0) - (member.active_loan_balance || 0)
+        });
+    }).catch(err => res.status(500).json({ error: err.message }));
+});
+
+// GET /api/members/:id/relationships - Social Trust & Liability Network
+app.get('/api/members/:id/relationships', authenticateToken, (req, res) => {
+    const { id: memberId } = req.params;
+    const allAsync = (sql, params = []) => new Promise((resolve, reject) =>
+        db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows))
+    );
+    const getAsync = (sql, params = []) => new Promise((resolve, reject) =>
+        db.get(sql, params, (err, row) => err ? reject(err) : resolve(row))
+    );
+
+    Promise.all([
+        // Next of Kin (stored on member record)
+        getAsync(`SELECT next_of_kin, next_of_kin_phone, next_of_kin_relationship FROM members WHERE id = ?`, [memberId]),
+
+        // Guarantors: Members who have guaranteed LOANS for this member
+        allAsync(`
+            SELECT DISTINCT m.id, m.name, m.phone, g.name as group_name,
+                            l.id as loan_id, l.principal_amount as amount, l.status as loan_status
+            FROM loan_guarantors lg
+            JOIN members m ON lg.guarantor_id = m.id
+            LEFT JOIN groups g ON m.group_id = g.id
+            JOIN loans l ON lg.loan_id = l.id
+            WHERE l.member_id = ?
+        `, [memberId]),
+
+        // Liability Network: Loans this member is GUARANTEEING for others
+        allAsync(`
+            SELECT DISTINCT m.id, m.name, m.phone, g.name as group_name,
+                            l.id as loan_id, l.principal_amount as amount, l.status as loan_status,
+                            l.active_loan_balance as outstanding
+            FROM loan_guarantors lg
+            JOIN loans l ON lg.loan_id = l.id
+            JOIN members m ON l.member_id = m.id
+            LEFT JOIN groups g ON m.group_id = g.id
+            WHERE lg.guarantor_id = ? AND l.status IN ('active', 'Active', 'ACTIVE')
+        `, [memberId])
+    ]).then(([nokRow, guarantors, liabilityNetwork]) => {
+        const nextOfKin = nokRow && nokRow.next_of_kin ? {
+            name: nokRow.next_of_kin,
+            phone: nokRow.next_of_kin_phone || 'N/A',
+            relationship: nokRow.next_of_kin_relationship || 'Successor'
+        } : null;
+
+        res.json({
+            next_of_kin: nextOfKin?.name ? nextOfKin : null,
+            guarantors: guarantors || [],
+            liability_network: liabilityNetwork || []
+        });
+    }).catch(err => {
+        console.error('[RELATIONSHIPS ERROR]:', err.message);
+        // Graceful fallback: return empty structure if guarantors table doesn't exist yet
+        res.json({ next_of_kin: null, guarantors: [], liability_network: [] });
+    });
+});
+
+// GET /api/members/:id/transactions - Full ledger transaction history for a member
+// Used by MemberLedger.jsx — returns unified ledger from contribution_ledger + loan transactions
+app.get('/api/members/:id/transactions', authenticateToken, (req, res) => {
+    const { id: memberId } = req.params;
+    const { startDate, endDate, type } = req.query;
+
+    let dateFilter = '';
+    const params = [memberId];
+
+    if (startDate) {
+        dateFilter += " AND DATE(cl.created_at) >= DATE(?)";
+        params.push(startDate);
+    }
+    if (endDate) {
+        dateFilter += " AND DATE(cl.created_at) <= DATE(?)";
+        params.push(endDate);
+    }
+
+    const query = `
+        SELECT
+            cl.id,
+            cl.transaction_ref        AS reference,
+            cl.contribution_type      AS type,
+            cl.amount,
+            cl.status,
+            cl.description            AS notes,
+            cl.created_at,
+            cl.officer_id,
+            o.name                    AS officer_name
+        FROM contribution_ledger cl
+        LEFT JOIN officers o ON cl.officer_id = o.id
+        WHERE cl.member_id = ? ${dateFilter}
+        ORDER BY cl.created_at ASC
+    `;
+
+    db.all(query, params, (err, rows) => {
+        if (err) {
+            console.error('[MEMBER-TRANSACTIONS ERROR]:', err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows || []);
+    });
+});
+
+// GET /api/officials - All group officials (Chairpersons, Secretaries, Treasurers)
+// Used by OfficialsDirectory.jsx — returns cross-group leadership directory
+app.get('/api/officials', authenticateToken, (req, res) => {
+    const query = `
+        SELECT
+            go.id,
+            go.member_id,
+            go.group_id,
+            go.role,
+            go.term_start,
+            go.term_end,
+            go.status,
+            m.name   AS member_name,
+            m.phone  AS member_phone,
+            g.name   AS group_name
+        FROM group_officials go
+        JOIN members m ON go.member_id = m.id
+        JOIN groups  g ON go.group_id  = g.id
+        WHERE go.status = 'active'
+           OR go.term_end IS NULL
+        ORDER BY g.name ASC, go.role ASC
+    `;
+
+    db.all(query, [], (err, rows) => {
+        if (err) {
+            console.error('[OFFICIALS ERROR]:', err.message);
+            // If the table doesn't exist yet, return empty array gracefully
+            return res.json([]);
+        }
+        res.json(rows || []);
+    });
+});
+
+
+// GET /api/groups - Consolidated & Optimized (Institutional Standard)
 app.get('/api/groups', authenticateToken, (req, res) => {
-    db.all(`
-        SELECT *, 
-               name as group_name,
-               meetingDay as meeting_day,
-               meetingFrequency as meeting_frequency,
-               registrationDate as registration_date
-        FROM groups 
-        WHERE LOWER(status) = 'active' 
-        ORDER BY name ASC
-    `, [], (err, groups) => {
+    const { role, id: officerId } = req.user;
+    const { status } = req.query;
+
+    let query = `
+        SELECT g.*, 
+               g.name as group_name,
+               g.meetingDay as meeting_day,
+               g.meetingFrequency as meeting_frequency,
+               g.registrationDate as registration_date,
+               m1.name as chairperson_name, 
+               m2.name as secretary_name, 
+               m3.name as treasurer_name,
+               (SELECT COUNT(*) FROM members WHERE group_id = g.id) as members_count,
+               (SELECT SUM(current_savings) FROM members WHERE group_id = g.id) as total_savings,
+               (SELECT SUM(active_loan_balance) FROM members WHERE group_id = g.id) as active_loans
+        FROM groups g
+        LEFT JOIN members m1 ON g.chairperson_id = m1.id
+        LEFT JOIN members m2 ON g.secretary_id = m2.id
+        LEFT JOIN members m3 ON g.treasurer_id = m3.id
+        WHERE 1=1
+    `;
+    let params = [];
+
+    if (status) {
+        query += ` AND LOWER(g.status) = ? `;
+        params.push(status.toLowerCase());
+    }
+
+    if (role === 'field officer') {
+        query += ` AND g.id IN (SELECT group_id FROM officer_groups WHERE officer_id = ?) `;
+        params.push(officerId);
+    }
+
+    query += ` ORDER BY g.name ASC `;
+
+    db.all(query, params, (err, groups) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(groups || []);
     });
 });
+
 
 // GET /api/groups/:id - Get single group by ID
 app.get('/api/groups/:id', authenticateToken, (req, res) => {
@@ -617,6 +824,37 @@ app.get('/api/loans', authenticateToken, (req, res) => {
     db.all(query, params, (err, loans) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(loans || []);
+    });
+});
+
+// PATCH /api/loans/:id/default — Mark a loan as Defaulted
+app.patch('/api/loans/:id/default', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const officerId = req.user.id;
+
+    db.get('SELECT * FROM loans WHERE id = ?', [id], (err, loan) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!loan) return res.status(404).json({ error: 'Loan not found' });
+        if (loan.status === 'defaulted' || loan.status === 'Defaulted') {
+            return res.status(400).json({ error: 'Loan is already marked as defaulted.' });
+        }
+
+        db.run(
+            "UPDATE loans SET status = 'defaulted', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [id],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                logAudit(`Loan #${id} Marked Defaulted`, 'governance', { loanId: id, memberId: loan.member_id }, officerId, req.user.name, req);
+                // SMS: Notify member of default marking
+                db.get('SELECT phone, name FROM members WHERE id = ?', [loan.member_id], (_, mem) => {
+                    if (mem?.phone) {
+                        const sms = `Ukombozini: IMPORTANT — Loan #${id} on your account has been marked as DEFAULTED. Please contact your field officer immediately to arrange repayment and avoid further penalties.`;
+                        logAndSendSMS(loan.member_id, sms, 'LOAN_DEFAULTED', id).catch(() => { });
+                    }
+                });
+                res.json({ success: true, message: `Loan #${id} marked as defaulted.` });
+            }
+        );
     });
 });
 
@@ -763,7 +1001,7 @@ app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (re
     const finalType = (transaction_type || type || '').toUpperCase().replace(/\s/g, '_');
     const grossVal = parseFloat(amount);
 
-    if (!memberId || !finalType || grossVal === undefined) {
+    if (memberId === undefined || !finalType || grossVal === undefined) {
         return res.status(400).json({ error: 'Missing mandatory fields (memberId, transaction_type, amount)' });
     }
 
@@ -838,6 +1076,23 @@ app.post('/api/transactions', authenticateToken, checkFreeze('GROUP'), async (re
                     UPDATE loans SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP
                     WHERE id = ? AND principal_amount <= 0 AND outstanding_interest <= 0 AND outstanding_penalty <= 0
                 `), [loanId]);
+            }
+        } else if (finalType === 'CONTRIBUTION' && breakdown) {
+            // 💰 Specialized handling for Contribution Hub breakdown
+            const s = parseFloat(breakdown.savings || 0);
+            const w = parseFloat(breakdown.welfare || 0);
+            const p = parseFloat(breakdown.project || 0);
+            const pt = (breakdown.project_type || 'EDUCATION').toUpperCase();
+
+            if (s > 0) {
+                await runMTELogic(client, { ...req.body, transaction_type: 'SAVINGS', amount: s, breakdown: null, txRef }, req.user.id);
+            }
+            if (w > 0) {
+                await runMTELogic(client, { ...req.body, transaction_type: 'WELFARE', amount: w, breakdown: null, txRef }, req.user.id);
+            }
+            if (p > 0) {
+                // Bridge to MTE specific project types (AGRICULTURE, EDUCATION)
+                await runMTELogic(client, { ...req.body, transaction_type: pt, amount: p, breakdown: null, txRef }, req.user.id);
             }
         } else {
             // Standard single-type transaction
@@ -1510,36 +1765,8 @@ app.get('/api/admin/export/:table', authenticateToken, isAdmin, (req, res) => {
         res.send(csvContent);
     });
 });
-app.get('/api/groups', authenticateToken, (req, res) => {
-    const { role, id: officerId } = req.user;
-    let query = `
-        SELECT g.*, 
-               g.meetingDay as meeting_day,
-               g.meetingFrequency as meeting_frequency,
-               g.registrationDate as registration_date,
-               m1.name as chairperson_name, 
-               m2.name as secretary_name, 
-               m3.name as treasurer_name
-        FROM groups g
-        LEFT JOIN members m1 ON g.chairperson_id = m1.id
-        LEFT JOIN members m2 ON g.secretary_id = m2.id
-        LEFT JOIN members m3 ON g.treasurer_id = m3.id
-        WHERE 1=1
-    `;
-    let params = [];
+// DELETED REDUNDANT GROUPS ROUTE (Moved and consolidated at line 655)
 
-    if (role === 'field officer') {
-        query += ` AND g.id IN (SELECT group_id FROM officer_groups WHERE officer_id = ?) `;
-        params.push(officerId);
-    }
-
-    query += ` ORDER BY g.name`;
-
-    db.all(query, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
 
 // Get single group
 app.get('/api/groups/:id', authenticateToken, (req, res) => {
@@ -1875,7 +2102,63 @@ app.get('/api/risk/member/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Create new member (WITH OPENING BALANCE RULES)
+// GET /api/risk/group/:id - Group-level risk score (used by Dashboard Risk Heatmap)
+app.get('/api/risk/group/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const riskData = await RiskService.evaluateGroupRisk(id);
+        res.json(riskData);
+    } catch (err) {
+        console.error('Group Risk Error:', err);
+        res.status(500).json({ error: 'Failed to evaluate group risk', details: err.message });
+    }
+});
+
+// GET /api/risk/overview — Aggregate PAR and high-risk group count
+app.get('/api/risk/overview', authenticateToken, (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+
+    const parQuery = `
+        SELECT
+            COALESCE(SUM(l.principal_amount - COALESCE(l.amount_paid, 0)), 0) AS par_amount,
+            COUNT(DISTINCT l.group_id) AS high_risk_groups
+        FROM loans l
+        WHERE l.status = 'active'
+          AND l.due_date < ?
+          AND l.principal_amount > COALESCE(l.amount_paid, 0)
+    `;
+
+    db.get(parQuery, [today], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({
+            parAmount: row ? (row.par_amount || 0) : 0,
+            highRiskGroups: row ? (row.high_risk_groups || 0) : 0,
+            asOfDate: today
+        });
+    });
+});
+
+// GET /api/admin/system-settings - Read all system settings (used by Dashboard freeze check)
+app.get('/api/admin/system-settings', authenticateToken, (req, res) => {
+    db.all('SELECT key, value, description FROM system_settings', [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
+
+// GET /api/audit/snapshot - Historical balance snapshot (used by Dashboard Auditor Mode)
+app.get('/api/audit/snapshot', authenticateToken, async (req, res) => {
+    const { date, groupId } = req.query;
+    if (!date) return res.status(400).json({ error: 'date query parameter is required' });
+    try {
+        const snapshot = await AuditService.getSnapshot(date, groupId || null);
+        res.json(snapshot);
+    } catch (err) {
+        console.error('Audit Snapshot Error:', err);
+        res.status(500).json({ error: 'Failed to generate audit snapshot', details: err.message });
+    }
+});
+
 app.post('/api/members', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const {
         name, full_name, phone, national_id, groupId, group_id,
@@ -2016,7 +2299,7 @@ app.get('/api/members/:id/relationships', authenticateToken, (req, res) => {
             WHERE l.member_id = ? AND l.status = 'active'
         `,
         liability: `
-            SELECT m.id, m.name, m.phone, l.amount, l.loan_type, l.application_number
+            SELECT m.id, m.name, m.phone, l.active_loan_balance as amount, l.loan_type, l.application_number
             FROM loans l 
             JOIN members m ON l.member_id = m.id 
             WHERE (l.guarantor1_id = ? OR l.guarantor2_id = ?) AND l.status = 'active'
@@ -2094,12 +2377,12 @@ app.get('/api/reports/officer-performance', authenticateToken, isAdmin, (req, re
     const query = `
         SELECT 
             o.id, o.name, o.role, o.status,
-            COUNT(r.id) as reports_filed,
-            COALESCE(SUM(r.total_cash_in), 0) as total_collected,
-            COALESCE(SUM(CASE WHEN r.variance != 0 THEN 1 ELSE 0 END), 0) as variance_issues,
-            MAX(r.report_date) as last_active
+            COUNT(ms.id) as reports_filed,
+            COALESCE(SUM(CAST(json_extract(ms.totals, '$.total_collections') AS REAL)), 0) as total_collected,
+            COALESCE(SUM(CASE WHEN CAST(json_extract(ms.totals, '$.variance') AS REAL) != 0 THEN 1 ELSE 0 END), 0) as variance_issues,
+            MAX(ms.date) as last_active
         FROM officers o
-        LEFT JOIN daily_cash_reports r ON o.id = r.officer_id AND r.status = 'submitted'
+        LEFT JOIN meeting_sessions ms ON o.id = ms.officer_id AND ms.status = 'POSTED'
         WHERE o.role != 'Admin' 
         GROUP BY o.id
         ORDER BY total_collected DESC
@@ -2210,6 +2493,55 @@ app.patch('/api/cash-sessions/:id/verify', authenticateToken, checkFreeze('GROUP
         res.json(result);
     } catch (err) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// Unlock Session (Master Key - Admin/Director only)
+app.post('/api/cash-sessions/:id/unlock', authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const sessionId = req.params.id;
+        const { reason } = req.body;
+        const officerId = req.user.id;
+
+        // 1. Get session details to find group_id
+        const session = await new Promise((resolve, reject) => {
+            db.get("SELECT group_id, status FROM cash_sessions WHERE id = ?", [sessionId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!session) return res.status(404).json({ error: "Session not found" });
+        if (session.status !== 'LOCKED') return res.status(400).json({ error: "Only LOCKED sessions can be unlocked." });
+
+        // 2. Perform Atomic Unlock
+        await new Promise((resolve, reject) => {
+            db.serialize(() => {
+                db.run("BEGIN TRANSACTION");
+                // Reset session status
+                db.run("UPDATE cash_sessions SET status = 'OPEN', locked_at = NULL, audit_hash = NULL WHERE id = ?", [sessionId], (err) => {
+                    if (err) { db.run("ROLLBACK"); return reject(err); }
+
+                    // Unfreeze group (if it was frozen by variance)
+                    db.run("UPDATE groups SET is_frozen = 0, status = 'active' WHERE id = ? AND freeze_reason = 'CASH_VARIANCE_CRITICAL'", [session.group_id], (err) => {
+                        if (err) { db.run("ROLLBACK"); return reject(err); }
+
+                        // Log Audit
+                        db.run(`INSERT INTO audit_logs (action, target_type, performed_by, details) VALUES (?, ?, ?, ?)`,
+                            ['SESSION_UNLOCK', 'FINANCE', officerId, JSON.stringify({ sessionId, groupId: session.group_id, reason })], (err) => {
+                                if (err) { db.run("ROLLBACK"); return reject(err); }
+                                db.run("COMMIT", resolve);
+                            });
+                    });
+                });
+            });
+        });
+
+        logAudit(`Session Unlocked: ${sessionId}`, 'FINANCE', { sessionId, groupId: session.group_id }, officerId, req.user.name, req);
+        res.json({ success: true, message: "Session unlocked successfully. Group unfrozen if applicable." });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -2642,6 +2974,24 @@ app.patch('/api/daily-reports/:id/submit', authenticateToken, checkFreeze('GROUP
     );
 });
 
+// PATCH /api/daily-reports/:id/approve - Supervisor locks the report
+app.patch('/api/daily-reports/:id/approve', authenticateToken, isAdmin, (req, res) => {
+    const { id } = req.params;
+    const supervisorName = req.user?.name || 'Supervisor';
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const now = new Date().toISOString();
+
+    db.run(
+        "UPDATE daily_cash_reports SET status = 'approved', approved_by = ?, approved_at = ?, ip_address = ? WHERE id = ? AND status = 'submitted'",
+        [supervisorName, now, ip, id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(403).json({ error: "Report not found or not in submitted state." });
+            logAudit(`Approve Daily Cash Report: ${id}`, 'admin', { reportId: id, approvedBy: supervisorName, ip });
+            res.json({ success: true, message: "Report approved and locked.", approvedBy: supervisorName, approvedAt: now });
+        }
+    );
+});
 
 
 // 📊 MONTHLY REPORTS API
@@ -2686,6 +3036,30 @@ app.get('/api/monthly-reports/:id', authenticateToken, (req, res) => {
     });
 });
 
+app.get('/api/monthly-reports/:id/pdf', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pdfBuffer = await reportService.generateMonthlyCashReportPDF(id);
+        res.setHeader('Content-Disposition', `attachment; filename=monthly_report_${id}.pdf`);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/monthly-reports/:id/excel', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const excelBuffer = await reportService.generateMonthlyCashReportExcel(id);
+        res.setHeader('Content-Disposition', `attachment; filename=monthly_report_${id}.xlsx`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(excelBuffer);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 // ==========================================
 // UNIFIED TRANSACTION API
@@ -2695,6 +3069,15 @@ app.get('/api/monthly-reports/:id', authenticateToken, (req, res) => {
 
 // GET /api/sessions - List all meeting sessions with real-time metrics
 app.get('/api/sessions', authenticateToken, (req, res) => {
+    let whereClause = "";
+    let params = [];
+
+    // [PHASE-ASIGN] Role-Based Filtering: Field Officers only see their assigned sessions
+    if (req.user.role === 'Field Officer') {
+        whereClause = "WHERE ms.officerId = ?";
+        params = [req.user.id];
+    }
+
     const query = `
         SELECT 
             ms.*, 
@@ -2705,9 +3088,10 @@ app.get('/api/sessions', authenticateToken, (req, res) => {
         FROM meeting_sessions ms
         LEFT JOIN groups g ON ms.groupId = g.id
         LEFT JOIN officers o ON ms.officerId = o.id
+        ${whereClause}
         ORDER BY ms.date DESC, ms.startTime DESC
     `;
-    db.all(query, [], (err, rows) => {
+    db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
 
         // Parse JSON columns and normalize metrics
@@ -2719,9 +3103,11 @@ app.get('/api/sessions', authenticateToken, (req, res) => {
                     console.error('Error parsing session totals:', e);
                 }
             }
-            // Normalize for UI consistency
+            // Normalize for UI consistency - Ensuring snake_case for frontend
             return {
                 ...row,
+                group_id: row.groupId,
+                officer_id: row.officerId,
                 meeting_date: row.date,
                 session_number: `MTG-${row.id.toString().padStart(3, '0')}`,
                 actual_attendance: row.actual_attendance || row.members_present || 0,
@@ -2872,15 +3258,19 @@ app.patch('/api/sessions/:id', authenticateToken, (req, res) => {
 // Close Session (Update to PENDING_APPROVAL)
 app.patch('/api/sessions/:id/close', authenticateToken, checkFreeze('GROUP'), (req, res) => {
     const { id } = req.params;
-    const { totals } = req.body; // Expect JSON object
+    const { totals, notes } = req.body;
+
+    // Handle both 'totals' (object) and 'notes' (string)
+    const summary = totals ? JSON.stringify(totals) : null;
+    const closingNotes = notes || (totals?.notes) || '';
 
     const stmt = db.prepare(`
         UPDATE meeting_sessions 
-        SET status = 'PENDING_APPROVAL', totals = ? 
+        SET status = 'PENDING_APPROVAL', totals = ?, notes = ? 
         WHERE id = ?
     `);
 
-    stmt.run(JSON.stringify(totals), id, function (err) {
+    stmt.run(summary, closingNotes, id, function (err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, id, status: 'PENDING_APPROVAL' });
     });
@@ -2894,7 +3284,9 @@ app.post('/api/sessions/:id/post', authenticateToken, checkFreeze('GROUP'), (req
 
     // 1. Update Session Status & Record Partnership Repayment
     const uRepay = metadata?.ukomboziniRepayment || 0;
-    db.run("UPDATE meeting_sessions SET status = 'POSTED', ukombozini_repayment = ? WHERE id = ?", [uRepay, sessionId], function (err) {
+    const totalsJson = JSON.stringify(metadata?.totals || {});
+
+    db.run("UPDATE meeting_sessions SET status = 'POSTED', ukombozini_repayment = ?, totals = ? WHERE id = ?", [uRepay, totalsJson, sessionId], function (err) {
         if (err) return res.status(500).json({ error: err.message });
 
         // 2. Insert Transactions
@@ -2926,44 +3318,52 @@ app.post('/api/sessions/:id/post', authenticateToken, checkFreeze('GROUP'), (req
                 }
 
                 // 3. Update Member Savings and Loan Balances from transactions
-                let updateCount = 0;
-                transactions.forEach(t => {
-                    if (t.savings_amount > 0 || t.withdrawals > 0) {
-                        const netSavings = (t.savings_amount || 0) - (t.withdrawals || 0);
-                        db.run("UPDATE members SET current_savings = current_savings + ? WHERE id = ?", [netSavings, t.memberId], (err) => {
-                            updateCount++;
+                const updatePromises = transactions.map(t => {
+                    const savingsAmount = parseFloat(t.savings || 0);
+                    const withdrawalsAmount = parseFloat(t.withdrawals || 0);
+                    if (savingsAmount > 0 || withdrawalsAmount > 0) {
+                        const netSavings = savingsAmount - withdrawalsAmount;
+                        return new Promise((resolve, reject) => {
+                            db.run("UPDATE members SET current_savings = current_savings + ? WHERE id = ?", [netSavings, t.memberId], (err) => {
+                                if (err) reject(err);
+                                else resolve();
+                            });
                         });
-                    } else {
-                        updateCount++;
                     }
+                    return Promise.resolve();
                 });
 
-                // 4. Record Partnership Repayment if present via MTE v2
-                if (uRepay > 0) {
-                    const txRef = `SID-RPY-${sessionId}`;
-                    const mteClient = { query: (sql, params) => db.queryStandalone(sql, params) };
+                Promise.all(updatePromises).then(() => {
+                    // 4. Record Partnership Repayment if present via MTE v2
+                    if (uRepay > 0) {
+                        const txRef = `SID-RPY-${sessionId}`;
+                        const mteClient = { query: (sql, params) => db.queryStandalone(sql, params) };
 
-                    runMTELogic(mteClient, {
-                        memberId: 0,
-                        sessionId: sessionId,
-                        transaction_type: 'GROUP_LOAN_REPAYMENT',
-                        amount: uRepay,
-                        description: `Session Repayment: SID-${sessionId}`,
-                        txRef,
-                        groupId: metadata.groupId,
-                        loanType: 'STL' // Defaulting to STL for session-level repayment
-                    }, req.user?.id || 1).catch(err => console.error("MTE Partnership Repayment Error:", err));
-                }
+                        runMTELogic(mteClient, {
+                            memberId: 0,
+                            sessionId: sessionId,
+                            transaction_type: 'GROUP_LOAN_REPAYMENT',
+                            amount: uRepay,
+                            description: `Session Repayment: SID-${sessionId}`,
+                            txRef,
+                            groupId: metadata.groupId,
+                            loanType: 'STL' // Defaulting to STL for session-level repayment
+                        }, req.user?.id || 1).catch(err => console.error("MTE Partnership Repayment Error:", err));
+                    }
 
-                // 5. Trigger Real-Time Risk Evaluation
-                if (metadata && metadata.groupId) {
-                    RiskService.evaluateGroupRisk(metadata.groupId).catch(e => console.error("Post-Session Risk Error:", e));
+                    // 5. Trigger Real-Time Risk Evaluation
+                    if (metadata && metadata.groupId) {
+                        RiskService.evaluateGroupRisk(metadata.groupId).catch(e => console.error("Post-Session Risk Error:", e));
 
-                    // 6. Finalize Allocation Snapshot (New Phase 12)
-                    AllocationService.commitAllocation(sessionId).catch(e => console.error("Allocation Commit Error:", e));
-                }
+                        // 6. Finalize Allocation Snapshot (New Phase 12)
+                        AllocationService.commitAllocation(sessionId).catch(e => console.error("Allocation Commit Error:", e));
+                    }
 
-                res.json({ success: true, status: 'POSTED', transactionCount: transactions.length });
+                    res.json({ success: true, status: 'POSTED', transactionCount: transactions.length });
+                }).catch(err => {
+                    console.error("Member Update Error", err);
+                    res.status(500).json({ error: "Failed to update member balances" });
+                });
             });
         } else {
             res.json({ success: true, status: 'POSTED', transactionCount: 0 });
@@ -3100,17 +3500,58 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), (req, res) => {
         return res.status(400).json({ error: "Missing required loan details" });
     }
 
-    // Calculate dates
-    const issuedDate = new Date().toISOString().split('T')[0];
-    const dueDateObj = new Date();
-    dueDateObj.setMonth(dueDateObj.getMonth() + (parseInt(duration) || 1));
-    const dueDate = dueDateObj.toISOString().split('T')[0];
+    // [PHASE 25] Enforcement: Multiplier & Compliance Lockdown
+    db.get(`
+        SELECT m.current_savings, g.loan_multiplier, g.is_frozen
+        FROM members m
+        JOIN groups g ON m.group_id = g.id
+        WHERE m.id = ?
+    `, [memberId], async (err, row) => {
+        if (err || !row) {
+            return res.status(500).json({ error: "Failed to verify member/group compliance." });
+        }
 
-    db.serialize(() => {
-        db.run("BEGIN TRANSACTION");
+        if (row.is_frozen) {
+            return res.status(403).json({ error: "Loan issuance blocked: Group is frozen." });
+        }
 
-        // 1. Create Loan Record (Matched to Schema)
-        const loanStmt = db.prepare(`
+        const multiplier = row.loan_multiplier || 3;
+        const maxAllowed = row.current_savings * multiplier;
+
+        if (amount > maxAllowed) {
+            return res.status(400).json({
+                error: `Loan limit exceeded. KES ${amount.toLocaleString()} requested, but only KES ${maxAllowed.toLocaleString()} allowed (${multiplier}x savings).`
+            });
+        }
+
+        try {
+            const lockdown = await RiskService.validateComplianceLockdown(memberId, [guarantor1_id, guarantor2_id]);
+            if (lockdown.locked) {
+                return res.status(403).json({
+                    error: lockdown.reason,
+                    offenders: lockdown.offenders
+                });
+            }
+
+            // Proceed with transaction
+            startLoanTransaction();
+        } catch (e) {
+            return res.status(500).json({ error: "Risk validation failed: " + e.message });
+        }
+    });
+
+    function startLoanTransaction() {
+        // Calculate dates
+        const issuedDate = new Date().toISOString().split('T')[0];
+        const dueDateObj = new Date();
+        dueDateObj.setMonth(dueDateObj.getMonth() + (parseInt(duration) || 1));
+        const dueDate = dueDateObj.toISOString().split('T')[0];
+
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+
+            // 1. Create Loan Record (Matched to Schema)
+            const loanStmt = db.prepare(`
             INSERT INTO loans (
                 member_id, group_id, loan_type, principal_amount, interest_rate,
                 issued_date, due_date,
@@ -3119,64 +3560,87 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), (req, res) => {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP, ?)
         `);
 
-        loanStmt.run(
-            memberId, groupId, loanType, amount, interestRate,
-            issuedDate, dueDate,
-            guarantor1_id, guarantor2_id,
-            officerId,
-            function (err) {
-                if (err) {
-                    db.run("ROLLBACK");
-                    return res.status(500).json({ error: err.message });
-                }
-                const loanId = this.lastID;
+            loanStmt.run(
+                memberId, groupId, loanType, amount, interestRate,
+                issuedDate, dueDate,
+                guarantor1_id, guarantor2_id,
+                officerId,
+                function (err) {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: err.message });
+                    }
+                    const loanId = this.lastID;
 
-                // 2. Create Disbursement Transaction
-                const txStmt = db.prepare(`
+                    // 2. Persist Guarantors to dedicated table (for Audit)
+                    if (guarantor1_id) {
+                        db.run("INSERT INTO guarantors (loan_id, guarantor_member_id, guaranteed_amount) VALUES (?, ?, ?)",
+                            [loanId, guarantor1_id, amount / 2]);
+                    }
+                    if (guarantor2_id) {
+                        db.run("INSERT INTO guarantors (loan_id, guarantor_member_id, guaranteed_amount) VALUES (?, ?, ?)",
+                            [loanId, guarantor2_id, amount / 2]);
+                    }
+
+                    // 3. Automated Service Fee Calculation (Allocation Rules Phase 12)
+                    const serviceFee = AllocationService.calculateServiceFee(amount);
+                    if (serviceFee > 0) {
+                        db.run(`
+                        INSERT INTO transactions (
+                            memberId, sessionId, transaction_type, amount, 
+                            description, status, created_at
+                        ) VALUES (?, ?, 'SERVICE_FEE', ?, ?, 'POSTED', CURRENT_TIMESTAMP)
+                    `, [memberId, sessionId || null, serviceFee, `Automated Service Fee for Loan #${loanId}`]);
+                    }
+
+                    // 4. Create Disbursement Transaction
+                    const txStmt = db.prepare(`
                     INSERT INTO transactions (
                         memberId, sessionId, transaction_type, amount, loans_issued,
                         description, status, loan_id, created_at
                     ) VALUES (?, ?, 'LOAN_ISSUANCE', ?, ?, ?, 'POSTED', ?, CURRENT_TIMESTAMP)
                 `);
 
-                txStmt.run(
-                    memberId, sessionId || null, amount, amount,
-                    `Loan Disbursement: ${loanType} - KES ${amount}`,
-                    loanId,
-                    function (err) {
-                        if (err) {
-                            db.run("ROLLBACK");
-                            return res.status(500).json({ error: err.message });
-                        }
-
-                        // 3. Update Member Balance
-                        db.run(
-                            "UPDATE members SET active_loan_balance = active_loan_balance + ? WHERE id = ?",
-                            [amount, memberId],
-                            function (err) {
-                                if (err) {
-                                    db.run("ROLLBACK");
-                                    return res.status(500).json({ error: err.message });
-                                }
-
-                                db.run("COMMIT");
-                                logAudit(`Issue Loan: ${loanId}`, 'transaction', { loanId, memberId, amount });
-                                // Return success with loanId
-                                res.json({
-                                    success: true,
-                                    loanId,
-                                    message: "Loan issued successfully",
-                                    amount
-                                });
+                    txStmt.run(
+                        memberId, sessionId || null, amount, amount,
+                        `Loan Disbursement: ${loanType} - KES ${amount}`,
+                        loanId,
+                        function (err) {
+                            if (err) {
+                                db.run("ROLLBACK");
+                                return res.status(500).json({ error: err.message });
                             }
-                        );
-                    }
-                );
-                txStmt.finalize();
-            }
-        );
-        loanStmt.finalize();
-    });
+
+                            // 5. Update Member Balance
+                            db.run(
+                                "UPDATE members SET active_loan_balance = active_loan_balance + ? WHERE id = ?",
+                                [amount, memberId],
+                                function (err) {
+                                    if (err) {
+                                        db.run("ROLLBACK");
+                                        return res.status(500).json({ error: err.message });
+                                    }
+
+                                    db.run("COMMIT");
+                                    logAudit(`Issue Loan: ${loanId}`, 'transaction', { loanId, memberId, amount, serviceFee });
+                                    // Return success with loanId
+                                    res.json({
+                                        success: true,
+                                        loanId,
+                                        serviceFee,
+                                        message: "Loan issued successfully",
+                                        amount
+                                    });
+                                }
+                            );
+                        }
+                    );
+                    txStmt.finalize();
+                }
+            );
+            loanStmt.finalize();
+        });
+    }
 });
 
 // [Purged - Consolidated into main /api/loans at line 578]
@@ -3490,9 +3954,25 @@ app.get('/api/loans/:id/schedule', authenticateToken, (req, res) => {
 // ============================================================================
 
 // POST /api/loans/check-eligibility - Check member loan eligibility with preview
-app.post('/api/loans/check-eligibility', authenticateToken, (req, res) => {
-    const { memberId, groupId, requestedAmount, loanType, duration = 1 } = req.body;
+app.post('/api/loans/check-eligibility', authenticateToken, async (req, res) => {
+    const { memberId, groupId, requestedAmount, loanType, duration = 1, guarantor1_id, guarantor2_id } = req.body;
     const numAmount = parseFloat(requestedAmount) || 0;
+
+    // 🛡️ INSTITUTIONAL LOCKDOWN GUARD: Check contribution compliance for applicant and guarantors
+    try {
+        const lockdown = await RiskService.validateComplianceLockdown(memberId, [guarantor1_id, guarantor2_id]);
+        if (lockdown.locked) {
+            return res.json({
+                eligible: false,
+                reason: lockdown.reason,
+                lockdown: true,
+                maxEligible: 0,
+                preview: null
+            });
+        }
+    } catch (e) {
+        console.error("Lockdown Check Failed:", e);
+    }
 
     // Validation
     if (!memberId) return res.status(400).json({ error: 'Member ID is required' });
@@ -3681,6 +4161,16 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), async (req, res)
         guarantor1_id, guarantor2_id
     } = req.body;
 
+    // 🛡️ INSTITUTIONAL LOCKDOWN GUARD: Final compliance check before disbursement
+    try {
+        const lockdown = await RiskService.validateComplianceLockdown(memberId, [guarantor1_id, guarantor2_id]);
+        if (lockdown.locked) {
+            return res.status(403).json({ error: lockdown.reason });
+        }
+    } catch (e) {
+        console.error("Issuance Lockdown Check Failed:", e);
+    }
+
     const issuedDate = new Date().toISOString().split('T')[0];
     const dueDate = new Date();
     dueDate.setMonth(dueDate.getMonth() + (duration || 1));
@@ -3797,8 +4287,8 @@ app.post('/api/loans', authenticateToken, checkFreeze('GROUP'), async (req, res)
 
                     res.json({ id: loanId, status: 'active', message: 'Loan issued successfully', transaction_id: loanId });
                 });
+            stmt.finalize();
         });
-        stmt.finalize();
     });
 });
 
@@ -4084,7 +4574,7 @@ app.get('/api/loans/:id/payments', authenticateToken, (req, res) => {
 // ==========================================
 
 // Get all loan applications
-app.get('/api/loan-applications', (req, res) => {
+app.get('/api/loan-applications', authenticateToken, (req, res) => {
     const { status } = req.query;
     let query = `
         SELECT la.*, m.name as member_name, g.name as group_name
@@ -4135,7 +4625,7 @@ app.post('/api/loan-applications', authenticateToken, checkFreeze('OFFICER'), (r
             return res.status(403).json({ error: "Action Blocked: The selected group is currently INACTIVE or FROZEN." });
         }
 
-        db.get("SELECT status, group_id FROM members WHERE id = ?", [memberId], (err, member) => {
+        db.get("SELECT id, name, status, group_id, phone FROM members WHERE id = ?", [memberId], (err, member) => {
             if (err || !member) return res.status(400).json({ error: "Selected Member does not exist." });
             if (member.status !== 'active') {
                 return res.status(403).json({ error: "Action Blocked: The selected member is currently INACTIVE." });
@@ -4144,208 +4634,380 @@ app.post('/api/loan-applications', authenticateToken, checkFreeze('OFFICER'), (r
                 return res.status(403).json({ error: "Data Integrity Violation: Member does not belong to the selected group." });
             }
 
-            // Step 2: Atomic Creation
-            const appNumber = `APP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-            const stmt = db.prepare(`
-                INSERT INTO loan_applications (
-                    application_number, member_id, group_id, loan_type, amount_requested, 
-                    duration_months, purpose, monthly_installment, interest_portion, 
-                    principal_portion, shares_contribution, officer_id, guarantor1_id, guarantor2_id, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED')
-            `);
-
-            stmt.run(
-                appNumber, memberId, groupId, loanType, amount,
-                duration, purpose, monthly_installment, interest_portion,
-                principal_portion, shares_contribution, officerId, guarantor1_id || null, guarantor2_id || null,
-                function (err) {
+            // Step 2: Duplicate Application Guard
+            db.get(
+                `SELECT id, application_number FROM loan_applications 
+                 WHERE member_id = ? AND status NOT IN ('REJECTED','ADMIN_REJECTED','DISBURSED','CANCELLED') 
+                 ORDER BY created_at DESC LIMIT 1`,
+                [memberId],
+                (err, existing) => {
                     if (err) return res.status(500).json({ error: err.message });
-                    logAudit(`Submit Loan App: ${appNumber}`, 'transaction', { id: this.lastID, memberId, amount });
-                    res.json({ id: this.lastID, application_number: appNumber, success: true, status: 'APPLIED' });
+                    if (existing) {
+                        return res.status(409).json({
+                            error: `Duplicate Blocked: Member already has an active application (${existing.application_number}). It must be resolved before a new one can be submitted.`
+                        });
+                    }
+
+                    // Step 3: Atomic Creation
+                    const appNumber = `APP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+                    const stmt = db.prepare(`
+                        INSERT INTO loan_applications (
+                            application_number, member_id, group_id, loan_type, amount_requested,
+                            duration_months, purpose, monthly_installment, interest_portion,
+                            principal_portion, shares_contribution, officer_id, guarantor1_id, guarantor2_id, status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPLIED')
+                    `);
+
+                    stmt.run(
+                        appNumber, memberId, groupId, loanType, amount,
+                        duration, purpose, monthly_installment, interest_portion,
+                        principal_portion, shares_contribution, req.user?.id || officerId,
+                        guarantor1_id || null, guarantor2_id || null,
+                        function (err) {
+                            if (err) return res.status(500).json({ error: err.message });
+                            logAudit(`Submit Loan App: ${appNumber}`, 'transaction', { id: this.lastID, memberId, amount });
+                            // SMS: Acknowledge application received
+                            if (member.phone) {
+                                const msg = `Ukombozini: Your loan application ${appNumber} (KES ${parseFloat(amount).toLocaleString()}) has been received and is under review. We will notify you of any updates.`;
+                                logAndSendSMS(memberId, msg, 'LOAN_APPLICATION', this.lastID).catch(() => { });
+                            }
+                            res.json({ id: this.lastID, application_number: appNumber, success: true, status: 'APPLIED' });
+                        }
+                    );
+                    stmt.finalize();
                 }
             );
-            stmt.finalize();
         });
     });
 });
 
-// Update loan application status (MTE v2)
-app.patch('/api/loan-applications/:id/status', authenticateToken, isAdmin, async (req, res) => {
+// Update loan application status (SQLite-safe, role-aware)
+app.patch('/api/loan-applications/:id/status', authenticateToken, (req, res) => {
     const { id } = req.params;
     const { status, comments } = req.body;
     const officerId = req.user.id;
-    const convertSql = (s) => { let c = 0; return s.replace(/\?/g, () => `$${++c}`); };
+    const role = req.user.role;
 
-    let client = null;
-    let lockKey = null;
+    // Role-based status guard
+    const allowedTransitions = {
+        'admin': ['ADMIN_APPROVED', 'ADMIN_REJECTED', 'OFFICER_SUBMITTED', 'ADMIN_REVIEW'],
+        'director': ['APPROVED', 'REJECTED', 'DIRECTOR_REVIEW'],
+        'officer': ['OFFICER_SUBMITTED'],
+        'auditor': []
+    };
 
-    try {
-        if (!db.beginTransaction) {
-            return res.status(501).json({ error: 'MTE v2 requires PostgreSQL.' });
-        }
-
-        client = await db.beginTransaction();
-
-        // 1. Get Application Details
-        const appRes = await client.query(convertSql("SELECT * FROM loan_applications WHERE id = ? FOR UPDATE"), [id]);
-        const app = appRes.rows[0];
-        if (!app) throw new Error("Application not found");
-
-        if (status === 'APPROVED') {
-            // 2. INSIDER PROTECTION
-            const phones = await client.query(convertSql(`
-                SELECT 
-                    (SELECT phone FROM officers WHERE id = ?) as officer_phone,
-                    (SELECT phone FROM members WHERE id = ?) as member_phone
-            `), [officerId, app.member_id]);
-
-            if (phones.rows[0] && phones.rows[0].officer_phone === phones.rows[0].member_phone) {
-                throw new Error("INSIDER PROTECTION: Conflict of Interest. Cannot approve own loan.");
-            }
-
-            // 3. Treasurer Check
-            const treasurer = await client.query(convertSql("SELECT id FROM group_officials WHERE group_id = ? AND role = 'Treasurer' AND status = 'active'"), [app.group_id]);
-            if (!treasurer.rows[0]) throw new Error("Approval Denied: Active Treasurer required.");
-
-            // 4. Liquidity Check
-            const stats = await client.query(convertSql(`
-                SELECT 
-                    (SELECT COALESCE(SUM(current_savings), 0) FROM members WHERE group_id = ?) as total_savings,
-                    (SELECT COALESCE(SUM(active_loan_balance), 0) FROM members WHERE group_id = ?) as total_loans
-            `), [app.group_id, app.group_id]);
-
-            const liquidity = (stats.rows[0].total_savings || 0) - (stats.rows[0].total_loans || 0);
-            if (liquidity < app.amount_requested) {
-                throw new Error(`Liquidity Crisis: KES ${liquidity.toLocaleString()} available.`);
-            }
-
-            // 5. REDIS LOCK Member
-            lockKey = `mte:member:${app.member_id}`;
-            if (db.acquireLock) {
-                const locked = await db.acquireLock(lockKey);
-                if (!locked) throw new Error("Member transaction in progress.");
-            }
-
-            // 6. DISBURSEMENT (MTE)
-            const txRef = `DIS-${id}-${Date.now()}`;
-            await runMTELogic(client, {
-                memberId: app.member_id,
-                sessionId: app.session_id || null, // Might be null if not in session
-                transaction_type: 'LOAN_ISSUANCE',
-                amount: app.amount_requested,
-                description: `Disbursement: ${app.application_number}`,
-                txRef
-            }, officerId);
-
-            // 7. Create Loan Record
-            const issuedDate = new Date().toISOString().split('T')[0];
-            const dueDate = new Date();
-            dueDate.setMonth(dueDate.getMonth() + (app.duration_months || 1));
-            const dueDateStr = dueDate.toISOString().split('T')[0];
-
-            const loanInsert = await client.query(convertSql(`
-                INSERT INTO loans (
-                    member_id, group_id, loan_type, principal_amount, interest_rate, 
-                    issued_date, due_date, status, issued_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?) RETURNING id
-            `), [app.member_id, app.group_id, app.loan_type, app.amount_requested, 10, issuedDate, dueDateStr, officerId]);
-            const loanId = loanInsert.rows[0].id;
-
-            // 8. Generate Repayment Schedule
-            if (app.monthly_installment && app.principal_portion) {
-                for (let i = 1; i <= app.duration_months; i++) {
-                    const instDate = new Date();
-                    instDate.setMonth(instDate.getMonth() + i);
-                    await client.query(convertSql(`
-                        INSERT INTO repayment_schedule (
-                            loan_id, installment_number, due_date, 
-                            expected_installment, expected_principal, 
-                            expected_interest, expected_shares, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-                    `), [loanId, i, instDate.toISOString().split('T')[0], app.monthly_installment, app.principal_portion, app.interest_portion, app.shares_contribution]);
-                }
-            }
-
-            // 9. Mark Application as DISBURSED
-            await client.query(convertSql("UPDATE loan_applications SET status = 'DISBURSED', comments = ?, officer_id = ? WHERE id = ?"), [comments || 'Approved & Disbursed', officerId, id]);
-
-            logAudit(`Loan Disbursed: ${txRef}`, 'finance', { loanId, amount: app.amount_requested });
-        } else {
-            // Rejection or other non-approval status
-            await client.query(convertSql("UPDATE loan_applications SET status = ?, comments = ?, officer_id = ? WHERE id = ?"), [status, comments, officerId, id]);
-        }
-
-        await db.commit(client);
-        res.json({ success: true, status: status === 'APPROVED' ? 'DISBURSED' : status });
-
-    } catch (error) {
-        if (client) await db.rollback(client);
-        res.status(500).json({ error: error.message });
-    } finally {
-        if (lockKey && db.releaseLock) await db.releaseLock(lockKey);
+    const allowed = allowedTransitions[role] || [];
+    if (!allowed.includes(status)) {
+        return res.status(403).json({ error: `Role '${role}' cannot set status '${status}'.` });
     }
+
+    db.get('SELECT * FROM loan_applications WHERE id = ?', [id], (err, app) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!app) return res.status(404).json({ error: 'Application not found' });
+
+        // For full APPROVED (director-level) — create actual loan record
+        if (status === 'APPROVED') {
+            db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+
+                // Insider protection: check officer phone vs member phone
+                db.get(`
+                    SELECT 
+                        (SELECT phone FROM officers WHERE id = ?) as officer_phone,
+                        (SELECT phone FROM members WHERE id = ?) as member_phone
+                `, [officerId, app.member_id], (err, phones) => {
+                    if (err) { db.run('ROLLBACK'); return res.status(500).json({ error: err.message }); }
+                    if (phones && phones.officer_phone && phones.officer_phone === phones.member_phone) {
+                        db.run('ROLLBACK');
+                        return res.status(403).json({ error: 'INSIDER PROTECTION: Conflict of Interest. Cannot approve own loan.' });
+                    }
+
+                    // Create loan record — use app's interest_rate, fallback to loan_products
+                    const issuedDate = new Date().toISOString().split('T')[0];
+                    const dueDate = new Date();
+                    dueDate.setMonth(dueDate.getMonth() + (app.duration_months || 1));
+                    const dueDateStr = dueDate.toISOString().split('T')[0];
+
+                    const insertLoan = (interestRate) => {
+                        db.run(`
+                            INSERT INTO loans (
+                                member_id, group_id, loan_type, principal_amount, interest_rate,
+                                duration_months, issued_date, due_date, status, issued_by
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                        `, [app.member_id, app.group_id, app.loan_type, app.amount_requested,
+                            interestRate, app.duration_months, issuedDate, dueDateStr, officerId],
+                            function (err) {
+                                if (err) { db.run('ROLLBACK'); return res.status(500).json({ error: err.message }); }
+                                const loanId = this.lastID;
+
+                                // Generate repayment schedule if installment data is present
+                                if (app.monthly_installment && app.principal_portion && app.duration_months) {
+                                    const scheduleStmt = db.prepare(`
+                                INSERT INTO repayment_schedule (
+                                    loan_id, installment_number, due_date,
+                                    expected_installment, expected_principal,
+                                    expected_interest, expected_shares, status
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                            `);
+                                    for (let i = 1; i <= app.duration_months; i++) {
+                                        const instDate = new Date();
+                                        instDate.setMonth(instDate.getMonth() + i);
+                                        scheduleStmt.run(
+                                            loanId, i, instDate.toISOString().split('T')[0],
+                                            app.monthly_installment, app.principal_portion,
+                                            app.interest_portion || 0, app.shares_contribution || 0
+                                        );
+                                    }
+                                    scheduleStmt.finalize();
+                                }
+
+                                // Mark application as DISBURSED
+                                db.run(
+                                    "UPDATE loan_applications SET status = 'DISBURSED', comments = ?, officer_id = ? WHERE id = ?",
+                                    [comments || 'Approved & Disbursed', officerId, id],
+                                    (err) => {
+                                        if (err) { db.run('ROLLBACK'); return res.status(500).json({ error: err.message }); }
+                                        db.run('COMMIT');
+                                        logAudit(`Loan Approved & Disbursed: App#${id}`, 'finance', { loanId, amount: app.amount_requested }, officerId, req.user.name, req);
+                                        // SMS: Disbursement notification to member
+                                        db.get('SELECT phone, name FROM members WHERE id = ?', [app.member_id], (_, mem) => {
+                                            if (mem?.phone) {
+                                                const sms = `Ukombozini: Congratulations ${mem.name}! Your loan of KES ${parseFloat(app.amount_requested).toLocaleString()} (${app.application_number}) has been APPROVED & DISBURSED. Your first repayment starts next month.`;
+                                                logAndSendSMS(app.member_id, sms, 'LOAN_DISBURSED', loanId).catch(() => { });
+                                            }
+                                        });
+                                        res.json({ success: true, status: 'DISBURSED', loanId });
+                                    }
+                                );
+                            }); // end insertLoan inner db.run
+                    }; // end insertLoan definition
+
+                    // Rate resolution: app stored rate → loan_products → default 10
+                    if (app.interest_rate && parseFloat(app.interest_rate) > 0) {
+                        insertLoan(parseFloat(app.interest_rate));
+                    } else {
+                        db.get("SELECT interest_rate FROM loan_products WHERE code = ? AND is_active = 1", [app.loan_type], (_, product) => {
+                            insertLoan(product?.interest_rate || 10);
+                        });
+                    }
+
+                }); // end insider protection check
+            }); // end db.serialize
+        } else {
+            // Non-approval status updates (ADMIN_APPROVED, REJECTED, OFFICER_SUBMITTED, etc.)
+            db.run(
+                'UPDATE loan_applications SET status = ?, comments = ?, officer_id = ? WHERE id = ?',
+                [status, comments || '', officerId, id],
+                (err) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    logAudit(`Loan App Status: ${status}`, 'governance', { appId: id, status }, officerId, req.user.name, req);
+                    // SMS on key status milestones
+                    db.get('SELECT phone, name, amount_requested, application_number FROM members m JOIN loan_applications la ON la.member_id = m.id WHERE la.id = ?', [id], (_, row) => {
+                        if (!row?.phone) return;
+                        let sms = null;
+                        if (status === 'ADMIN_APPROVED') {
+                            sms = `Ukombozini: Hi ${row.name}, your loan application ${row.application_number} has passed Admin review and is now pending Director final approval. We'll update you shortly.`;
+                        } else if (status === 'ADMIN_REJECTED') {
+                            sms = `Ukombozini: Hi ${row.name}, your loan application ${row.application_number} was not approved at this time. Reason: ${comments || 'Not specified'}. Contact your field officer.`;
+                        } else if (status === 'REJECTED') {
+                            sms = `Ukombozini: Hi ${row.name}, your loan application ${row.application_number} has been DECLINED. Reason: ${comments || 'Not specified'}. Please visit our offices for more information.`;
+                        }
+                        if (sms) logAndSendSMS(app.member_id, sms, status, id).catch(() => { });
+                    });
+                    res.json({ success: true, status });
+                }
+            );
+        }
+    });
 });
 
+
+// ==========================================
+// OVERDUE DETECTION & LOAN LIFECYCLE
+// ==========================================
+
+// GET /api/loans/arrears-summary — Lightweight metric card for Loans dashboard
+app.get('/api/loans/arrears-summary', authenticateToken, (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+    db.all(`
+        SELECT l.id, l.principal_amount, l.due_date,
+               CAST((julianday('now') - julianday(l.due_date)) AS INTEGER) as days_overdue
+        FROM loans l
+        WHERE l.status = 'active' AND l.due_date < ?
+    `, [today], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const total = rows.length;
+        const totalAmount = rows.reduce((s, r) => s + (r.principal_amount || 0), 0);
+        const d30 = rows.filter(r => r.days_overdue <= 30).length;
+        const d60 = rows.filter(r => r.days_overdue > 30 && r.days_overdue <= 60).length;
+        const d90 = rows.filter(r => r.days_overdue > 60).length;
+        res.json({ total, totalAmount, d30, d60, d90 });
+    });
+});
+
+// GET /api/loans/overdue — Full overdue loans list bucketed into day bands
+app.get('/api/loans/overdue', authenticateToken, (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+    db.all(`
+        SELECT l.*, m.name as member_name, m.phone as member_phone,
+               g.name as group_name,
+               CAST((julianday('now') - julianday(l.due_date)) AS INTEGER) as days_overdue
+        FROM loans l
+        JOIN members m ON l.member_id = m.id
+        LEFT JOIN groups g ON l.group_id = g.id
+        WHERE l.status = 'active' AND l.due_date < ?
+        ORDER BY l.due_date ASC
+    `, [today], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const d30 = rows.filter(r => r.days_overdue <= 30);
+        const d60 = rows.filter(r => r.days_overdue > 30 && r.days_overdue <= 60);
+        const d90 = rows.filter(r => r.days_overdue > 60);
+        res.json({
+            total: rows.length,
+            totalAmount: rows.reduce((s, r) => s + (r.principal_amount || 0), 0),
+            bands: {
+                within30Days: { count: d30.length, amount: d30.reduce((s, r) => s + (r.principal_amount || 0), 0), loans: d30 },
+                within60Days: { count: d60.length, amount: d60.reduce((s, r) => s + (r.principal_amount || 0), 0), loans: d60 },
+                over90Days: { count: d90.length, amount: d90.reduce((s, r) => s + (r.principal_amount || 0), 0), loans: d90 }
+            }
+        });
+    });
+});
+
+// PATCH /api/loans/:id/close — Mark a loan as Closed + release guarantors + SMS
+app.patch('/api/loans/:id/close', authenticateToken, (req, res) => {
+    const { id } = req.params;
+    const officerId = req.user.id;
+
+    db.get('SELECT * FROM loans WHERE id = ?', [id], (err, loan) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!loan) return res.status(404).json({ error: 'Loan not found.' });
+        const s = (loan.status || '').toLowerCase();
+        if (s === 'closed') return res.status(400).json({ error: 'Loan is already closed.' });
+        if (!['active', 'defaulted'].includes(s)) {
+            return res.status(400).json({ error: `Cannot close a loan with status '${loan.status}'.` });
+        }
+
+        db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
+            db.run("UPDATE loans SET status = 'closed', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [id], (err) => {
+                if (err) { db.run('ROLLBACK'); return res.status(500).json({ error: err.message }); }
+                // Close any pending repayment installments
+                db.run("UPDATE repayment_schedule SET status = 'closed' WHERE loan_id = ? AND status = 'pending'", [id], (err) => {
+                    if (err) { db.run('ROLLBACK'); return res.status(500).json({ error: err.message }); }
+                    db.run('COMMIT');
+                    logAudit(`Loan #${id} Closed`, 'finance', { loanId: id, memberId: loan.member_id }, officerId, req.user.name, req);
+                    // SMS: loan closure
+                    db.get('SELECT phone, name FROM members WHERE id = ?', [loan.member_id], (_, mem) => {
+                        if (mem?.phone) {
+                            const sms = `Ukombozini: Dear ${mem.name}, your loan #${id} has been CLOSED & CLEARED. Your guarantors have been released. Thank you!`;
+                            logAndSendSMS(loan.member_id, sms, 'LOAN_CLOSED', id).catch(() => { });
+                        }
+                    });
+                    res.json({ success: true, message: `Loan #${id} closed. Guarantors released.` });
+                });
+            });
+        });
+    });
+});
 
 // ==========================================
 // DIVIDEND API (LOCAL ENGINE)
 // ==========================================
 
-// Generate Report (Simulated Calculation)
-app.get('/api/dividends/report', (req, res) => {
-    const { groupId, year } = req.query;
+// Generate Dividend Report — uses real transaction data
+app.get('/api/dividends/report', authenticateToken, (req, res) => {
+    const { groupId, year: yearParam } = req.query;
+    if (!groupId) return res.status(400).json({ error: 'Group ID required' });
 
-    if (!groupId) return res.status(400).json({ error: "Group ID required" });
+    const year = yearParam || new Date().getFullYear().toString();
+    const start = `${year}-01-01`;
+    const end = `${year}-12-31`;
 
-    // 1. Get Group Info (for Age)
-    db.get("SELECT * FROM groups WHERE id = ?", [groupId], (err, group) => {
+    // 1. Group info (for age calculation)
+    db.get('SELECT * FROM groups WHERE id = ?', [groupId], (err, group) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const createdDate = group ? new Date(group.created_at || '2024-01-01') : new Date('2024-01-01');
-        const now = new Date();
-        const ageYears = (now - createdDate) / (1000 * 60 * 60 * 24 * 365.25);
+        const ageYears = (new Date() - createdDate) / (1000 * 60 * 60 * 24 * 365.25);
 
-        // 2. Get Members
-        db.all("SELECT id, name, current_savings FROM members WHERE group_id = ?", [groupId], (err, members) => {
+        // 2. Real financials from transactions table
+        const financialQuery = `
+            SELECT
+                COALESCE(SUM(loan_interest), 0)  AS total_interest,
+                COALESCE(SUM(fines), 0)           AS total_fines,
+                COALESCE(SUM(withdrawals), 0)     AS total_expenses
+            FROM transactions t
+            JOIN meeting_sessions s ON t.sessionId = s.id
+            WHERE s.groupId = ?
+              AND date(t.created_at) BETWEEN ? AND ?
+        `;
+
+        db.get(financialQuery, [groupId, start, end], (err, fin) => {
             if (err) return res.status(500).json({ error: err.message });
 
-            // 3. Simulate/Calculate Monthly Balances based on Current Savings
-            // In a real system, we'd query historical transaction sums. 
-            // Here we assume gradual growth to reach current savings.
-            const reportMembers = members.map(m => {
-                const current = m.current_savings || 0;
-                // Simulate slightly lower balances in past months to show growth
-                return {
-                    id: m.id,
-                    name: m.name,
-                    balances: {
-                        jan: Math.floor(current * 0.85),
-                        mar: Math.floor(current * 0.88),
-                        may: Math.floor(current * 0.91),
-                        jul: Math.floor(current * 0.94),
-                        sep: Math.floor(current * 0.97),
-                        nov: current // Current balance
-                    }
-                };
-            });
-
-            // 4. Calculate Financials (Mock Institutional Data for Demo)
-            // In production, aggregate from 'transactions' table where type='Interest'
+            const stlInterest = fin ? fin.total_interest || 0 : 0;
+            const penalties = fin ? fin.total_fines || 0 : 0;
+            // (bankInterest / ltlInterest / otherIncome would need separate tracking — default 0 for now)
             const financials = {
-                bankInterest: 15000,
-                stlInterest: 45000,
-                ltlInterest: 120000,
-                penalties: 5500,
-                otherIncome: 1200,
-                expenses: 8500,
-                reinvestedLoans: 50000,
+                bankInterest: 0,
+                stlInterest,
+                ltlInterest: 0,
+                penalties,
+                otherIncome: 0,
+                expenses: 0,          // operational expenses not tracked separately yet
+                reinvestedLoans: 0,
                 groupAgeYears: ageYears
             };
 
-            res.json({
-                financials,
-                members: reportMembers
+            // 3. Members with real bi-monthly balance snapshots
+            db.all('SELECT id, name, current_savings FROM members WHERE group_id = ?', [groupId], (err, members) => {
+                if (err) return res.status(500).json({ error: err.message });
+
+                const months = [
+                    { key: 'jan', endDate: `${year}-01-31` },
+                    { key: 'mar', endDate: `${year}-03-31` },
+                    { key: 'may', endDate: `${year}-05-31` },
+                    { key: 'jul', endDate: `${year}-07-31` },
+                    { key: 'sep', endDate: `${year}-09-30` },
+                    { key: 'nov', endDate: `${year}-11-30` }
+                ];
+
+                const memberPromises = members.map(m => new Promise((resolve) => {
+                    const balancePromises = months.map(mo => new Promise((res2) => {
+                        db.get(
+                            `SELECT COALESCE(SUM(savings_amount), 0) - COALESCE(SUM(withdrawals), 0) AS balance
+                             FROM transactions WHERE memberId = ? AND date(created_at) <= ?`,
+                            [m.id, mo.endDate],
+                            (err, row) => res2(err ? 0 : (row ? Math.max(0, row.balance) : 0))
+                        );
+                    }));
+
+                    Promise.all(balancePromises).then(([jan, mar, may, jul, sep, nov]) => {
+                        // Fall back to simulated values if all balances are 0 (no transactions yet)
+                        const current = m.current_savings || 0;
+                        const hasData = jan + mar + may + jul + sep + nov > 0;
+                        resolve({
+                            id: m.id,
+                            name: m.name,
+                            balances: hasData
+                                ? { jan, mar, may, jul, sep, nov }
+                                : {
+                                    jan: Math.floor(current * 0.85),
+                                    mar: Math.floor(current * 0.88),
+                                    may: Math.floor(current * 0.91),
+                                    jul: Math.floor(current * 0.94),
+                                    sep: Math.floor(current * 0.97),
+                                    nov: current
+                                }
+                        });
+                    });
+                }));
+
+                Promise.all(memberPromises).then(reportMembers => {
+                    res.json({ financials, members: reportMembers });
+                }).catch(e => res.status(500).json({ error: e.message }));
             });
         });
     });
@@ -4631,8 +5293,78 @@ app.get('/api/officers', (req, res) => {
     });
 });
 
+// GET /api/dashboard/stats — Aggregate stats for Dashboard (replaces 5 hardcoded constants)
+app.get('/api/dashboard/stats', authenticateToken, (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+
+    const queries = [
+        // 1. Pending approvals (submitted daily reports)
+        new Promise((resolve, reject) => {
+            db.get(
+                `SELECT COUNT(*) as count FROM daily_reports WHERE status = 'submitted'`,
+                [],
+                (err, row) => err ? reject(err) : resolve(row ? row.count : 0)
+            );
+        }),
+        // 2. Today's meeting sessions
+        new Promise((resolve, reject) => {
+            db.get(
+                `SELECT COUNT(*) as count FROM meeting_sessions WHERE date(meeting_date) = ?`,
+                [today],
+                (err, row) => err ? reject(err) : resolve(row ? row.count : 0)
+            );
+        }),
+        // 3. Today's transactions count
+        new Promise((resolve, reject) => {
+            db.get(
+                `SELECT COUNT(*) as count FROM transactions WHERE date(created_at) = ?`,
+                [today],
+                (err, row) => err ? reject(err) : resolve(row ? row.count : 0)
+            );
+        }),
+        // 4. Officer counts (active vs total)
+        new Promise((resolve, reject) => {
+            db.all(
+                `SELECT status FROM officers`,
+                [],
+                (err, rows) => {
+                    if (err) return reject(err);
+                    const active = rows.filter(r => r.status === 'active').length;
+                    resolve({ active, total: rows.length });
+                }
+            );
+        }),
+        // 5. Negative balance reports (daily reports with total_in < total_out)
+        new Promise((resolve, reject) => {
+            db.all(
+                `SELECT dr.id, g.name as group_name, dr.report_date
+                 FROM daily_reports dr
+                 JOIN groups g ON dr.group_id = g.id
+                 WHERE dr.total_cash_in < dr.total_cash_out
+                   AND date(dr.report_date) >= date('now', '-7 days')
+                 ORDER BY dr.report_date DESC LIMIT 10`,
+                [],
+                (err, rows) => err ? reject(err) : resolve(rows || [])
+            );
+        })
+    ];
+
+    Promise.all(queries)
+        .then(([pendingApprovals, todayMeetings, dailyTransactions, officers, negativeBalanceReports]) => {
+            res.json({
+                pendingApprovals,
+                todayMeetings,
+                dailyTransactions,
+                activeOfficers: officers.active,
+                totalOfficers: officers.total,
+                negativeBalanceReports
+            });
+        })
+        .catch(err => res.status(500).json({ error: err.message }));
+});
+
 // Get all transactions for a group
-app.get('/api/groups/:id/transactions', (req, res) => {
+app.get('/api/groups/:id/transactions', authenticateToken, (req, res) => {
     const groupId = req.params.id;
     const query = `
         SELECT t.*, m.name as memberName, m.phone as memberPhone
@@ -4969,22 +5701,23 @@ app.get('/api/reports/financial/balance-sheet', authenticateToken, isAdmin, (req
     const date = req.query.date || new Date().toISOString();
 
     const query = `
-        SELECT 
-            -- Assets
-            -- Cash Proxy handled in JS calculation derived from Liab + Equity
+        SELECT
+        --Assets
             (SELECT SUM(active_loan_balance) FROM members) as total_loans_portfolio,
-            
-            -- Liabilities (Member Deposits)
+            (SELECT SUM(active_asset_balance) FROM members) as total_asset_portfolio,
+    
+        --Liabilities
             (SELECT SUM(current_savings) FROM members) as total_member_savings,
-            (SELECT COALESCE(SUM(total_saved), 0) FROM project_registrations) as total_project_savings,
-            
-            -- Equity (Retained Earnings - Proxy)
-            -- Includes Interest, Fines, and Project/Company Fees
-            (
-                SELECT SUM(loan_interest + fines) FROM transactions
-            ) + (
-                SELECT COALESCE(SUM(amount), 0) FROM company_revenue
-            ) as retained_earnings
+        (SELECT COALESCE(SUM(total_saved), 0) FROM project_registrations) as total_project_savings,
+            (SELECT COALESCE(SUM(amount), 0) FROM group_commitments WHERE status IN('LOCKED', 'ACTIVE')) as total_escrow_deposits,
+    
+                --Capital & Equity
+                    (SELECT COALESCE(SUM(amount), 0) FROM company_investments) as total_partner_capital,
+                (
+                    SELECT SUM(loan_interest + fines) FROM transactions
+                ) + (
+        SELECT COALESCE(SUM(amount), 0) FROM company_revenue
+                ) as retained_earnings
     `;
 
     db.get(query, [], (err, row) => {
@@ -4994,18 +5727,21 @@ app.get('/api/reports/financial/balance-sheet', authenticateToken, isAdmin, (req
         const balanceSheet = {
             asOf: date,
             assets: {
-                cashAtHand: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.retained_earnings || 0) - (row.total_loans_portfolio || 0),
+                cashAtHand: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.total_escrow_deposits || 0) + (row.total_partner_capital || 0) + (row.retained_earnings || 0) - (row.total_loans_portfolio || 0) - (row.total_asset_portfolio || 0),
                 loansPortfolio: row.total_loans_portfolio || 0,
-                totalAssets: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.retained_earnings || 0)
+                assetPortfolio: row.total_asset_portfolio || 0,
+                totalAssets: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.total_escrow_deposits || 0) + (row.total_partner_capital || 0) + (row.retained_earnings || 0)
             },
             liabilities: {
                 memberSavings: row.total_member_savings || 0,
                 projectSavings: row.total_project_savings || 0,
-                totalLiabilities: (row.total_member_savings || 0) + (row.total_project_savings || 0)
+                escrowDeposits: row.total_escrow_deposits || 0,
+                totalLiabilities: (row.total_member_savings || 0) + (row.total_project_savings || 0) + (row.total_escrow_deposits || 0)
             },
             equity: {
+                partnerCapital: row.total_partner_capital || 0,
                 retainedEarnings: row.retained_earnings || 0,
-                totalEquity: row.retained_earnings || 0
+                totalEquity: (row.total_partner_capital || 0) + (row.retained_earnings || 0)
             }
         };
         // Verify A = L + E integrity (Gap analysis)
@@ -5052,7 +5788,7 @@ app.get('/api/reports/financial/income-statement', authenticateToken, isAdmin, (
 });
 
 // 3. Daily Cash Flow (Reconciliation Support)
-app.get('/api/reports/financial/daily-cash-flow', (req, res) => {
+app.get('/api/reports/financial/daily-cash-flow', authenticateToken, (req, res) => {
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     // Better Query
@@ -5086,6 +5822,170 @@ app.get('/api/reports/financial/daily-cash-flow', (req, res) => {
             netFlow: ((row.savings_in || 0) + (row.loan_repayment_in || 0)) - ((row.withdrawals_out || 0) + (row.loans_out || 0))
         };
         res.json(flow);
+    });
+});
+
+
+// ──────────────────────────────────────────────────────────────
+// PDF EXPORT ROUTES (uses pdfkit)
+// ──────────────────────────────────────────────────────────────
+const PDFDocument = require('pdfkit');
+
+// 4a. Balance Sheet PDF
+app.get('/api/reports/financial/balance-sheet/pdf', authenticateToken, isAdmin, (req, res) => {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    const query = `
+        SELECT
+            COALESCE(SUM(savings_amount), 0)     AS total_member_savings,
+            COALESCE(SUM(stl_repayment), 0)      AS total_stl_repayments,
+            COALESCE(SUM(ltl_repayment), 0)      AS total_ltl_repayments,
+            COALESCE(SUM(loans_issued), 0)        AS total_loans_issued
+        FROM transactions WHERE date(created_at) <= ?
+    `;
+
+    db.get(query, [date], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const doc = new PDFDocument({ margin: 50 });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="balance_sheet_${date}.pdf"`);
+        doc.pipe(res);
+
+        doc.fontSize(18).font('Helvetica-Bold').text('Statement of Financial Position', { align: 'center' });
+        doc.fontSize(11).font('Helvetica').text(`As at ${date}`, { align: 'center' });
+        doc.moveDown(1.5);
+
+        const totalSavings = row ? row.total_member_savings || 0 : 0;
+        const loansIssued = row ? row.total_loans_issued || 0 : 0;
+
+        const addRow = (label, value) => {
+            doc.font('Helvetica').fontSize(11)
+                .text(label, 50, doc.y, { continued: true })
+                .font('Helvetica-Bold').text(`KES ${value.toLocaleString()}`, { align: 'right' });
+            doc.moveDown(0.4);
+        };
+
+        doc.font('Helvetica-Bold').fontSize(13).text('ASSETS');
+        doc.moveDown(0.3);
+        addRow('Loan Portfolio (Outstanding)', loansIssued);
+        addRow('Member Savings (Cash/Bank)', totalSavings);
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(13).text('LIABILITIES & EQUITY');
+        doc.moveDown(0.3);
+        addRow('Member Savings (Liability)', totalSavings);
+        addRow('Retained Earnings (Equity)', Math.max(0, totalSavings - loansIssued));
+        doc.moveDown(1);
+        doc.fontSize(9).font('Helvetica').fillColor('grey')
+            .text('Generated by Ukombozini TBMS', { align: 'center' });
+
+        doc.end();
+    });
+});
+
+// 4b. Income Statement PDF
+app.get('/api/reports/financial/income-statement/pdf', authenticateToken, isAdmin, (req, res) => {
+    const start = req.query.startDate || `${new Date().getFullYear()}-01-01`;
+    const end = req.query.endDate || new Date().toISOString().split('T')[0];
+
+    const query = `
+        SELECT
+            COALESCE(SUM(loan_interest), 0) AS interest_income,
+            COALESCE(SUM(fines), 0)         AS fee_income
+        FROM transactions WHERE created_at BETWEEN ? AND ?
+    `;
+
+    db.get(query, [start, end], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const doc = new PDFDocument({ margin: 50 });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="income_statement_${start}_to_${end}.pdf"`);
+        doc.pipe(res);
+
+        doc.fontSize(18).font('Helvetica-Bold').text('Income Statement', { align: 'center' });
+        doc.fontSize(11).font('Helvetica').text(`Period: ${start} to ${end}`, { align: 'center' });
+        doc.moveDown(1.5);
+
+        const interest = row ? row.interest_income || 0 : 0;
+        const fees = row ? row.fee_income || 0 : 0;
+        const total = interest + fees;
+
+        doc.font('Helvetica-Bold').fontSize(13).text('INCOME');
+        doc.moveDown(0.3);
+        const addRow = (label, value) => {
+            doc.font('Helvetica').fontSize(11)
+                .text(label, 50, doc.y, { continued: true })
+                .font('Helvetica-Bold').text(`KES ${value.toLocaleString()}`, { align: 'right' });
+            doc.moveDown(0.4);
+        };
+        addRow('Loan Interest Income', interest);
+        addRow('Fees & Fines', fees);
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(13).text(`NET SURPLUS: KES ${total.toLocaleString()}`);
+        doc.moveDown(1);
+        doc.fontSize(9).font('Helvetica').fillColor('grey')
+            .text('Generated by Ukombozini TBMS', { align: 'center' });
+
+        doc.end();
+    });
+});
+
+// 4c. Cash Flow PDF
+app.get('/api/reports/financial/cash-flow/pdf', authenticateToken, (req, res) => {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    const query = `
+        SELECT
+            COALESCE(SUM(savings_amount), 0)                             AS savings_in,
+            COALESCE(SUM(stl_repayment + ltl_repayment + loan_interest + fines), 0) AS repayments_in,
+            COALESCE(SUM(withdrawals), 0)                                AS withdrawals_out,
+            COALESCE(SUM(loans_issued), 0)                               AS loans_out
+        FROM transactions WHERE date(created_at) = date(?)
+    `;
+
+    db.get(query, [date], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const doc = new PDFDocument({ margin: 50 });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="cash_flow_${date}.pdf"`);
+        doc.pipe(res);
+
+        doc.fontSize(18).font('Helvetica-Bold').text('Statement of Cash Flows', { align: 'center' });
+        doc.fontSize(11).font('Helvetica').text(`Date: ${date}`, { align: 'center' });
+        doc.moveDown(1.5);
+
+        const savIn = row ? row.savings_in || 0 : 0;
+        const repIn = row ? row.repayments_in || 0 : 0;
+        const wdOut = row ? row.withdrawals_out || 0 : 0;
+        const lnOut = row ? row.loans_out || 0 : 0;
+        const net = (savIn + repIn) - (wdOut + lnOut);
+
+        const addRow = (label, value, color) => {
+            doc.font('Helvetica').fontSize(11).fillColor(color || 'black')
+                .text(label, 50, doc.y, { continued: true })
+                .font('Helvetica-Bold').text(`KES ${value.toLocaleString()}`, { align: 'right' });
+            doc.moveDown(0.4);
+        };
+
+        doc.font('Helvetica-Bold').fillColor('black').fontSize(13).text('CASH INFLOWS');
+        doc.moveDown(0.3);
+        addRow('Member Savings', savIn, '#15803d');
+        addRow('Loan Repayments', repIn, '#15803d');
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(13).text('CASH OUTFLOWS');
+        doc.moveDown(0.3);
+        addRow('Withdrawals', wdOut, '#dc2626');
+        addRow('Loans Issued', lnOut, '#dc2626');
+        doc.moveDown(0.8);
+        doc.font('Helvetica-Bold').fontSize(14).fillColor(net >= 0 ? '#15803d' : '#dc2626')
+            .text(`NET FLOW: KES ${net >= 0 ? '+' : ''}${net.toLocaleString()}`, { align: 'right' });
+        doc.moveDown(1);
+        doc.fontSize(9).font('Helvetica').fillColor('grey')
+            .text('Generated by Ukombozini TBMS', { align: 'center' });
+
+        doc.end();
     });
 });
 
@@ -5973,7 +6873,8 @@ app.get('/api/withdrawals/history/:memberId', authenticateToken, (req, res) => {
 // 📄 MEMBER STATEMENT GENERATION ENGINE
 // ============================================================================
 
-const PDFDocument = require('pdfkit');
+// Redundant PDFDocument declaration removed (already declared at line 5633)
+
 const ExcelJS = require('exceljs');
 const fsSync = require('fs');
 
@@ -7688,6 +8589,120 @@ app.post('/api/reconciliation/:id/resolve', authenticateToken, (req, res) => {
     });
 });
 
+// GET /api/reconciliation/daily-flow/:date - Aggregate across all groups for a date
+app.get('/api/reconciliation/daily-flow/:date', authenticateToken, async (req, res) => {
+    const { date } = req.params;
+
+    try {
+        // 1. Get total cash in/out from transactions for this day
+        const totals = await new Promise((resolve, reject) => {
+            db.get(`
+                SELECT 
+                    COALESCE(SUM(savings_amount + welfare + project + fines + stl_repayment + ltl_repayment + loan_interest), 0) as total_in,
+                    COALESCE(SUM(withdrawals + loans_issued), 0) as total_out
+                FROM transactions
+                WHERE date(created_at) = date(?) AND status = 'COMPLETED'
+            `, [date], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        // 2. Get breakdown by meeting session
+        const breakdown = await new Promise((resolve, reject) => {
+            db.all(`
+                SELECT 
+                    ms.session_number, 
+                    g.name as group_name,
+                    SUM(t.savings_amount + t.welfare + t.project + t.fines + t.stl_repayment + t.ltl_repayment + t.loan_interest) - SUM(t.withdrawals + t.loans_issued) as net_collected,
+                    COUNT(DISTINCT t.memberId) as members_active
+                FROM meeting_sessions ms
+                JOIN groups g ON ms.groupId = g.id
+                LEFT JOIN transactions t ON t.sessionId = ms.id
+                WHERE date(ms.date) = date(?)
+                GROUP BY ms.id
+            `, [date], (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            });
+        });
+
+        res.json({
+            cashIn: {
+                total: totals.total_in,
+                net: totals.total_in - totals.total_out
+            },
+            cashOut: {
+                total: totals.total_out
+            },
+            breakdown: breakdown.map(b => ({
+                session_number: b.session_number,
+                group_name: b.group_name,
+                total_collected: b.net_collected,
+                members_present: b.members_active
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/reconciliations - List all reconciliations (History)
+app.get('/api/reconciliations', authenticateToken, (req, res) => {
+    db.all(`
+        SELECT r.*, o.name as officer_name 
+        FROM reconciliations r
+        LEFT JOIN officers o ON r.reconciled_by = o.id
+        ORDER BY r.created_at DESC
+    `, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// POST /api/reconciliations - Global Daily Reconciliation
+app.post('/api/reconciliations', authenticateToken, async (req, res) => {
+    const {
+        reconciliation_date, expected_cash, declared_physical_cash,
+        declared_mobile_money, banked_amount, variance, variance_type,
+        variance_explanation, officer_notes
+    } = req.body;
+
+    const officerId = req.user.id;
+    const totalDeclared = (parseFloat(declared_physical_cash) || 0) +
+        (parseFloat(declared_mobile_money) || 0) +
+        (parseFloat(banked_amount) || 0);
+
+    const reconciliationRef = `REC-${reconciliation_date.replace(/-/g, '')}-${Date.now()}`;
+    const status = variance === 0 ? 'BALANCED' : 'VARIANCE_FLAGGED';
+
+    db.run(`
+        INSERT INTO reconciliations (
+            session_id, reconciliation_ref, reconciliation_date,
+            ledger_balance, physical_cash, mobile_money, banked_amount,
+            total_declared, variance, status, variance_explanation,
+            notes, reconciled_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+        0, reconciliationRef, reconciliation_date,
+        expected_cash, declared_physical_cash, declared_mobile_money, banked_amount,
+        totalDeclared, variance, status, variance_explanation,
+        officer_notes, officerId, new Date().toISOString()
+    ], function (err) {
+        if (err) {
+            // Check if we need to add columns to reconciliations table
+            if (err.message.includes('no such column')) {
+                // This is a quick fix for a dynamic schema need
+                return res.status(500).json({ error: "Reconciliation table schema needs update", details: err.message });
+            }
+            return res.status(500).json({ error: err.message });
+        }
+
+        logAudit(`Daily Reconciliation: ${status}`, 'finance', { ref: reconciliationRef, variance });
+        res.json({ success: true, id: this.lastID, reference: reconciliationRef });
+    });
+});
+
 // GET /api/reconciliation/dashboard - Director reconciliation dashboard
 app.get('/api/reconciliation/dashboard', authenticateToken, (req, res) => {
     // Get all groups with their latest reconciliation status
@@ -7788,7 +8803,156 @@ app.get('/api/allocation/history', authenticateToken, async (req, res) => {
     }
 });
 
+
+// ==========================================
+// 🔐 OFFICER MANAGEMENT API (Admin)
+// ==========================================
+
+// GET /api/officers - List all officers
+app.get('/api/officers', authenticateToken, (req, res) => {
+    db.all(`
+        SELECT o.id, o.name, o.email, o.phone, o.role, o.status, o.created_at,
+               GROUP_CONCAT(g.name, ', ') as assigned_groups_names,
+               GROUP_CONCAT(g.id) as assigned_group_ids
+        FROM officers o
+        LEFT JOIN officer_groups og ON o.id = og.officer_id
+        LEFT JOIN groups g ON og.group_id = g.id
+        GROUP BY o.id
+        ORDER BY o.name ASC
+    `, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const officers = (rows || []).map(o => ({
+            ...o,
+            assignedGroups: o.assigned_group_ids
+                ? o.assigned_group_ids.split(',').map((id, i) => ({
+                    id: parseInt(id),
+                    name: (o.assigned_groups_names || '').split(', ')[i] || ''
+                }))
+                : []
+        }));
+        res.json(officers);
+    });
+});
+
+// POST /api/officers - Create new officer
+app.post('/api/officers', authenticateToken, isAdmin, async (req, res) => {
+    const { name, email, phone, role, status, password } = req.body;
+    if (!name || !email || !password) {
+        return res.status(400).json({ error: 'Name, email and password are required.' });
+    }
+    try {
+        const passwordHash = await bcrypt.hash(password, 10);
+        const stmt = db.prepare(`
+            INSERT INTO officers (name, email, phone, role, status, password_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
+        stmt.run(name, email, phone || null, role || 'field_officer', status || 'active', passwordHash, function (err) {
+            if (err) {
+                if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Email already registered.' });
+                return res.status(500).json({ error: err.message });
+            }
+            logAudit(`Officer Created: ${name}`, 'admin', { id: this.lastID, email, role });
+            res.json({ success: true, id: this.lastID, message: 'Staff account created.' });
+        });
+        stmt.finalize();
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PUT /api/officers/:id - Update officer profile
+app.put('/api/officers/:id', authenticateToken, isAdmin, (req, res) => {
+    const { id } = req.params;
+    const { name, email, phone, role, status } = req.body;
+    db.run(
+        `UPDATE officers SET name=?, email=?, phone=?, role=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+        [name, email, phone, role, status, id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            logAudit(`Officer Updated: ${id}`, 'admin', { id, name, role });
+            res.json({ success: true, message: 'Profile updated.' });
+        }
+    );
+});
+
+// DELETE /api/officers/:id - Remove officer
+app.delete('/api/officers/:id', authenticateToken, isAdmin, (req, res) => {
+    const { id } = req.params;
+    db.run(`DELETE FROM officers WHERE id = ?`, [id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Officer not found.' });
+        logAudit(`Officer Deleted: ${id}`, 'admin', { id });
+        res.json({ success: true, message: 'Staff member removed.' });
+    });
+});
+
+// POST /api/officers/:id/reset-password - Reset officer password (Admin only)
+app.post('/api/officers/:id/reset-password', authenticateToken, isAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    }
+    try {
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+        db.run(
+            `UPDATE officers SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [passwordHash, id],
+            function (err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Officer not found.' });
+                logAudit(`Password Reset: Officer ${id}`, 'security', { id }, req.user.id, req.user.name, req);
+                res.json({ success: true, message: 'Password reset successfully.' });
+            }
+        );
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/officers/:id/groups - Allocate groups to an officer
+app.post('/api/officers/:id/groups', authenticateToken, isAdmin, (req, res) => {
+    const { id: officerId } = req.params;
+    const { groupIds } = req.body;
+
+    if (!Array.isArray(groupIds)) {
+        return res.status(400).json({ error: 'groupIds must be an array.' });
+    }
+
+    db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+        db.run(`DELETE FROM officer_groups WHERE officer_id = ?`, [officerId], (err) => {
+            if (err) { db.run('ROLLBACK'); return res.status(500).json({ error: err.message }); }
+
+            if (groupIds.length === 0) {
+                db.run('COMMIT');
+                return res.json({ success: true, message: 'All groups unallocated.' });
+            }
+
+            const insertStmt = db.prepare(`INSERT OR IGNORE INTO officer_groups (officer_id, group_id) VALUES (?, ?)`);
+            let insertErrors = false;
+
+            groupIds.forEach(gId => {
+                insertStmt.run(officerId, gId, (err) => {
+                    if (err) insertErrors = true;
+                });
+            });
+
+            insertStmt.finalize((err) => {
+                if (err || insertErrors) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: 'Failed to save group allocations.' });
+                }
+                db.run('COMMIT');
+                logAudit(`Groups Allocated to Officer ${officerId}`, 'admin', { officerId, groupIds });
+                res.json({ success: true, message: `${groupIds.length} group(s) allocated.` });
+            });
+        });
+    });
+});
+
 // Start Server
+
 // Start Server with Async Init
 const startServer = async () => {
     try {
@@ -7809,6 +8973,7 @@ const startServer = async () => {
         await initLedgerSchema(db);
         await initAllocationSchema(db);
         await initMatrixSchema(db);
+        await initViews(db);
         await initCashControl();
         await initApprovalSchema(db);
 
